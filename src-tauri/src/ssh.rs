@@ -62,8 +62,12 @@ pub async fn connect(
     cols: u32,
     rows: u32,
 ) -> Result<String, String> {
+    // 대화형 셸은 오래 유휴 상태일 수 있으므로 inactivity 타임아웃으로 끊지 않는다.
+    // 대신 keepalive로 죽은 연결(피어 무응답)을 감지해 정리한다.
     let config = Arc::new(Config {
-        inactivity_timeout: Some(Duration::from_secs(3600)),
+        inactivity_timeout: None,
+        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_max: 3,
         ..Default::default()
     });
 
