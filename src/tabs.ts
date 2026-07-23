@@ -14,7 +14,15 @@ import {
   onSshClosed,
 } from "./ipc";
 
-type PromptPassword = (s: SessionInfo) => Promise<string | null>;
+/** 자격증명 해결·저장 정책. 볼트 연동은 main.ts 가 구현(탭은 UI-비종속). */
+export interface CredentialProvider {
+  /** 접속에 쓸 비밀번호 결정(저장분 우선, 없으면 프롬프트). null = 취소. */
+  resolve(session: SessionInfo): Promise<string | null>;
+  /** 접속 성공 후: 저장 정책에 따라 보관. */
+  onConnected(session: SessionInfo, password: string): Promise<void>;
+  /** 접속 실패 후: 필요 시 저장분 폐기 등. */
+  onError(session: SessionInfo, error: string): Promise<void>;
+}
 
 const TERM_THEME = {
   background: "#1e1e1e",
@@ -136,7 +144,7 @@ export class TabManager {
     private readonly tabbar: HTMLElement,
     private readonly panes: HTMLElement,
     private readonly emptyState: HTMLElement,
-    private readonly promptPassword: PromptPassword,
+    private readonly credentials: CredentialProvider,
     private readonly confirmClose: (name: string) => Promise<boolean>,
   ) {
     void onSshData((e) => this.byLiveId.get(e.id)?.writeBytes(e.data));
@@ -153,7 +161,7 @@ export class TabManager {
 
   /** 저장 세션(또는 임시 세션)으로 새 탭을 열고 접속한다. */
   async openSession(session: SessionInfo): Promise<void> {
-    const pw = await this.promptPassword(session);
+    const pw = await this.credentials.resolve(session);
     if (pw === null) return; // 취소
 
     const tab = new TerminalTab(
@@ -173,7 +181,7 @@ export class TabManager {
   }
 
   private async reconnect(tab: TerminalTab): Promise<void> {
-    const pw = await this.promptPassword(tab.session);
+    const pw = await this.credentials.resolve(tab.session);
     if (pw === null) return;
     this.activate(tab);
     await this.doConnect(tab, pw);
@@ -195,8 +203,11 @@ export class TabManager {
       tab.setConnected(liveId);
       this.byLiveId.set(liveId, tab);
       tab.focus();
+      void this.credentials.onConnected(tab.session, password);
     } catch (e) {
-      tab.setDisconnected(`접속 실패: ${String(e)}`, () => void this.reconnect(tab));
+      const msg = `접속 실패: ${String(e)}`;
+      void this.credentials.onError(tab.session, String(e));
+      tab.setDisconnected(msg, () => void this.reconnect(tab));
     }
     this.renderTabbar();
   }

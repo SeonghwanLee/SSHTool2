@@ -64,6 +64,15 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
       folder.value = initial.folder;
       folder.placeholder = "폴더 (선택, 예: 운영/DB)";
 
+      const saveRow = document.createElement("label");
+      saveRow.className = "check-row";
+      const savePw = document.createElement("input");
+      savePw.type = "checkbox";
+      savePw.checked = initial.savePassword;
+      const saveText = document.createElement("span");
+      saveText.textContent = "접속 성공 시 비밀번호 저장 (볼트에 암호화)";
+      saveRow.append(savePw, saveText);
+
       const err = document.createElement("div");
       err.className = "modal-err";
 
@@ -90,6 +99,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         field("포트", port),
         field("사용자", user),
         field("폴더", folder),
+        saveRow,
         err,
         buttons,
       );
@@ -110,6 +120,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           port: p,
           user: u,
           folder: folder.value.trim(),
+          savePassword: savePw.checked,
         };
         close();
         resolve(result);
@@ -155,6 +166,50 @@ export function passwordPrompt(session: SessionInfo): Promise<string | null> {
       card.addEventListener("submit", (e) => {
         e.preventDefault();
         const v = pass.value;
+        close();
+        resolve(v);
+      });
+      setTimeout(() => pass.focus(), 0);
+      return card;
+    });
+  });
+}
+
+/** 마스터 비밀번호 입력(볼트 생성/잠금해제 공용). 확인=문자열, 취소=null. */
+export function masterPrompt(title: string, subtitle: string, okText = "확인"): Promise<string | null> {
+  return new Promise((resolve) => {
+    openModal((close) => {
+      const card = document.createElement("form");
+      const h = document.createElement("h3");
+      h.textContent = title;
+      const sub = document.createElement("div");
+      sub.className = "modal-sub";
+      sub.textContent = subtitle;
+
+      const pass = document.createElement("input");
+      pass.type = "password";
+      pass.placeholder = "마스터 비밀번호";
+
+      const buttons = document.createElement("div");
+      buttons.className = "modal-buttons";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "취소";
+      cancel.addEventListener("click", () => {
+        close();
+        resolve(null);
+      });
+      const ok = document.createElement("button");
+      ok.type = "submit";
+      ok.className = "btn-accent";
+      ok.textContent = okText;
+      buttons.append(cancel, ok);
+
+      card.append(h, sub, field("마스터", pass), buttons);
+      card.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = pass.value;
+        if (!v) return; // 빈 마스터는 허용하지 않음
         close();
         resolve(v);
       });

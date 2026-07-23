@@ -34,6 +34,25 @@ export const sessionsLoad = (): Promise<SessionInfo[]> =>
 export const sessionsSave = (sessions: SessionInfo[]): Promise<void> =>
   invoke("sessions_save", { sessions });
 
+// ── 볼트(자격증명) ────────────────────────────────────────────────────────────
+
+export interface VaultStatus {
+  exists: boolean;
+  unlocked: boolean;
+}
+
+export const vaultStatus = (): Promise<VaultStatus> => invoke<VaultStatus>("vault_status");
+export const vaultInit = (master: string): Promise<void> => invoke("vault_init", { master });
+export const vaultUnlock = (master: string): Promise<boolean> =>
+  invoke<boolean>("vault_unlock", { master });
+export const vaultLock = (): Promise<void> => invoke("vault_lock");
+export const vaultSetPassword = (sessionId: string, password: string): Promise<void> =>
+  invoke("vault_set_password", { sessionId, password });
+export const vaultGetPassword = (sessionId: string): Promise<string | null> =>
+  invoke<string | null>("vault_get_password", { sessionId });
+export const vaultDeletePassword = (sessionId: string): Promise<void> =>
+  invoke("vault_delete_password", { sessionId });
+
 // ── 이벤트 ────────────────────────────────────────────────────────────────────
 
 export interface DataEvent {
