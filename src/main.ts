@@ -140,6 +140,8 @@ async function main(): Promise<void> {
     $("quick-connect"),
   );
 
+  wireCommandBar(tabs);
+
   try {
     sessions = await sessionsLoad();
   } catch (e) {
@@ -149,6 +151,45 @@ async function main(): Promise<void> {
   sidebar.render(sessions);
 
   void checkForUpdates();
+}
+
+/** 동시 명령 창: 접속된 모든 세션(또는 활성 탭)에 명령 한 줄을 동시에 전송. */
+function wireCommandBar(tabs: TabManager): void {
+  const bar = $("cmdbar");
+  const toggle = $("cmd-toggle");
+  const input = $<HTMLInputElement>("cmd-input");
+  const all = $<HTMLInputElement>("cmd-all");
+  const send = $("cmd-send");
+  const status = $("cmd-status");
+
+  toggle.addEventListener("click", () => {
+    bar.classList.toggle("hidden");
+    toggle.classList.toggle("active", !bar.classList.contains("hidden"));
+    if (!bar.classList.contains("hidden")) input.focus();
+  });
+
+  const run = () => {
+    const line = input.value;
+    if (!line) return;
+    const bytes = new TextEncoder().encode(line + "\n");
+    if (all.checked) {
+      const n = tabs.broadcast(bytes);
+      status.textContent = n > 0 ? `${n}개 세션 전송` : "접속된 세션 없음";
+    } else {
+      const ok = tabs.sendActive(bytes);
+      status.textContent = ok ? "활성 세션 전송" : "활성 세션 없음";
+    }
+    input.value = "";
+    input.focus();
+  };
+
+  send.addEventListener("click", run);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      run();
+    }
+  });
 }
 
 async function checkForUpdates(): Promise<void> {

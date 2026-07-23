@@ -180,6 +180,33 @@ export class TabManager {
     await this.doConnect(tab, pw);
   }
 
+  /** 접속된 모든 세션에 바이트 전송(동시 명령). 전송한 세션 수 반환. */
+  broadcast(data: Uint8Array): number {
+    let n = 0;
+    for (const t of this.tabs) {
+      if (t.liveId) {
+        void sshWrite(t.liveId, data);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /** 활성 탭에만 전송. 전송 여부 반환. */
+  sendActive(data: Uint8Array): boolean {
+    const t = this.active;
+    if (t?.liveId) {
+      void sshWrite(t.liveId, data);
+      return true;
+    }
+    return false;
+  }
+
+  /** 현재 접속 상태(connected)인 탭 수. */
+  connectedCount(): number {
+    return this.tabs.filter((t) => t.liveId).length;
+  }
+
   private async reconnect(tab: TerminalTab): Promise<void> {
     const pw = await this.credentials.resolve(tab.session);
     if (pw === null) return;

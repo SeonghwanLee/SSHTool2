@@ -19,7 +19,10 @@
         <div id="session-tree"></div>
       </aside>
       <main id="workspace">
-        <div id="tabbar"></div>
+        <div id="workbar">
+          <div id="tabbar"></div>
+          <button id="cmd-toggle" title="동시 명령 창 (접속된 모든 세션에 전송)">⌨</button>
+        </div>
         <div id="term-area">
           <div id="panes"></div>
           <div id="empty-state">
@@ -28,6 +31,16 @@
               <div>좌측에서 세션을 선택해 접속하세요</div>
             </div>
           </div>
+        </div>
+        <div id="cmdbar" class="hidden">
+          <span class="cmd-label">동시 명령</span>
+          <input id="cmd-input" placeholder="명령 입력 후 Enter — 접속된 세션에 동시 전송" />
+          <label class="cmd-target">
+            <input type="checkbox" id="cmd-all" checked />
+            <span>전체 세션</span>
+          </label>
+          <button id="cmd-send" class="btn-accent">전송</button>
+          <span id="cmd-status"></span>
         </div>
       </main>
     </div>
