@@ -16,6 +16,7 @@ import {
 import { TabManager, type CredentialProvider } from "./tabs";
 import { Sidebar } from "./sidebar";
 import { sessionDialog, passwordPrompt, masterPrompt, confirmDialog } from "./dialogs";
+import { openSftpBrowser } from "./sftpui";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -121,6 +122,12 @@ async function main(): Promise<void> {
           /* 무시 */
         }
         sidebar.render(sessions);
+      },
+      onSftp: async (s) => {
+        // SFTP 는 셸과 별개의 연결이라 비밀번호가 필요 — 저장분 우선, 없으면 프롬프트.
+        const pw = await credentials.resolve(s);
+        if (pw === null) return;
+        await openSftpBrowser(s, pw);
       },
       onNew: async () => {
         const created = await sessionDialog(blankSession(), "새 세션");

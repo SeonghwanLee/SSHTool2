@@ -219,6 +219,47 @@ export function masterPrompt(title: string, subtitle: string, okText = "확인")
   });
 }
 
+/** 한 줄 텍스트 입력(폴더 만들기·이름 변경 등). 확인=문자열, 취소/빈값=null. */
+export function textPrompt(title: string, initial = "", okText = "확인"): Promise<string | null> {
+  return new Promise((resolve) => {
+    openModal((close) => {
+      const card = document.createElement("form");
+      const h = document.createElement("h3");
+      h.textContent = title;
+      const input = document.createElement("input");
+      input.value = initial;
+
+      const buttons = document.createElement("div");
+      buttons.className = "modal-buttons";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "취소";
+      cancel.addEventListener("click", () => {
+        close();
+        resolve(null);
+      });
+      const ok = document.createElement("button");
+      ok.type = "submit";
+      ok.className = "btn-accent";
+      ok.textContent = okText;
+      buttons.append(cancel, ok);
+
+      card.append(h, field("", input), buttons);
+      card.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = input.value.trim();
+        close();
+        resolve(v || null);
+      });
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 0);
+      return card;
+    });
+  });
+}
+
 /** 예/아니오 확인. */
 export function confirmDialog(message: string): Promise<boolean> {
   return new Promise((resolve) => {

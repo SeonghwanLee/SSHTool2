@@ -53,6 +53,43 @@ export const vaultGetPassword = (sessionId: string): Promise<string | null> =>
 export const vaultDeletePassword = (sessionId: string): Promise<void> =>
   invoke("vault_delete_password", { sessionId });
 
+// ── SFTP ──────────────────────────────────────────────────────────────────────
+
+export interface SftpEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modified: number;
+}
+
+export const sftpConnect = (
+  host: string,
+  port: number,
+  user: string,
+  password: string,
+): Promise<string> => invoke<string>("sftp_connect", { host, port, user, password });
+
+export const sftpList = (id: string, path: string): Promise<SftpEntry[]> =>
+  invoke<SftpEntry[]>("sftp_list", { id, path });
+
+export const sftpDownload = (id: string, remotePath: string, localPath: string): Promise<void> =>
+  invoke("sftp_download", { id, remotePath, localPath });
+
+export const sftpUpload = (id: string, localPath: string, remotePath: string): Promise<void> =>
+  invoke("sftp_upload", { id, localPath, remotePath });
+
+export const sftpMkdir = (id: string, path: string): Promise<void> =>
+  invoke("sftp_mkdir", { id, path });
+
+export const sftpRemove = (id: string, path: string, isDir: boolean): Promise<void> =>
+  invoke("sftp_remove", { id, path, isDir });
+
+export const sftpRename = (id: string, from: string, to: string): Promise<void> =>
+  invoke("sftp_rename", { id, from, to });
+
+export const sftpDisconnect = (id: string): Promise<void> => invoke("sftp_disconnect", { id });
+
 // ── 이벤트 ────────────────────────────────────────────────────────────────────
 
 export interface DataEvent {

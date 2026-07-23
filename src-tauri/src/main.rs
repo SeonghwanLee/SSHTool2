@@ -1,10 +1,12 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod sftp;
 mod ssh;
 mod store;
 mod vault;
 
+use sftp::SftpMap;
 use ssh::SessionMap;
 use tauri::{AppHandle, State};
 use vault::VaultState;
@@ -91,12 +93,84 @@ fn vault_delete_password(app: AppHandle, session_id: String) -> Result<(), Strin
     vault::delete_password(&app, &session_id)
 }
 
+#[tauri::command]
+async fn sftp_connect(
+    app: AppHandle,
+    host: String,
+    port: u16,
+    user: String,
+    password: String,
+) -> Result<String, String> {
+    sftp::connect(app, host, port, user, password).await
+}
+
+#[tauri::command]
+async fn sftp_list(
+    state: State<'_, SftpMap>,
+    id: String,
+    path: String,
+) -> Result<Vec<sftp::SftpEntry>, String> {
+    sftp::list(&state, &id, &path).await
+}
+
+#[tauri::command]
+async fn sftp_download(
+    state: State<'_, SftpMap>,
+    id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<(), String> {
+    sftp::download(&state, &id, remote_path, local_path).await
+}
+
+#[tauri::command]
+async fn sftp_upload(
+    state: State<'_, SftpMap>,
+    id: String,
+    local_path: String,
+    remote_path: String,
+) -> Result<(), String> {
+    sftp::upload(&state, &id, local_path, remote_path).await
+}
+
+#[tauri::command]
+async fn sftp_mkdir(state: State<'_, SftpMap>, id: String, path: String) -> Result<(), String> {
+    sftp::mkdir(&state, &id, path).await
+}
+
+#[tauri::command]
+async fn sftp_remove(
+    state: State<'_, SftpMap>,
+    id: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    sftp::remove(&state, &id, path, is_dir).await
+}
+
+#[tauri::command]
+async fn sftp_rename(
+    state: State<'_, SftpMap>,
+    id: String,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    sftp::rename(&state, &id, from, to).await
+}
+
+#[tauri::command]
+fn sftp_disconnect(state: State<'_, SftpMap>, id: String) {
+    sftp::disconnect(state, &id);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(SessionMap::default())
         .manage(VaultState::default())
+        .manage(SftpMap::default())
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_write,
@@ -110,7 +184,15 @@ fn main() {
             vault_lock,
             vault_set_password,
             vault_get_password,
-            vault_delete_password
+            vault_delete_password,
+            sftp_connect,
+            sftp_list,
+            sftp_download,
+            sftp_upload,
+            sftp_mkdir,
+            sftp_remove,
+            sftp_rename,
+            sftp_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("error while running SSHTool2");

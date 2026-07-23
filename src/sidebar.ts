@@ -6,6 +6,7 @@ interface SidebarCallbacks {
   onOpen: (s: SessionInfo) => void;
   onEdit: (s: SessionInfo) => void;
   onDelete: (s: SessionInfo) => void;
+  onSftp: (s: SessionInfo) => void;
   onNew: () => void;
   onQuick: () => void;
 }
@@ -117,6 +118,14 @@ export class Sidebar {
 
     const actions = document.createElement("div");
     actions.className = "tree-actions";
+    const sftp = document.createElement("button");
+    sftp.className = "tree-act";
+    sftp.title = "SFTP 파일 전송";
+    sftp.textContent = "📁";
+    sftp.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.cb.onSftp(s);
+    });
     const edit = document.createElement("button");
     edit.className = "tree-act";
     edit.title = "편집";
@@ -133,7 +142,7 @@ export class Sidebar {
       e.stopPropagation();
       this.cb.onDelete(s);
     });
-    actions.append(edit, del);
+    actions.append(sftp, edit, del);
 
     row.append(icon, main, actions);
     row.addEventListener("dblclick", () => this.cb.onOpen(s));
