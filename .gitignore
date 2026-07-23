@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+*.log
+.DS_Store
+# 업데이터 개인키는 절대 커밋 금지 (GitHub Secret으로만)
+*.key
+updater-private-key*

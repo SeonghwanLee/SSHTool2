@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SSHTool2</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="bar">
+      <input id="host" placeholder="호스트" />
+      <input id="port" placeholder="22" value="22" />
+      <input id="user" placeholder="사용자" />
+      <input id="pass" type="password" placeholder="비밀번호" />
+      <button id="connect">접속</button>
+      <span id="status"></span>
+    </div>
+    <div id="term"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

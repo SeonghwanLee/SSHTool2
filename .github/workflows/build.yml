@@ -1,0 +1,56 @@
+name: build
+
+# 태그 vX.Y.Z push 시 Windows 러너에서 Tauri 앱 빌드 + 서명 + GitHub Release 생성.
+# tauri-action 이 업데이터용 서명 번들과 latest.json 매니페스트를 릴리스에 자동 업로드한다.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 릴리스 생성/에셋 업로드에 필요한 권한.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # WebView2 는 windows-latest 러너에 기본 포함되어 별도 설치 불필요.
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Rust 의존성 캐시(선택) — 빌드 시간 단축.
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Build, sign and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 업데이터 번들 서명용 개인키 + 암호(키에 암호 없음 → 빈 값).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # src-tauri 가 리포 루트에 위치.
+          projectPath: .
+          tagName: ${{ github.ref_name }}
+          releaseName: 'SSHTool2 ${{ github.ref_name }}'
+          releaseDraft: false
+          prerelease: false
+          # Windows NSIS 인스톨러 타겟. 서명된 .nsis.zip + latest.json 이 릴리스에 업로드됨.
+          args: --target x86_64-pc-windows-msvc --bundles nsis,updater
