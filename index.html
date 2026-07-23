@@ -7,15 +7,31 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="bar">
-      <input id="host" placeholder="호스트" />
-      <input id="port" placeholder="22" value="22" />
-      <input id="user" placeholder="사용자" />
-      <input id="pass" type="password" placeholder="비밀번호" />
-      <button id="connect">접속</button>
-      <span id="status"></span>
+    <div id="app">
+      <aside id="sidebar">
+        <div id="sidebar-head">
+          <span class="side-title">세션</span>
+          <div class="side-head-actions">
+            <button id="quick-connect" title="빠른 접속 (저장 안 함)">⚡</button>
+            <button id="new-session" title="새 세션">＋</button>
+          </div>
+        </div>
+        <div id="session-tree"></div>
+      </aside>
+      <main id="workspace">
+        <div id="tabbar"></div>
+        <div id="term-area">
+          <div id="panes"></div>
+          <div id="empty-state">
+            <div class="empty-inner">
+              <div class="empty-glyph">&gt;_</div>
+              <div>좌측에서 세션을 선택해 접속하세요</div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
-    <div id="term"></div>
+    <div id="modal-root"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

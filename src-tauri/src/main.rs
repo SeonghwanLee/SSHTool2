@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ssh;
+mod store;
 
 use ssh::SessionMap;
 use tauri::AppHandle;
@@ -34,6 +35,16 @@ fn ssh_close(app: AppHandle, id: String) -> Result<(), String> {
     ssh::close(&app, &id)
 }
 
+#[tauri::command]
+fn sessions_load(app: AppHandle) -> Result<Vec<store::SessionInfo>, String> {
+    store::load(&app)
+}
+
+#[tauri::command]
+fn sessions_save(app: AppHandle, sessions: Vec<store::SessionInfo>) -> Result<(), String> {
+    store::save(&app, sessions)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -43,7 +54,9 @@ fn main() {
             ssh_connect,
             ssh_write,
             ssh_resize,
-            ssh_close
+            ssh_close,
+            sessions_load,
+            sessions_save
         ])
         .run(tauri::generate_context!())
         .expect("error while running SSHTool2");
