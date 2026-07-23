@@ -28,6 +28,7 @@ const newFolder = (name: string, path: string): FolderNode => ({
 export class Sidebar {
   private sessions: SessionInfo[] = [];
   private collapsed = new Set<string>();
+  private filter = "";
 
   constructor(
     private readonly tree: HTMLElement,
@@ -39,11 +40,28 @@ export class Sidebar {
     quickBtn.addEventListener("click", () => this.cb.onQuick());
   }
 
+  /** 외부 검색창에서 호출. 필터 중에는 매칭이 보이도록 폴더 접힘을 무시한다. */
+  setFilter(query: string): void {
+    this.filter = query.trim().toLowerCase();
+    this.render(this.sessions);
+  }
+
+  private matches(s: SessionInfo): boolean {
+    if (!this.filter) return true;
+    const q = this.filter;
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.host.toLowerCase().includes(q) ||
+      s.user.toLowerCase().includes(q)
+    );
+  }
+
   render(sessions: SessionInfo[]): void {
     this.sessions = sessions;
     const rootNode = newFolder("", "");
 
     for (const s of sessions) {
+      if (!this.matches(s)) continue;
       let node = rootNode;
       const path = s.folder.trim();
       if (path) {
@@ -71,7 +89,7 @@ export class Sidebar {
   private renderNode(node: FolderNode, parent: HTMLElement, depth: number): void {
     const folders = [...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
     for (const f of folders) {
-      const isCollapsed = this.collapsed.has(f.path);
+      const isCollapsed = !this.filter && this.collapsed.has(f.path);
       const row = document.createElement("div");
       row.className = "tree-folder";
       row.style.paddingLeft = `${8 + depth * 14}px`;
@@ -145,8 +163,13 @@ export class Sidebar {
     actions.append(sftp, edit, del);
 
     row.append(icon, main, actions);
+    // 더블클릭 = 접속(단일 클릭 중복·오접속 방지). 선택 하이라이트만 단일 클릭.
     row.addEventListener("dblclick", () => this.cb.onOpen(s));
-    row.addEventListener("click", () => this.cb.onOpen(s));
+    row.addEventListener("click", () => {
+      for (const el of this.tree.querySelectorAll(".tree-session.selected"))
+        el.classList.remove("selected");
+      row.classList.add("selected");
+    });
     return row;
   }
 }

@@ -8,26 +8,32 @@ const root = (): HTMLElement => {
   return el;
 };
 
-/** 오버레이 + 카드 골격을 만들고, 닫기 함수를 넘겨준다. */
-function openModal(build: (close: () => void) => HTMLElement): void {
+/**
+ * 오버레이 + 카드 골격을 만든다. build(close) 안의 버튼은 close() 로 닫고 자체 resolve 한다.
+ * Esc/바깥클릭으로 닫힐 때는 onDismiss 가 호출되므로 각 다이얼로그가 취소값(null/false)을
+ * resolve 해야 caller 가 무한 대기하지 않는다. keydown 리스너는 모든 경로에서 정리된다.
+ */
+function openModal(build: (close: () => void) => HTMLElement, onDismiss?: () => void): void {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
-  const close = () => overlay.remove();
+  const esc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") dismiss();
+  };
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", esc);
+  };
+  const dismiss = () => {
+    close();
+    onDismiss?.();
+  };
   const card = build(close);
   card.classList.add("modal-card");
   overlay.appendChild(card);
   overlay.addEventListener("mousedown", (e) => {
-    if (e.target === overlay) close(); // 바깥 클릭 = 취소
+    if (e.target === overlay) dismiss(); // 바깥 클릭 = 취소
   });
-  document.addEventListener(
-    "keydown",
-    function esc(e) {
-      if (e.key === "Escape") {
-        close();
-        document.removeEventListener("keydown", esc);
-      }
-    },
-  );
+  document.addEventListener("keydown", esc);
   root().appendChild(overlay);
 }
 
@@ -128,7 +134,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
 
       setTimeout(() => name.focus(), 0);
       return card;
-    });
+    }, () => resolve(null));
   });
 }
 
@@ -171,7 +177,7 @@ export function passwordPrompt(session: SessionInfo): Promise<string | null> {
       });
       setTimeout(() => pass.focus(), 0);
       return card;
-    });
+    }, () => resolve(null));
   });
 }
 
@@ -215,7 +221,7 @@ export function masterPrompt(title: string, subtitle: string, okText = "확인")
       });
       setTimeout(() => pass.focus(), 0);
       return card;
-    });
+    }, () => resolve(null));
   });
 }
 
@@ -256,7 +262,7 @@ export function textPrompt(title: string, initial = "", okText = "확인"): Prom
         input.select();
       }, 0);
       return card;
-    });
+    }, () => resolve(null));
   });
 }
 
@@ -289,6 +295,6 @@ export function confirmDialog(message: string): Promise<boolean> {
       card.append(msg, buttons);
       setTimeout(() => yes.focus(), 0);
       return card;
-    });
+    }, () => resolve(false));
   });
 }

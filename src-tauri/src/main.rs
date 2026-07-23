@@ -50,6 +50,16 @@ fn sessions_save(app: AppHandle, sessions: Vec<store::SessionInfo>) -> Result<()
 }
 
 #[tauri::command]
+fn settings_load(app: AppHandle) -> Result<serde_json::Value, String> {
+    store::load_settings(&app)
+}
+
+#[tauri::command]
+fn settings_save(app: AppHandle, value: serde_json::Value) -> Result<(), String> {
+    store::save_settings(&app, value)
+}
+
+#[tauri::command]
 fn vault_status(app: AppHandle, state: State<'_, VaultState>) -> Result<vault::VaultStatus, String> {
     vault::status(&app, &state)
 }

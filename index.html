@@ -14,7 +14,12 @@
           <div class="side-head-actions">
             <button id="quick-connect" title="빠른 접속 (저장 안 함)">⚡</button>
             <button id="new-session" title="새 세션">＋</button>
+            <button id="open-settings" title="설정">⚙</button>
           </div>
+        </div>
+        <div id="sidebar-search">
+          <input id="session-search" placeholder="세션 검색 (이름·호스트·계정)" />
+          <button id="session-search-clear" title="지우기">×</button>
         </div>
         <div id="session-tree"></div>
       </aside>
@@ -41,6 +46,14 @@
           </label>
           <button id="cmd-send" class="btn-accent">전송</button>
           <span id="cmd-status"></span>
+        </div>
+        <div id="statusbar">
+          <span id="st-session" class="st-left"></span>
+          <span class="st-right">
+            <span id="st-size"></span>
+            <span id="st-cursor"></span>
+            <span id="st-enc"></span>
+          </span>
         </div>
       </main>
     </div>

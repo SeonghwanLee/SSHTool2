@@ -34,6 +34,12 @@ export const sessionsLoad = (): Promise<SessionInfo[]> =>
 export const sessionsSave = (sessions: SessionInfo[]): Promise<void> =>
   invoke("sessions_save", { sessions });
 
+export const settingsLoad = (): Promise<Record<string, unknown>> =>
+  invoke<Record<string, unknown>>("settings_load");
+
+export const settingsSave = (value: unknown): Promise<void> =>
+  invoke("settings_save", { value });
+
 // ── 볼트(자격증명) ────────────────────────────────────────────────────────────
 
 export interface VaultStatus {

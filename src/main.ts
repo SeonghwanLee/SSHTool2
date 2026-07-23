@@ -13,10 +13,13 @@ import {
   vaultGetPassword,
   vaultDeletePassword,
 } from "./ipc";
-import { TabManager, type CredentialProvider } from "./tabs";
+import { TabManager, type CredentialProvider, type StatusInfo } from "./tabs";
 import { Sidebar } from "./sidebar";
 import { sessionDialog, passwordPrompt, masterPrompt, confirmDialog } from "./dialogs";
+import { settingsDialog } from "./settingsdialog";
 import { openSftpBrowser } from "./sftpui";
+import { loadSettings, saveSettings, type Settings } from "./settings";
+import { applyAppTheme, themeById } from "./themes";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -25,6 +28,7 @@ const $ = <T extends HTMLElement>(id: string): T => {
 };
 
 let sessions: SessionInfo[] = [];
+let settings: Settings;
 
 async function persist(): Promise<void> {
   await sessionsSave(sessions);
@@ -92,12 +96,18 @@ const credentials: CredentialProvider = {
 };
 
 async function main(): Promise<void> {
+  // 설정 로드 + 테마 즉시 적용(첫 페인트 전).
+  settings = await loadSettings();
+  applyAppTheme(themeById(settings.theme));
+
   const tabs = new TabManager(
     $("tabbar"),
     $("panes"),
     $("empty-state"),
     credentials,
     (name) => confirmDialog(`'${name}' 세션이 연결되어 있습니다. 닫을까요?`),
+    settings,
+    updateStatusBar,
   );
 
   const sidebar = new Sidebar(
@@ -148,6 +158,8 @@ async function main(): Promise<void> {
   );
 
   wireCommandBar(tabs);
+  wireSettings(tabs);
+  wireSidebarSearch(sidebar);
 
   try {
     sessions = await sessionsLoad();
@@ -158,6 +170,52 @@ async function main(): Promise<void> {
   sidebar.render(sessions);
 
   void checkForUpdates();
+}
+
+/** 설정 버튼(⚙): 다이얼로그에서 변경 즉시 라이브 적용, 닫으면 영속화. */
+function wireSettings(tabs: TabManager): void {
+  $("open-settings").addEventListener("click", async () => {
+    const before = { ...settings };
+    const result = await settingsDialog(settings, (live) => {
+      settings = live;
+      applyAppTheme(themeById(live.theme));
+      tabs.applySettings(live);
+    });
+    settings = result;
+    if (JSON.stringify(before) !== JSON.stringify(result)) {
+      try {
+        await saveSettings(result);
+      } catch (e) {
+        console.error("설정 저장 실패", e);
+      }
+    }
+  });
+}
+
+/** 사이드바 검색(250ms 디바운스 + ✕ 클리어). */
+function wireSidebarSearch(sidebar: Sidebar): void {
+  const input = $<HTMLInputElement>("session-search");
+  const clear = $("session-search-clear");
+  let timer = 0;
+  input.addEventListener("input", () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => sidebar.setFilter(input.value), 250);
+  });
+  clear.addEventListener("click", () => {
+    input.value = "";
+    sidebar.setFilter("");
+    input.focus();
+  });
+}
+
+/** 하단 상태바 갱신(TabManager onStatus 콜백). */
+function updateStatusBar(info: StatusInfo): void {
+  const session = $("st-session");
+  session.textContent = info.label;
+  session.className = "st-left st-" + info.state;
+  $("st-size").textContent = info.size;
+  $("st-cursor").textContent = info.cursor ? `⌖ ${info.cursor}` : "";
+  $("st-enc").textContent = info.encoding;
 }
 
 /** 동시 명령 창: 접속된 모든 세션(또는 활성 탭)에 명령 한 줄을 동시에 전송. */

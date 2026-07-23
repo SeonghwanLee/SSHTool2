@@ -1,4 +1,4 @@
-//! 자격증명 볼트. 마스터 비밀번호 → PBKDF2-HMAC-SHA256(200k)로 32바이트 키 유도 →
+//! 자격증명 볼트. 마스터 비밀번호 → PBKDF2-HMAC-SHA512(300k)로 32바이트 키 유도 →
 //! 각 세션 비밀번호를 AES-256-GCM(세션별 랜덤 nonce)으로 암호화해 vault.json 에 보관.
 //! 유도 키는 unlock 후 메모리(VaultState)에만 존재하고 디스크엔 절대 저장하지 않는다.
 //! 마스터 검증은 고정 평문(verifier)을 복호화해 GCM 인증 태그가 통과하는지로 판단.
@@ -13,10 +13,11 @@ use aes_gcm::{AeadCore, Aes256Gcm, Key, KeyInit, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use pbkdf2::pbkdf2_hmac;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::Sha512;
 use tauri::{AppHandle, Manager};
 
-const ROUNDS: u32 = 200_000;
+// WPF SSHTool 스킴과 동일: PBKDF2-HMAC-SHA512, 300k 반복.
+const ROUNDS: u32 = 300_000;
 const VERIFIER_PLAINTEXT: &[u8] = b"sshtool2-vault-v1";
 
 #[derive(Serialize, Deserialize, Default)]
@@ -46,7 +47,7 @@ pub struct VaultStatus {
 
 fn derive_key(master: &str, salt: &[u8]) -> [u8; 32] {
     let mut key = [0u8; 32];
-    pbkdf2_hmac::<Sha256>(master.as_bytes(), salt, ROUNDS, &mut key);
+    pbkdf2_hmac::<Sha512>(master.as_bytes(), salt, ROUNDS, &mut key);
     key
 }
 

@@ -1,14 +1,65 @@
+/* 내장 터미널 글꼴(오픈소스). 설치 없이 한글/영문 가독성 확보. */
+@font-face {
+  font-family: "D2Coding";
+  src: url("./fonts/D2Coding-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "D2Coding";
+  src: url("./fonts/D2Coding-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./fonts/JetBrainsMono-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/IBMPlexMono-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+@font-face {
+  font-family: "Hack";
+  src: url("./fonts/Hack-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Hack";
+  src: url("./fonts/Hack-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+
+/* 기본값(런타임에 테마가 즉시 덮어씀 — themes.ts applyAppTheme). */
 :root {
-  --bg: #1e1e1e;
-  --panel: #252526;
-  --panel-2: #2d2d30;
-  --border: #333333;
-  --fg: #d4d4d4;
-  --muted: #9d9d9d;
-  --accent: #3fb950;
-  --accent-hover: #4cc75e;
-  --accent-ink: #0d1117;
-  --error: #f85149;
+  --bg: #2d353b;
+  --panel: #343f44;
+  --panel-2: #3d484d;
+  --border: #4f585e;
+  --fg: #d3c6aa;
+  --muted: #859289;
+  --accent: #a7c080;
+  --accent-hover: #b6cf98;
+  --accent-ink: #2d353b;
+  --error: #e67e80;
 }
 
 * {
@@ -131,6 +182,13 @@ button {
 }
 .tree-session:hover {
   background: var(--panel-2);
+}
+.tree-session.selected {
+  background: var(--accent);
+}
+.tree-session.selected .tree-session-name,
+.tree-session.selected .tree-session-detail {
+  color: var(--accent-ink);
 }
 .tree-icon {
   color: var(--accent);
@@ -398,6 +456,248 @@ button {
 }
 .btn-accent:hover {
   background: var(--accent-hover);
+}
+
+/* ── 사이드바 검색 ─────────────────────────────────────────────────────────── */
+#sidebar-search {
+  position: relative;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+#session-search {
+  width: 100%;
+  background: #00000022;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 26px 6px 9px;
+  font-size: 12px;
+  outline: none;
+}
+#session-search:focus {
+  border-color: var(--accent);
+}
+#session-search-clear {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+  line-height: 1;
+}
+#session-search-clear:hover {
+  color: var(--fg);
+}
+
+/* ── 상태바 ────────────────────────────────────────────────────────────────── */
+#statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  min-height: 22px;
+}
+.st-left {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-left.st-connected {
+  color: var(--accent);
+}
+.st-left.st-disconnected {
+  color: var(--error);
+}
+.st-right {
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+}
+.st-right span:not(:empty)::before {
+  content: "│ ";
+  color: var(--border);
+  margin-right: 6px;
+}
+.st-right span:first-child:not(:empty)::before {
+  content: "";
+  margin: 0;
+}
+
+/* ── 터미널 토스트/검색/탭 상태색 ─────────────────────────────────────────────── */
+.term-toast {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.term-search {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  display: flex;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px;
+}
+.term-search input {
+  background: transparent;
+  color: var(--fg);
+  border: none;
+  outline: none;
+  font-size: 12px;
+  width: 260px;
+  padding: 2px 6px;
+}
+.tab.activity:not(.active) {
+  background: #cf9b3d;
+}
+.tab.activity:not(.active) .tab-label {
+  color: #1a1a1a;
+}
+.tab.dead:not(.active) {
+  background: var(--error);
+}
+.tab.dead:not(.active) .tab-label {
+  color: #1a1a1a;
+}
+
+/* ── 설정 다이얼로그 ───────────────────────────────────────────────────────── */
+.settings-card {
+  width: 460px;
+  max-height: 84vh;
+  overflow-y: auto;
+}
+.settings-section {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.theme-swatch {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  padding: 2px;
+  cursor: pointer;
+}
+.theme-swatch.selected {
+  border-color: var(--accent);
+}
+.swatch-preview {
+  height: 34px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  position: relative;
+}
+.swatch-accent {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.swatch-text {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+.swatch-name {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.font-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.font-row.selected {
+  border-color: var(--accent);
+}
+.font-name {
+  font-size: 14px;
+  color: var(--fg);
+}
+.font-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.font-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.badge-embedded {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--fg);
+}
+.num-input,
+.sel-input {
+  background: #00000022;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 13px;
+  outline: none;
+  width: 110px;
+}
+.num-input:focus,
+.sel-input:focus {
+  border-color: var(--accent);
 }
 
 /* ── SFTP 브라우저 ─────────────────────────────────────────────────────────── */

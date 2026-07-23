@@ -1,10 +1,17 @@
 // 다중 탭 터미널 관리. 각 탭 = xterm 인스턴스 하나 + 하나의 live SSH 세션.
-// 백엔드는 이미 세션을 id 로 다중 관리하므로(SessionMap), 프론트는 tab↔liveId 를 잇는다.
+// 설정(테마·폰트·크기·커서·스크롤백) 적용, 선택→자동복사+토스트, 우클릭 복사/붙여넣기,
+// 검색(Ctrl+Shift+F), Ctrl+휠 zoom, Ctrl+Enter=LF, 탭 상태색, 탭 단축키, 상태바 연동.
 
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
 import type { SessionInfo } from "./types";
+import type { Settings } from "./settings";
+import { fontStack } from "./settings";
+import { themeById } from "./themes";
 import {
   sshConnect,
   sshWrite,
@@ -16,19 +23,21 @@ import {
 
 /** 자격증명 해결·저장 정책. 볼트 연동은 main.ts 가 구현(탭은 UI-비종속). */
 export interface CredentialProvider {
-  /** 접속에 쓸 비밀번호 결정(저장분 우선, 없으면 프롬프트). null = 취소. */
   resolve(session: SessionInfo): Promise<string | null>;
-  /** 접속 성공 후: 저장 정책에 따라 보관. */
   onConnected(session: SessionInfo, password: string): Promise<void>;
-  /** 접속 실패 후: 필요 시 저장분 폐기 등. */
   onError(session: SessionInfo, error: string): Promise<void>;
 }
 
-const TERM_THEME = {
-  background: "#1e1e1e",
-  foreground: "#d4d4d4",
-  cursor: "#d4d4d4",
-};
+export interface StatusInfo {
+  label: string;
+  state: "none" | "connecting" | "connected" | "disconnected";
+  size: string;
+  cursor: string;
+  encoding: string;
+}
+
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const LF = new Uint8Array([0x0a]);
 
 /** 탭 하나 = 터미널 뷰 + 상태. 접속/재접속 로직은 TabManager 가 구동한다. */
 class TerminalTab {
@@ -36,40 +45,233 @@ class TerminalTab {
   session: SessionInfo;
   liveId: string | null = null;
   status: "connecting" | "connected" | "disconnected" = "connecting";
+  activity = false; // 비활성 탭에 출력이 도착하면 true(호박색)
 
   readonly root: HTMLDivElement;
   private readonly termHost: HTMLDivElement;
   private readonly overlay: HTMLDivElement;
+  private readonly toast: HTMLDivElement;
+  private readonly searchBar: HTMLDivElement;
+  private readonly searchInput: HTMLInputElement;
   readonly term: Terminal;
   private readonly fit: FitAddon;
+  private readonly search: SearchAddon;
+  private settings: Settings;
+  private zoomDelta = 0;
+  private toastTimer = 0;
+  private searchOpen = false;
 
-  constructor(session: SessionInfo, onInput: (bytes: Uint8Array) => void, onResize: () => void) {
+  constructor(
+    session: SessionInfo,
+    settings: Settings,
+    onInput: (bytes: Uint8Array) => void,
+    onResize: () => void,
+    private readonly onActive: () => void,
+  ) {
     this.session = session;
+    this.settings = settings;
 
-    this.root = document.createElement("div");
-    this.root.className = "term-pane";
+    this.root = el("div", "term-pane");
+    this.termHost = el("div", "term-host");
+    this.overlay = el("div", "term-overlay");
+    this.toast = el("div", "term-toast");
+    this.toast.style.display = "none";
+    this.searchBar = el("div", "term-search");
+    this.searchBar.style.display = "none";
+    this.searchInput = document.createElement("input");
+    this.searchInput.placeholder = "검색 (Enter/F3, Shift+F3 역방향, Esc 닫기)";
+    this.searchBar.appendChild(this.searchInput);
+    this.root.append(this.termHost, this.overlay, this.toast, this.searchBar);
 
-    this.termHost = document.createElement("div");
-    this.termHost.className = "term-host";
-    this.root.appendChild(this.termHost);
-
-    this.overlay = document.createElement("div");
-    this.overlay.className = "term-overlay";
-    this.root.appendChild(this.overlay);
-
+    const theme = themeById(settings.theme);
     this.term = new Terminal({
-      fontFamily: "Consolas, D2Coding, monospace",
-      fontSize: 14,
-      cursorBlink: true,
-      theme: TERM_THEME,
-      scrollback: 5000,
+      fontFamily: fontStack(settings.fontFamily),
+      fontSize: settings.fontSize,
+      cursorBlink: settings.cursorBlink,
+      cursorStyle: settings.cursorStyle,
+      scrollback: settings.scrollback,
+      theme: theme.term,
+      allowProposedApi: true,
     });
     this.fit = new FitAddon();
+    this.search = new SearchAddon();
     this.term.loadAddon(this.fit);
+    this.term.loadAddon(this.search);
+    this.term.loadAddon(new WebLinksAddon());
+    const uni = new Unicode11Addon();
+    this.term.loadAddon(uni);
+    this.term.unicode.activeVersion = "11";
     this.term.open(this.termHost);
 
     this.term.onData((d) => onInput(new TextEncoder().encode(d)));
     this.term.onResize(() => onResize());
+
+    this.wireInput(onInput);
+    this.wireSearch();
+  }
+
+  // ── 입력/복사/붙여넣기/줌 ──
+  private wireInput(onInput: (bytes: Uint8Array) => void): void {
+    this.term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const ctrl = e.ctrlKey;
+      const stop = () => {
+        e.preventDefault(); // false 반환만으론 webview 확대 등 기본동작이 남음
+        return false;
+      };
+      if (ctrl && e.shiftKey && (e.key === "F" || e.key === "f")) {
+        this.openSearch();
+        return stop();
+      }
+      if (this.searchOpen && e.key === "F3") {
+        e.shiftKey ? this.searchPrev() : this.searchNext();
+        return stop();
+      }
+      if (ctrl && !e.shiftKey && (e.key === "c" || e.key === "C") && this.term.hasSelection()) {
+        void this.copySelection();
+        return stop();
+      }
+      if (ctrl && e.key === "Insert") {
+        if (this.term.hasSelection()) void this.copySelection();
+        return stop();
+      }
+      if (e.shiftKey && e.key === "Insert") {
+        void this.pasteClipboard();
+        return stop();
+      }
+      if (ctrl && e.key === "Enter") {
+        onInput(LF); // claude CLI 등 다중행 입력(제출 없이 줄바꿈)
+        return stop();
+      }
+      if (ctrl && e.key === "0") {
+        this.setZoom(0);
+        return stop();
+      }
+      if (ctrl && (e.key === "=" || e.key === "+")) {
+        this.bumpZoom(1);
+        return stop();
+      }
+      if (ctrl && (e.key === "-" || e.key === "_")) {
+        this.bumpZoom(-1);
+        return stop();
+      }
+      return true;
+    });
+
+    // 선택 후 놓으면 자동 복사(설정 시), xterm/PuTTY 방식.
+    this.termHost.addEventListener("mouseup", (e) => {
+      if (e.button === 0 && this.settings.copyOnSelect && this.term.hasSelection()) {
+        void this.copySelection();
+      }
+    });
+    // 우클릭 = 선택 있으면 복사, 없으면 붙여넣기(PuTTY 관례).
+    this.termHost.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      if (this.term.hasSelection()) void this.copySelection();
+      else void this.pasteClipboard();
+    });
+    // Ctrl+휠 zoom.
+    this.termHost.addEventListener(
+      "wheel",
+      (e) => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        this.bumpZoom(e.deltaY < 0 ? 1 : -1);
+      },
+      { passive: false },
+    );
+  }
+
+  private async copySelection(): Promise<void> {
+    const text = this.term.getSelection();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.showToast(`${text.length}자 복사됨`);
+    } catch {
+      /* 클립보드 접근 실패 무시 */
+    }
+  }
+
+  private async pasteClipboard(): Promise<void> {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t) this.term.paste(t);
+    } catch {
+      /* 무시 */
+    }
+  }
+
+  private showToast(msg: string): void {
+    this.toast.textContent = msg;
+    this.toast.style.display = "block";
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => {
+      this.toast.style.display = "none";
+    }, 1200);
+  }
+
+  private bumpZoom(d: number): void {
+    this.zoomDelta = clamp(this.zoomDelta + d, -6, 14);
+    this.applyFont();
+  }
+  private setZoom(v: number): void {
+    this.zoomDelta = v;
+    this.applyFont();
+  }
+  private applyFont(): void {
+    this.term.options.fontFamily = fontStack(this.settings.fontFamily);
+    this.term.options.fontSize = this.settings.fontSize + this.zoomDelta;
+    this.fitNow();
+    this.onActive();
+  }
+
+  // ── 검색 ──
+  private wireSearch(): void {
+    this.searchInput.addEventListener("input", () => {
+      if (this.searchInput.value) this.search.findNext(this.searchInput.value, { incremental: true });
+      else this.search.clearDecorations();
+    });
+    this.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === "F3") {
+        e.preventDefault();
+        e.shiftKey ? this.searchPrev() : this.searchNext();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.closeSearch();
+      }
+    });
+  }
+  private openSearch(): void {
+    this.searchOpen = true;
+    this.searchBar.style.display = "flex";
+    this.searchInput.focus();
+    this.searchInput.select();
+  }
+  private closeSearch(): void {
+    this.searchOpen = false;
+    this.searchBar.style.display = "none";
+    this.search.clearDecorations();
+    this.term.focus();
+  }
+  private searchNext(): void {
+    if (this.searchInput.value) this.search.findNext(this.searchInput.value);
+  }
+  private searchPrev(): void {
+    if (this.searchInput.value) this.search.findPrevious(this.searchInput.value);
+  }
+
+  // ── 설정 적용 ──
+  applySettings(s: Settings): void {
+    this.settings = s;
+    const t = this.term;
+    t.options.fontFamily = fontStack(s.fontFamily);
+    t.options.fontSize = s.fontSize + this.zoomDelta;
+    t.options.cursorBlink = s.cursorBlink;
+    t.options.cursorStyle = s.cursorStyle;
+    t.options.scrollback = s.scrollback;
+    t.options.theme = themeById(s.theme).term;
+    this.fitNow();
   }
 
   get cols(): number {
@@ -78,20 +280,21 @@ class TerminalTab {
   get rows(): number {
     return this.term.rows;
   }
+  cursorPos(): string {
+    const b = this.term.buffer.active;
+    return `${b.cursorY + 1},${b.cursorX + 1}`;
+  }
 
   fitNow(): void {
-    // 숨겨진(display:none) 탭은 크기가 0 이라 fit 이 어긋난다 — 활성 탭만 호출.
     try {
       this.fit.fit();
     } catch {
       /* 아직 레이아웃 전 */
     }
   }
-
   focus(): void {
     this.term.focus();
   }
-
   writeBytes(data: number[]): void {
     this.term.write(new Uint8Array(data));
   }
@@ -101,24 +304,20 @@ class TerminalTab {
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="overlay-msg">접속 중…</div>`;
   }
-
   setConnected(liveId: string): void {
     this.status = "connected";
     this.liveId = liveId;
     this.overlay.style.display = "none";
     this.overlay.innerHTML = "";
   }
-
   setDisconnected(message: string, onReconnect: () => void): void {
     this.status = "disconnected";
     this.liveId = null;
     this.term.writeln(`\r\n\x1b[33m[세션 종료] ${message}\x1b[0m`);
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = "";
-    const box = document.createElement("div");
-    box.className = "overlay-box";
-    const msg = document.createElement("div");
-    msg.className = "overlay-msg";
+    const box = el("div", "overlay-box");
+    const msg = el("div", "overlay-msg");
     msg.textContent = message;
     const btn = document.createElement("button");
     btn.className = "btn-accent";
@@ -129,16 +328,18 @@ class TerminalTab {
   }
 
   dispose(): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
     this.term.dispose();
     this.root.remove();
   }
 }
 
-/** 탭 모음 + 탭바 DOM + 활성 탭 + 전역 SSH 이벤트 디스패치. */
+/** 탭 모음 + 탭바 DOM + 활성 탭 + 전역 SSH 이벤트 디스패치 + 상태바 연동. */
 export class TabManager {
   private readonly tabs: TerminalTab[] = [];
   private readonly byLiveId = new Map<string, TerminalTab>();
   private active: TerminalTab | null = null;
+  private settings: Settings;
 
   constructor(
     private readonly tabbar: HTMLElement,
@@ -146,31 +347,73 @@ export class TabManager {
     private readonly emptyState: HTMLElement,
     private readonly credentials: CredentialProvider,
     private readonly confirmClose: (name: string) => Promise<boolean>,
+    settings: Settings,
+    private readonly onStatus: (info: StatusInfo) => void,
   ) {
-    void onSshData((e) => this.byLiveId.get(e.id)?.writeBytes(e.data));
+    this.settings = settings;
+
+    void onSshData((e) => {
+      const tab = this.byLiveId.get(e.id);
+      if (!tab) return;
+      tab.writeBytes(e.data);
+      if (tab !== this.active && !tab.activity) {
+        tab.activity = true;
+        this.renderTabbar();
+      }
+      if (tab === this.active) this.emitStatus();
+    });
     void onSshClosed((e) => {
       const tab = this.byLiveId.get(e.id);
       if (!tab) return;
       this.byLiveId.delete(e.id);
       tab.setDisconnected(e.message, () => void this.reconnect(tab));
       this.renderTabbar();
+      if (tab === this.active) this.emitStatus();
     });
 
     window.addEventListener("resize", () => this.fitActive());
+
+    document.addEventListener("keydown", (e) => {
+      if (!e.ctrlKey) return;
+      if (e.key === "Tab") {
+        e.preventDefault();
+        this.cycle(e.shiftKey ? -1 : 1);
+      } else if (e.key === "F4") {
+        e.preventDefault();
+        if (this.active) void this.closeTab(this.active);
+      } else if (e.key >= "1" && e.key <= "9") {
+        const i = Number(e.key) - 1;
+        if (this.tabs[i]) {
+          e.preventDefault();
+          this.activate(this.tabs[i]);
+        }
+      }
+    });
   }
 
-  /** 저장 세션(또는 임시 세션)으로 새 탭을 열고 접속한다. */
+  /** 설정 변경 → 모든 터미널 + 상태바에 즉시 반영. */
+  applySettings(s: Settings): void {
+    this.settings = s;
+    for (const t of this.tabs) t.applySettings(s);
+    this.emitStatus();
+  }
+
   async openSession(session: SessionInfo): Promise<void> {
     const pw = await this.credentials.resolve(session);
-    if (pw === null) return; // 취소
+    if (pw === null) return;
 
     const tab = new TerminalTab(
       session,
+      this.settings,
       (bytes) => {
         if (tab.liveId) void sshWrite(tab.liveId, bytes);
       },
       () => {
         if (tab.liveId) void sshResize(tab.liveId, tab.cols, tab.rows);
+        if (tab === this.active) this.emitStatus();
+      },
+      () => {
+        if (tab === this.active) this.emitStatus();
       },
     );
     this.tabs.push(tab);
@@ -180,7 +423,6 @@ export class TabManager {
     await this.doConnect(tab, pw);
   }
 
-  /** 접속된 모든 세션에 바이트 전송(동시 명령). 전송한 세션 수 반환. */
   broadcast(data: Uint8Array): number {
     let n = 0;
     for (const t of this.tabs) {
@@ -191,20 +433,22 @@ export class TabManager {
     }
     return n;
   }
-
-  /** 활성 탭에만 전송. 전송 여부 반환. */
   sendActive(data: Uint8Array): boolean {
-    const t = this.active;
-    if (t?.liveId) {
-      void sshWrite(t.liveId, data);
+    if (this.active?.liveId) {
+      void sshWrite(this.active.liveId, data);
       return true;
     }
     return false;
   }
-
-  /** 현재 접속 상태(connected)인 탭 수. */
   connectedCount(): number {
     return this.tabs.filter((t) => t.liveId).length;
+  }
+
+  private cycle(dir: number): void {
+    if (this.tabs.length < 2 || !this.active) return;
+    const i = this.tabs.indexOf(this.active);
+    const next = this.tabs[(i + dir + this.tabs.length) % this.tabs.length];
+    this.activate(next);
   }
 
   private async reconnect(tab: TerminalTab): Promise<void> {
@@ -217,6 +461,7 @@ export class TabManager {
   private async doConnect(tab: TerminalTab, password: string): Promise<void> {
     tab.setConnecting();
     this.renderTabbar();
+    this.emitStatus();
     tab.fitNow();
     try {
       const liveId = await sshConnect({
@@ -232,23 +477,24 @@ export class TabManager {
       tab.focus();
       void this.credentials.onConnected(tab.session, password);
     } catch (e) {
-      const msg = `접속 실패: ${String(e)}`;
       void this.credentials.onError(tab.session, String(e));
-      tab.setDisconnected(msg, () => void this.reconnect(tab));
+      tab.setDisconnected(`접속 실패: ${String(e)}`, () => void this.reconnect(tab));
     }
     this.renderTabbar();
+    if (tab === this.active) this.emitStatus();
   }
 
   private activate(tab: TerminalTab): void {
     this.active = tab;
+    tab.activity = false;
     for (const t of this.tabs) t.root.classList.toggle("active", t === tab);
     this.emptyState.style.display = this.tabs.length ? "none" : "flex";
     this.renderTabbar();
-    // 활성화 직후 레이아웃 확정 → fit + 리사이즈 통지.
     requestAnimationFrame(() => {
       tab.fitNow();
       if (tab.liveId) void sshResize(tab.liveId, tab.cols, tab.rows);
       tab.focus();
+      this.emitStatus();
     });
   }
 
@@ -257,10 +503,10 @@ export class TabManager {
     if (!tab) return;
     tab.fitNow();
     if (tab.liveId) void sshResize(tab.liveId, tab.cols, tab.rows);
+    this.emitStatus();
   }
 
   private async closeTab(tab: TerminalTab): Promise<void> {
-    // 연결이 살아있을 때만 확인을 묻는다(이미 끊긴 탭은 그냥 닫음).
     if (tab.status === "connected") {
       const ok = await this.confirmClose(tab.session.name || tab.session.host);
       if (!ok) return;
@@ -279,24 +525,42 @@ export class TabManager {
       else {
         this.active = null;
         this.emptyState.style.display = "flex";
+        this.emitStatus();
       }
     }
     this.renderTabbar();
   }
 
+  private emitStatus(): void {
+    const tab = this.active;
+    if (!tab) {
+      this.onStatus({ label: "", state: "none", size: "", cursor: "", encoding: "" });
+      return;
+    }
+    const s = tab.session;
+    const who = s.user ? `${s.user}@${s.host}:${s.port}` : `${s.host}:${s.port}`;
+    this.onStatus({
+      label: `${s.name || s.host} · ${who}`,
+      state: tab.status,
+      size: `${tab.cols}×${tab.rows}`,
+      cursor: tab.cursorPos(),
+      encoding: "UTF-8",
+    });
+  }
+
   private renderTabbar(): void {
     this.tabbar.innerHTML = "";
     for (const tab of this.tabs) {
-      const el = document.createElement("div");
-      el.className = "tab" + (tab === this.active ? " active" : "");
+      const cls =
+        "tab" +
+        (tab === this.active ? " active" : "") +
+        (tab.status === "disconnected" ? " dead" : tab.activity ? " activity" : "");
+      const item = el("div", cls);
 
-      const dot = document.createElement("span");
-      dot.className = "tab-dot " + tab.status;
-
-      const label = document.createElement("span");
-      label.className = "tab-label";
-      // 탭 이름은 좌측 세션 이름으로 고정(WPF 피드백) — 셸이 바꾸지 않음.
+      const dot = el("span", "tab-dot " + tab.status);
+      const label = el("span", "tab-label");
       label.textContent = tab.session.name || `${tab.session.user}@${tab.session.host}`;
+      label.title = tab.session.name || tab.session.host;
 
       const close = document.createElement("button");
       close.className = "tab-close";
@@ -307,15 +571,21 @@ export class TabManager {
         void this.closeTab(tab);
       });
 
-      el.append(dot, label, close);
-      el.addEventListener("click", () => this.activate(tab));
-      el.addEventListener("mousedown", (ev) => {
+      item.append(dot, label, close);
+      item.addEventListener("click", () => this.activate(tab));
+      item.addEventListener("mousedown", (ev) => {
         if (ev.button === 1) {
           ev.preventDefault();
-          void this.closeTab(tab); // 휠 클릭 = 닫기
+          void this.closeTab(tab);
         }
       });
-      this.tabbar.appendChild(el);
+      this.tabbar.appendChild(item);
     }
   }
+}
+
+function el(tag: string, className: string): HTMLDivElement {
+  const e = document.createElement(tag) as HTMLDivElement;
+  e.className = className;
+  return e;
 }

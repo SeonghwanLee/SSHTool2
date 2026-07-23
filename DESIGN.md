@@ -1,0 +1,88 @@
+# SSHTool2 — 재설계 & 이식 로드맵 (WPF SSHTool 0.46.1 → Tauri)
+
+WPF SSHTool은 90여 버전에 걸쳐 쌓인 ~15,000줄 성숙 앱이다. 이 문서는 그 전 기능을
+A–Z로 분해하고, Tauri(Rust + xterm.js) 재구현의 아키텍처와 단계별 이행 계획을 못박는다.
+**"테마 조금 고치고 끝"을 막기 위한 완료 기준 체크리스트다.**
+
+WPF의 최대 비용(OLE 마우스 캡처 도난, 커스텀 ScrollBar/ControlTemplate, 네이티브
+타이틀바 테마, DPI 수학, IME 박스 억제)은 전부 WPF/Win32 고유라 웹 렌더러에선 사라진다.
+그 대신 xterm.js 통합 + SSH 백엔드 + SFTP 스트리밍 + 보안 키스토어에 예산을 쓴다.
+**원본에서 그대로 이식할 도메인 로직: 한글 오토마타(HangulComposer), 세션 임포터 파서,
+볼트 암호화 스킴, 트리거 엔진, 테마 팔레트, ChangeLog(버그 회피 체크리스트).**
+
+---
+
+## 아키텍처 (재설계)
+
+### 백엔드 (Rust, `src-tauri/src/`)
+| 모듈 | 책임 | 상태 |
+|---|---|---|
+| `ssh.rs` | SSH 셸 세션(PTY) — russh 0.62, 다중 세션, keepalive | ✅ 있음 |
+| `sftp.rs` | SFTP — 목록/전송(재귀·진행이벤트)/조작 | 🟡 기본 |
+| `vault.rs` | 마스터키·자격증명 암호화 — **PBKDF2-HMAC-SHA512 300k → AES-256-GCM** (WPF 스킴에 맞춤), 복구키, 마스터 변경 재암호화 | 🟡 SHA256 200k → 교체 |
+| `store.rs` | 세션·폴더·설정 영속화(JSON) | 🟡 확장 |
+| `import.rs` | PuTTY(registry/CP949)·SecureCRT(ini)·MobaXterm(ini) 파서 | ❌ |
+| `hostkey.rs` | known_hosts TOFU, SHA-256 지문 검증 | ❌ |
+| `localshell.rs` | 로컬 셸(portable-pty) — cmd/pwsh, claude CLI 등 | ❌ |
+| `portfwd.rs` | 포트 포워딩 L:/R: | ❌ |
+
+### 프론트 (TypeScript, `src/`)
+```
+core/     ipc, 전역 상태 store, 설정
+terminal/ TerminalTab, addons(search/web-links/unicode), 선택·복사, zoom, 한글 오토마타
+sftp/     4분할 브라우저, 전송 매니저, DnD
+ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window, dialogs, settings, themes
+```
+
+---
+
+## 단계별 로드맵 (완료 기준)
+
+### Phase 0 — 골격 ✅ (v0.1–v0.5)
+접속·다중탭·볼트(기본)·동시명령·단일패널 SFTP·자동업데이트.
+
+### Phase 1 — 정체성 & 일상 사용 (v0.6) ← **지금**
+- [ ] **테마 10종** (Everforest/Gruvbox/Kanagawa/Monokai/EverforestLight/GruvboxLight/Midnight/Charcoal/PureWhite/StoneWhite) — 앱 크롬 + 터미널 색 동시, 재시작 유지
+- [ ] **임베디드 폰트 4종**(D2Coding·JetBrains Mono·IBM Plex Mono·Hack) + @font-face, xterm 적용
+- [ ] **폰트 피커** — 내장/시스템, 크기(9–24), D2Coding fallback 선두(한글 보장)
+- [ ] **설정 다이얼로그 + 영속화** — 테마·폰트·크기·커서·copy-on-select·스크롤백
+- [ ] **터미널 UX** — 드래그 선택→자동복사(5px 임계)·복사 토스트("Copied N chars"), 우클릭=선택시 복사·아니면 붙여넣기(PuTTY식), Ctrl+Shift+F 검색(F3/Shift+F3), Ctrl+휠/±/0 zoom, 웹링크
+- [ ] **터미널 키** — Ctrl+Enter=LF(claude CLI 다중행), Ctrl+C/Ctrl+Insert 복사·Shift+Insert 붙여넣기, Shift+PageUp/Down 스크롤백, xterm 기본(app-cursor-keys·truecolor·alt-screen·마우스트래킹·bracketed-paste는 xterm.js 제공)
+- [ ] **탭 키** — Ctrl+Tab/Ctrl+Shift+Tab 전환, Ctrl+1~9 n번째, Ctrl+F4 닫기, Ctrl+Shift+T 빠른연결
+- [ ] **탭 상태색** — 비활성 탭 출력=호박색, 끊김=적색(글자 검정), 열어보면 해제
+- [ ] **상태바** — user@host:port·상태(연결됨/중/끊김) / cursor row,col / 터미널 크기 / 인코딩 / 한영·CAP·NUM
+- [ ] **사이드바 검색**(250ms 디바운스+✕클리어) + 폴더 접힘 상태 유지 + 세션 1줄 표시(이름+흐린 user@host, 세부토글)
+
+### Phase 2 — 데이터 & 온보딩 (v0.7)
+- [ ] **세션 임포트** PuTTY/SecureCRT/MobaXterm (트리 미리보기·검색·중복제거)
+- [ ] **세션 CRUD 폴리시** — 복제("이름 (복사)")·폴더이동·순서(↑↓/DnD 삽입선)·일괄삭제(체크트리)·최근접속정렬
+- [ ] **호스트키 TOFU 검증** — 지문 저장·불일치 경고
+- [ ] **세션별 옵션** — 문자셋(UTF-8/EUC-KR/CP949)·접속시 자동실행 명령·트리거(패턴→자동입력)
+
+### Phase 3 — SFTP 완전판 (v0.8)
+- [ ] **4분할 FileZilla식**(로컬 트리+목록 | 원격 트리+목록) 리사이즈 스플리터
+- [ ] 업/다운로드 **DnD 양방향 + 탐색기 in/out**, 다중선택, 우클릭 메뉴
+- [ ] **전송 진행바**(파일명·바이트·%·MB/s) + 취소, **충돌 다이얼로그**(덮기/이름변경/건너뜀/전체적용)
+- [ ] 지연 접속(탭 첫 조회 시), 파일 색상(디렉/실행/심볼릭)·확장자 아이콘, F2/Del/F5/`..`
+
+### Phase 4 — 파워 & 보안 (v0.9)
+- [ ] **복구키**(base32 일회용) + **마스터 변경**(전체 재암호화) + **비활동 자동잠금** + OS 키체인 자동해제
+- [ ] **포트 포워딩** L:/R: 자동시작
+- [ ] **뷰 모드** 탭/세로타일/가로타일(2×2, 포커스 테두리, Ctrl+1–9)
+- [ ] **로컬 셸 세션**(portable-pty) — 서버 없이 claude CLI 등
+- [ ] **세션 로그** 원문 파일 기록
+
+### Phase 5 — 마감 폴리시 (v1.0)
+- [ ] **인앱 한글 오토마타**(두벌식, 플로팅 IME 제거 — HangulComposer 로직 이식)
+- [ ] About/체인지로그, 설정 export/import(zip), 오프라인 모드, 공장초기화, 세션상세 토글
+
+---
+
+## 이식 시 반드시 지킬 교훈 (ChangeLog에서)
+- 탭 이름 = **사이드바 세션명**(셸 타이틀 X), 원격 타이틀은 툴팁 — 0.43.2
+- 닫기 확인은 **연결 살아있을 때만**, 죽은(빨강) 탭은 조용히 닫기; 휠클릭 닫기 — 0.28/0.43.0
+- 선택은 5px 임계 이후에만(클릭=포커스), 놓으면 자동복사(xterm식) — 0.45.4
+- 데이터 손실 주의: 편집 저장이 포트포워드/로그/정렬 누락 금지, 복구키 해제가 세션 비우기 금지 — 0.43.0
+- OnAccent(강조 위 글자)는 강조 배경 전용 — 0.20.1
+- 마스터키 암호화 항목 추가 시 재암호화 레지스트리에 등록 필수
+- ANSI 파서 예외는 격리(앱 안 죽게)
