@@ -82,7 +82,9 @@ export class Sidebar {
 
     // 빈 영역 우클릭 = 트리 전체 대상 메뉴.
     this.tree.addEventListener("contextmenu", (e) => {
-      if (e.target !== this.tree) return; // 행에서 올라온 이벤트는 각 행이 처리
+      const target = e.target as HTMLElement;
+      // 세션/폴더 행에서 올라온 이벤트는 각 행이 처리 — 빈 영역·안내문에서만 연다.
+      if (target.closest(".tree-session, .tree-folder")) return;
       e.preventDefault();
       showContextMenu(e.clientX, e.clientY, [
         { label: "새 세션", accel: "s", action: () => this.cb.onNew() },

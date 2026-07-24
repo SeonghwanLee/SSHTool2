@@ -1017,7 +1017,7 @@ button {
 .sftp-body {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 6px 1fr; /* 로컬 | 스플리터 | 원격 */
   min-height: 0;
 }
 .sftp-pane {

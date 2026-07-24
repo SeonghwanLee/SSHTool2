@@ -13,6 +13,14 @@ SSHTool2 는 **태그 push → GitHub Actions 자동 빌드/서명 → Release +
 
 > 공개키(pubkey)는 이미 `src-tauri/tauri.conf.json` 의 `plugins.updater.pubkey` 에 계약값으로 박혀 있다. 개인키는 절대 커밋하지 말 것(`updater-private-key.key` 는 로컬/시크릿에만 보관).
 
+## ⚠️ 자동 업데이트 필수 설정 (건드리지 말 것 — v0.13.0 사고)
+
+Tauri v2 는 아래가 있어야 서명 번들·`latest.json` 을 만든다. 하나라도 빠지면
+릴리스에 인스톨러만 올라가고 자동 업데이트가 **조용히 동작하지 않는다**(v0.1~0.12 내내 그랬음).
+- `src-tauri/tauri.conf.json` → `bundle.createUpdaterArtifacts: true` (**핵심 스위치**)
+- `build.yml` args → `--bundles nsis` (v1 전용 `updater` 타깃 금지 — v2 에선 무효)
+- 릴리스는 `releaseDraft:false, prerelease:false` 라야 `.../releases/latest/download/latest.json` 접근 가능
+
 ## 릴리스 절차
 
 1. 버전을 올린다 (`package.json` 및 `src-tauri/tauri.conf.json` 의 version — 담당 에이전트 파일).

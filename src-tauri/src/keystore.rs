@@ -19,8 +19,13 @@ pub fn store(secret: &str) -> Result<(), String> {
         .map_err(|e| format!("키체인 저장 실패: {e}"))
 }
 
-pub fn load() -> Option<String> {
-    entry().ok()?.get_password().ok()
+/// 저장된 마스터. 없음=Ok(None), 접근 오류(잠김 등)=Err — '없음'과 구분한다.
+pub fn load() -> Result<Option<String>, String> {
+    match entry()?.get_password() {
+        Ok(p) => Ok(Some(p)),
+        Err(Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("키체인 조회 실패: {e}")),
+    }
 }
 
 pub fn clear() -> Result<(), String> {
@@ -30,6 +35,7 @@ pub fn clear() -> Result<(), String> {
     }
 }
 
-pub fn has() -> bool {
-    load().is_some()
+/// true = 항목 있음, false = 확실히 없음, Err = 접근 불가(오인 방지).
+pub fn has() -> Result<bool, String> {
+    Ok(load()?.is_some())
 }

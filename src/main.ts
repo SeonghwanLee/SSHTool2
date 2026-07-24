@@ -49,6 +49,8 @@ let settings: Settings;
 let redraw: () => void = () => {};
 /** 사이드바 표시 옵션 적용(정렬·세부정보) — 마찬가지로 main() 에서 주입된다. */
 let applyDisplayOptions: (s: Settings) => void = () => {};
+/** 세션 가져오기 — main() 에서 실제 구현 주입. */
+let runImport: () => Promise<void> = async () => {};
 
 /**
  * 세션 파일을 정상적으로 읽었을 때만 true. 읽기에 실패한 상태에서 저장하면
@@ -367,13 +369,7 @@ async function main(): Promise<void> {
         }
         redraw();
       },
-      onImport: async () => {
-        const imported = await importDialog(sessions);
-        if (imported.length === 0) return;
-        sessions = [...sessions, ...imported];
-        await persist();
-        redraw();
-      },
+      onImport: () => void runImport(),
       onDropSession: async (sourceId, target) => {
         sessions = applyDrop(sessions, sourceId, target);
         await persist();
@@ -431,6 +427,16 @@ async function main(): Promise<void> {
     $("quick-connect"),
   );
 
+  // PuTTY/SecureCRT/MobaXterm 세션 가져오기 — 헤더 버튼과 우클릭 메뉴 공용.
+  runImport = async () => {
+    const imported = await importDialog(sessions);
+    if (imported.length === 0) return;
+    sessions = [...sessions, ...imported];
+    await persist();
+    redraw();
+  };
+  $("open-import").addEventListener("click", () => void runImport());
+
   // 사이드바 재그리기(세션 + 빈 폴더).
   redraw = () => sidebar.render(sessions, settings.folders);
   applyDisplayOptions = (s) => sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail);
@@ -485,7 +491,7 @@ function wireSettings(tabs: TabManager): void {
       },
       () => void changeMasterFlow(),
       {
-        initial: await keystoreHas(),
+        initial: await keystoreHas().catch(() => false),
         toggle: (enable) => toggleAutoUnlock(enable),
       },
     );
@@ -570,15 +576,17 @@ async function tryAutoUnlock(): Promise<void> {
   try {
     const master = await keystoreGet();
     if (!master) return;
+    // vaultUnlock 이 ok:false 를 '정상 반환'하면 마스터가 틀린 것(파일 손상 등은 Rust 가
+    // Err 를 던져 여기 catch 로 빠지므로, 이 분기는 '마스터 불일치'로 안전하게 단정 가능).
     const outcome = await vaultUnlock(master);
     if (!outcome.ok) {
-      // 마스터가 바뀌었는데 키체인이 낡은 경우 — 조용히 정리(다음엔 프롬프트).
-      await keystoreClear();
+      await keystoreClear(); // 마스터가 바뀜 — 낡은 키 정리(다음엔 프롬프트)
     } else if (outcome.migratedRecovery) {
       await showRecoveryKey(outcome.migratedRecovery);
     }
   } catch (e) {
-    console.error("자동 잠금 해제 실패", e);
+    // 볼트 파일 잠김/손상 등 일시적 오류 — 키체인은 보존한다(잘못 지우지 않음).
+    console.error("자동 잠금 해제 실패(키체인 보존)", e);
   }
 }
 
@@ -595,7 +603,7 @@ async function changeMasterFlow(): Promise<void> {
     const recovery = await vaultChangeMaster(next);
     // 자동 해제가 켜져 있었다면 키체인의 마스터도 새 값으로 갱신한다.
     try {
-      if (await keystoreHas()) await keystoreStore(next);
+      if (await keystoreHas().catch(() => false)) await keystoreStore(next);
     } catch (e) {
       console.error("키체인 갱신 실패", e);
     }
@@ -708,24 +716,12 @@ async function checkForUpdates(): Promise<void> {
 
   let update: Awaited<ReturnType<typeof check>> = null;
   try {
-    // '연결 불가' 판정은 확인 단계에만 적용한다 — 설치 실패까지 여기서 잡으면
-    // 일시적 오류 한 번으로 업데이트를 영구히 꺼버리게 된다.
     update = await check();
   } catch (e) {
-    // 인터넷이 안 되는 환경이면 매번 실패하므로, 그 자리에서 끌 수 있게 제안한다.
-    console.error("업데이트 확인 실패", e);
-    const turnOff = await confirmDialog(
-      "업데이트 확인에 실패했습니다(인터넷 연결 불가로 보입니다).\n" +
-        "시작 시 업데이트 확인 기능을 끌까요? (설정에서 다시 켤 수 있습니다)",
-    );
-    if (turnOff) {
-      settings = { ...settings, checkUpdateOnStartup: false };
-      try {
-        await saveSettings(settings);
-      } catch {
-        /* 무시 */
-      }
-    }
+    // 시작 시 확인 실패는 조용히 넘어간다 — 매니페스트 미발행/프록시/일시 오류를
+    // '인터넷 불가'로 단정하거나 사용자를 방해하지 않는다(WPF 동작).
+    // 실패를 눈으로 확인하려면 버전 정보 창의 '업데이트 확인' 버튼을 쓴다.
+    console.error("시작 시 업데이트 확인 실패(무시)", e);
     return;
   }
 

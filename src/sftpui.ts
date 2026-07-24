@@ -158,14 +158,10 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
       const bps = ((done - lastDone) / (now - lastAt)) * 1000;
       if (bps > 0) speed = ` · ${fmtSize(bps)}/s`;
     }
-    if (name !== speedName) {
-      speedName = name;
-      lastDone = 0;
-      lastAt = now;
-    } else {
-      lastDone = done;
-      lastAt = now;
-    }
+    // 파일이 바뀌면 현재 진행량을 기준점으로 삼는다(0 으로 두면 첫 샘플 속도가 부풀려짐).
+    speedName = name;
+    lastDone = done;
+    lastAt = now;
     pInfo.textContent = (total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done)) + speed;
   };
   const setOverall = (o: string) => {
@@ -468,13 +464,17 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
     const startX = down.clientX;
     const rect = body.getBoundingClientRect();
     const startLeft = local.root.getBoundingClientRect().width;
-    const onMove = (m: MouseEvent) => {
-      const w = Math.max(160, Math.min(rect.width - 160, startLeft + (m.clientX - startX)));
-      body.style.gridTemplateColumns = `${w}px 6px 1fr`;
-    };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+    };
+    const onMove = (m: MouseEvent) => {
+      if (m.buttons === 0) {
+        onUp(); // 창 밖에서 버튼을 놓아 mouseup 을 놓친 경우 정리
+        return;
+      }
+      const w = Math.max(160, Math.min(rect.width - 160, startLeft + (m.clientX - startX)));
+      body.style.gridTemplateColumns = `${w}px 6px 1fr`;
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);

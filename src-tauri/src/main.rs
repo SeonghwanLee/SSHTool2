@@ -234,12 +234,12 @@ fn keystore_store(master: String) -> Result<(), String> {
 
 /// 시작 시 자동 해제용으로 저장된 마스터를 꺼낸다(없으면 null).
 #[tauri::command]
-fn keystore_get() -> Option<String> {
+fn keystore_get() -> Result<Option<String>, String> {
     keystore::load()
 }
 
 #[tauri::command]
-fn keystore_has() -> bool {
+fn keystore_has() -> Result<bool, String> {
     keystore::has()
 }
 
@@ -259,12 +259,15 @@ fn backup_export(app: AppHandle, target: String) -> Result<usize, String> {
 /// 번들을 복원한다. 기존 설정은 import_backup/ 에 보관된다.
 #[tauri::command]
 fn backup_import(app: AppHandle, source: String) -> Result<usize, String> {
+    // 가져온 볼트의 마스터는 이 PC 키체인의 값과 다르므로 자동해제를 초기화한다.
+    let _ = keystore::clear();
     backup::import(&app, &source)
 }
 
-/// 설정 폴더 전체 삭제(첫 설치 상태로).
+/// 설정 폴더 전체 삭제(첫 설치 상태로) + OS 키체인의 마스터도 함께 제거.
 #[tauri::command]
 fn factory_reset(app: AppHandle) -> Result<(), String> {
+    let _ = keystore::clear(); // 키체인 실패해도 파일 삭제는 진행
     backup::factory_reset(&app)
 }
 
