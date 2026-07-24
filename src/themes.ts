@@ -1,4 +1,6 @@
-// 테마 10종 — WPF SSHTool 0.34.x 큐레이션 팔레트(웜 다크 4·웜 라이트 2·완전 다크 2·화이트 2).
+// 테마 — 요즘 널리 사랑받는 예쁜 팔레트 큐레이션.
+// 사용자가 좋아하는 에버포레스트·그루브박스(+라이트)는 유지하고, 인기 테마
+// (Catppuccin·Tokyo Night·Rose Pine·Nord·Dracula·One Dark)를 추가했다.
 // 각 테마는 앱 크롬 색(CSS 변수)과 터미널 색(xterm ITheme)을 함께 정의한다.
 
 import type { ITheme } from "@xterm/xterm";
@@ -25,6 +27,7 @@ export interface Theme {
 }
 
 export const THEMES: Theme[] = [
+  // ── 다크 ──────────────────────────────────────────────────────────────────
   {
     id: "everforest",
     name: "에버포레스트",
@@ -80,23 +83,114 @@ export const THEMES: Theme[] = [
     },
   },
   {
-    id: "monokai",
-    name: "모노카이",
+    id: "catppuccin-mocha",
+    name: "카푸치노 모카",
     dark: true,
     app: {
-      bg: "#272822", panel: "#2d2e27", panel2: "#3e3d32", border: "#49483e",
-      fg: "#f8f8f2", muted: "#75715e", accent: "#fd971f", accentHover: "#ffb454",
-      accentInk: "#272822", error: "#f92672",
+      bg: "#1e1e2e", panel: "#181825", panel2: "#313244", border: "#45475a",
+      fg: "#cdd6f4", muted: "#a6adc8", accent: "#cba6f7", accentHover: "#d9bffa",
+      accentInk: "#1e1e2e", error: "#f38ba8",
     },
     term: {
-      background: "#272822", foreground: "#f8f8f2", cursor: "#f8f8f0",
-      cursorAccent: "#272822", selectionBackground: "#49483e",
-      black: "#272822", red: "#f92672", green: "#a6e22e", yellow: "#f4bf75",
-      blue: "#66d9ef", magenta: "#ae81ff", cyan: "#a1efe4", white: "#f8f8f2",
-      brightBlack: "#75715e", brightRed: "#f92672", brightGreen: "#a6e22e", brightYellow: "#f4bf75",
-      brightBlue: "#66d9ef", brightMagenta: "#ae81ff", brightCyan: "#a1efe4", brightWhite: "#f9f8f5",
+      background: "#1e1e2e", foreground: "#cdd6f4", cursor: "#f5e0dc",
+      cursorAccent: "#1e1e2e", selectionBackground: "#45475a",
+      black: "#45475a", red: "#f38ba8", green: "#a6e3a1", yellow: "#f9e2af",
+      blue: "#89b4fa", magenta: "#f5c2e7", cyan: "#94e2d5", white: "#bac2de",
+      brightBlack: "#585b70", brightRed: "#f38ba8", brightGreen: "#a6e3a1", brightYellow: "#f9e2af",
+      brightBlue: "#89b4fa", brightMagenta: "#f5c2e7", brightCyan: "#94e2d5", brightWhite: "#a6adc8",
     },
   },
+  {
+    id: "tokyo-night",
+    name: "도쿄 나이트",
+    dark: true,
+    app: {
+      bg: "#1a1b26", panel: "#16161e", panel2: "#24283b", border: "#2f334d",
+      fg: "#c0caf5", muted: "#565f89", accent: "#7aa2f7", accentHover: "#8fb3f9",
+      accentInk: "#1a1b26", error: "#f7768e",
+    },
+    term: {
+      background: "#1a1b26", foreground: "#c0caf5", cursor: "#c0caf5",
+      cursorAccent: "#1a1b26", selectionBackground: "#33467c",
+      black: "#15161e", red: "#f7768e", green: "#9ece6a", yellow: "#e0af68",
+      blue: "#7aa2f7", magenta: "#bb9af7", cyan: "#7dcfff", white: "#a9b1d6",
+      brightBlack: "#414868", brightRed: "#f7768e", brightGreen: "#9ece6a", brightYellow: "#e0af68",
+      brightBlue: "#7aa2f7", brightMagenta: "#bb9af7", brightCyan: "#7dcfff", brightWhite: "#c0caf5",
+    },
+  },
+  {
+    id: "rose-pine",
+    name: "로즈 파인",
+    dark: true,
+    app: {
+      bg: "#191724", panel: "#1f1d2e", panel2: "#26233a", border: "#403d52",
+      fg: "#e0def4", muted: "#908caa", accent: "#c4a7e7", accentHover: "#d0b8ee",
+      accentInk: "#191724", error: "#eb6f92",
+    },
+    term: {
+      background: "#191724", foreground: "#e0def4", cursor: "#e0def4",
+      cursorAccent: "#191724", selectionBackground: "#403d52",
+      black: "#26233a", red: "#eb6f92", green: "#31748f", yellow: "#f6c177",
+      blue: "#9ccfd8", magenta: "#c4a7e7", cyan: "#ebbcba", white: "#e0def4",
+      brightBlack: "#6e6a86", brightRed: "#eb6f92", brightGreen: "#31748f", brightYellow: "#f6c177",
+      brightBlue: "#9ccfd8", brightMagenta: "#c4a7e7", brightCyan: "#ebbcba", brightWhite: "#e0def4",
+    },
+  },
+  {
+    id: "nord",
+    name: "노르드",
+    dark: true,
+    app: {
+      bg: "#2e3440", panel: "#3b4252", panel2: "#434c5e", border: "#4c566a",
+      fg: "#d8dee9", muted: "#7b88a1", accent: "#88c0d0", accentHover: "#9fcbd8",
+      accentInk: "#2e3440", error: "#bf616a",
+    },
+    term: {
+      background: "#2e3440", foreground: "#d8dee9", cursor: "#d8dee9",
+      cursorAccent: "#2e3440", selectionBackground: "#434c5e",
+      black: "#3b4252", red: "#bf616a", green: "#a3be8c", yellow: "#ebcb8b",
+      blue: "#81a1c1", magenta: "#b48ead", cyan: "#88c0d0", white: "#e5e9f0",
+      brightBlack: "#4c566a", brightRed: "#bf616a", brightGreen: "#a3be8c", brightYellow: "#ebcb8b",
+      brightBlue: "#81a1c1", brightMagenta: "#b48ead", brightCyan: "#8fbcbb", brightWhite: "#eceff4",
+    },
+  },
+  {
+    id: "dracula",
+    name: "드라큘라",
+    dark: true,
+    app: {
+      bg: "#282a36", panel: "#21222c", panel2: "#343746", border: "#44475a",
+      fg: "#f8f8f2", muted: "#6272a4", accent: "#bd93f9", accentHover: "#cba6fa",
+      accentInk: "#282a36", error: "#ff5555",
+    },
+    term: {
+      background: "#282a36", foreground: "#f8f8f2", cursor: "#f8f8f2",
+      cursorAccent: "#282a36", selectionBackground: "#44475a",
+      black: "#21222c", red: "#ff5555", green: "#50fa7b", yellow: "#f1fa8c",
+      blue: "#bd93f9", magenta: "#ff79c6", cyan: "#8be9fd", white: "#f8f8f2",
+      brightBlack: "#6272a4", brightRed: "#ff6e6e", brightGreen: "#69ff94", brightYellow: "#ffffa5",
+      brightBlue: "#d6acff", brightMagenta: "#ff92df", brightCyan: "#a4ffff", brightWhite: "#ffffff",
+    },
+  },
+  {
+    id: "one-dark",
+    name: "원 다크",
+    dark: true,
+    app: {
+      bg: "#282c34", panel: "#21252b", panel2: "#3e4451", border: "#4b5263",
+      fg: "#abb2bf", muted: "#5c6370", accent: "#61afef", accentHover: "#7cbef2",
+      accentInk: "#282c34", error: "#e06c75",
+    },
+    term: {
+      background: "#282c34", foreground: "#abb2bf", cursor: "#528bff",
+      cursorAccent: "#282c34", selectionBackground: "#3e4451",
+      black: "#282c34", red: "#e06c75", green: "#98c379", yellow: "#e5c07b",
+      blue: "#61afef", magenta: "#c678dd", cyan: "#56b6c2", white: "#abb2bf",
+      brightBlack: "#5c6370", brightRed: "#e06c75", brightGreen: "#98c379", brightYellow: "#e5c07b",
+      brightBlue: "#61afef", brightMagenta: "#c678dd", brightCyan: "#56b6c2", brightWhite: "#ffffff",
+    },
+  },
+  // ── 라이트 ────────────────────────────────────────────────────────────────
   {
     id: "everforest-light",
     name: "에버포레스트 라이트",
@@ -134,75 +228,39 @@ export const THEMES: Theme[] = [
     },
   },
   {
-    id: "midnight",
-    name: "미드나이트",
-    dark: true,
-    app: {
-      bg: "#111111", panel: "#181818", panel2: "#222222", border: "#333333",
-      fg: "#d8d8d8", muted: "#8a8a8a", accent: "#e0a458", accentHover: "#eab472",
-      accentInk: "#111111", error: "#e0574f",
-    },
-    term: {
-      background: "#111111", foreground: "#d8d8d8", cursor: "#e0a458",
-      cursorAccent: "#111111", selectionBackground: "#3a3a3a",
-      black: "#111111", red: "#e0574f", green: "#8fbf7f", yellow: "#e0a458",
-      blue: "#6a9fb5", magenta: "#b294bb", cyan: "#75b5aa", white: "#d8d8d8",
-      brightBlack: "#8a8a8a", brightRed: "#e0574f", brightGreen: "#8fbf7f", brightYellow: "#e0a458",
-      brightBlue: "#6a9fb5", brightMagenta: "#b294bb", brightCyan: "#75b5aa", brightWhite: "#f5f5f5",
-    },
-  },
-  {
-    id: "charcoal",
-    name: "차콜",
-    dark: true,
-    app: {
-      bg: "#1b1d1e", panel: "#232527", panel2: "#2d2f31", border: "#3c3f41",
-      fg: "#cfd2d1", muted: "#868a89", accent: "#c8965a", accentHover: "#d8a86e",
-      accentInk: "#1b1d1e", error: "#d16b5a",
-    },
-    term: {
-      background: "#1b1d1e", foreground: "#cfd2d1", cursor: "#c8965a",
-      cursorAccent: "#1b1d1e", selectionBackground: "#3a3d3f",
-      black: "#1b1d1e", red: "#d16b5a", green: "#9bab6e", yellow: "#c8965a",
-      blue: "#6f9dbf", magenta: "#a988b0", cyan: "#7bb0a8", white: "#cfd2d1",
-      brightBlack: "#868a89", brightRed: "#d16b5a", brightGreen: "#9bab6e", brightYellow: "#c8965a",
-      brightBlue: "#6f9dbf", brightMagenta: "#a988b0", brightCyan: "#7bb0a8", brightWhite: "#eef0ef",
-    },
-  },
-  {
-    id: "pure-white",
-    name: "퓨어 화이트",
+    id: "catppuccin-latte",
+    name: "카푸치노 라테",
     dark: false,
     app: {
-      bg: "#ffffff", panel: "#f5f5f5", panel2: "#ececec", border: "#dcdcdc",
-      fg: "#2b2b2b", muted: "#888888", accent: "#c07830", accentHover: "#d48a3f",
-      accentInk: "#ffffff", error: "#c0392b",
+      bg: "#eff1f5", panel: "#e6e9ef", panel2: "#ccd0da", border: "#bcc0cc",
+      fg: "#4c4f69", muted: "#6c6f85", accent: "#8839ef", accentHover: "#9c5cf0",
+      accentInk: "#eff1f5", error: "#d20f39",
     },
     term: {
-      background: "#ffffff", foreground: "#2b2b2b", cursor: "#2b2b2b",
-      cursorAccent: "#ffffff", selectionBackground: "#d5e5f5",
-      black: "#2b2b2b", red: "#c0392b", green: "#3c8a3c", yellow: "#b8860b",
-      blue: "#2f6fb0", magenta: "#9b4f96", cyan: "#2f8f8f", white: "#dcdcdc",
-      brightBlack: "#888888", brightRed: "#c0392b", brightGreen: "#3c8a3c", brightYellow: "#b8860b",
-      brightBlue: "#2f6fb0", brightMagenta: "#9b4f96", brightCyan: "#2f8f8f", brightWhite: "#2b2b2b",
+      background: "#eff1f5", foreground: "#4c4f69", cursor: "#dc8a78",
+      cursorAccent: "#eff1f5", selectionBackground: "#ccd0da",
+      black: "#5c5f77", red: "#d20f39", green: "#40a02b", yellow: "#df8e1d",
+      blue: "#1e66f5", magenta: "#ea76cb", cyan: "#179299", white: "#acb0be",
+      brightBlack: "#6c6f85", brightRed: "#d20f39", brightGreen: "#40a02b", brightYellow: "#df8e1d",
+      brightBlue: "#1e66f5", brightMagenta: "#ea76cb", brightCyan: "#179299", brightWhite: "#4c4f69",
     },
   },
   {
-    id: "stone-white",
-    name: "스톤 화이트",
+    id: "rose-pine-dawn",
+    name: "로즈 파인 던",
     dark: false,
     app: {
-      bg: "#fafaf8", panel: "#f0f0ea", panel2: "#e6e6de", border: "#d4d4c8",
-      fg: "#3a3a34", muted: "#8a8a7e", accent: "#7d8a2e", accentHover: "#8f9d37",
-      accentInk: "#fafaf8", error: "#b23a30",
+      bg: "#faf4ed", panel: "#fffaf3", panel2: "#f2e9e1", border: "#dfdad9",
+      fg: "#575279", muted: "#797593", accent: "#907aa9", accentHover: "#a08bb8",
+      accentInk: "#faf4ed", error: "#b4637a",
     },
     term: {
-      background: "#fafaf8", foreground: "#3a3a34", cursor: "#3a3a34",
-      cursorAccent: "#fafaf8", selectionBackground: "#e0e4c8",
-      black: "#3a3a34", red: "#b23a30", green: "#7d8a2e", yellow: "#b07d1a",
-      blue: "#37729e", magenta: "#96588f", cyan: "#2f8477", white: "#d4d4c8",
-      brightBlack: "#8a8a7e", brightRed: "#b23a30", brightGreen: "#7d8a2e", brightYellow: "#b07d1a",
-      brightBlue: "#37729e", brightMagenta: "#96588f", brightCyan: "#2f8477", brightWhite: "#3a3a34",
+      background: "#faf4ed", foreground: "#575279", cursor: "#575279",
+      cursorAccent: "#faf4ed", selectionBackground: "#dfdad9",
+      black: "#f2e9e1", red: "#b4637a", green: "#286983", yellow: "#ea9d34",
+      blue: "#56949f", magenta: "#907aa9", cyan: "#d7827e", white: "#575279",
+      brightBlack: "#9893a5", brightRed: "#b4637a", brightGreen: "#286983", brightYellow: "#ea9d34",
+      brightBlue: "#56949f", brightMagenta: "#907aa9", brightCyan: "#d7827e", brightWhite: "#575279",
     },
   },
 ];

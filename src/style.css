@@ -12,6 +12,18 @@
   font-display: block;
 }
 @font-face {
+  font-family: "NanumGothicCoding";
+  src: url("./fonts/NanumGothicCoding-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "NanumGothicCoding";
+  src: url("./fonts/NanumGothicCoding-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+@font-face {
   font-family: "JetBrains Mono";
   src: url("./fonts/JetBrainsMono-Regular.ttf") format("truetype");
   font-weight: normal;
@@ -39,6 +51,24 @@
   font-family: "Hack";
   src: url("./fonts/Hack-Regular.ttf") format("truetype");
   font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Cascadia Code";
+  src: url("./fonts/CascadiaCode.ttf") format("truetype");
+  font-weight: 200 700;
+  font-display: block;
+}
+@font-face {
+  font-family: "Fira Code";
+  src: url("./fonts/FiraCode.ttf") format("truetype");
+  font-weight: 300 700;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("./fonts/SourceCodePro.ttf") format("truetype");
+  font-weight: 200 700;
   font-display: block;
 }
 @font-face {
@@ -556,9 +586,9 @@ button {
 #workbar {
   display: flex;
   align-items: stretch;
+  min-height: 28px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
-  min-height: 34px;
 }
 
 #tabbar {
@@ -624,18 +654,27 @@ button {
 .tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px 0 10px;
-  min-width: 120px;
-  max-width: 220px;
-  background: var(--panel-2);
+  gap: 5px;
+  padding: 0 6px 0 9px;
+  height: 28px;
+  color: var(--muted);
+  min-width: 92px;
+  max-width: 170px;
+  background: transparent;
   border-right: 1px solid var(--border);
+  border-top: 2px solid transparent; /* 활성 표시가 높이를 바꾸지 않도록 자리 확보 */
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11.5px;
+}
+.tab:hover:not(.active) {
+  background: var(--panel-2);
+  color: var(--fg);
 }
 .tab.active {
   background: var(--bg);
-  border-bottom: 2px solid var(--accent);
+  border-top: 2px solid var(--accent);
+  color: var(--fg);
+  font-weight: 600;
 }
 .tab-dot {
   width: 8px;
@@ -663,7 +702,7 @@ button {
   border: none;
   color: var(--muted);
   cursor: pointer;
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1;
   padding: 2px 4px;
   border-radius: 3px;
@@ -756,6 +795,8 @@ button {
 .term-host {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden; /* 셀 폭이 컨테이너에 딱 안 떨어질 때 생기는 가짜 가로 스크롤바 방지 */
 }
 
 /* 뷰 모드 버튼 */
@@ -778,6 +819,10 @@ button {
 .term-host .xterm-viewport,
 .term-host .xterm-screen {
   height: 100%;
+}
+/* 세로 스크롤(스크롤백)만 허용, 가로 스크롤바는 숨긴다. */
+.term-host .xterm-viewport {
+  overflow-x: hidden;
 }
 
 .term-overlay {
@@ -957,17 +1002,12 @@ button {
   width: 260px;
   padding: 2px 6px;
 }
-.tab.activity:not(.active) {
-  background: #cf9b3d;
-}
+/* 비활성 탭의 상태는 통짜 배경 대신 점(dot)+글자색으로만 표시(깔끔) */
 .tab.activity:not(.active) .tab-label {
-  color: #1a1a1a;
-}
-.tab.dead:not(.active) {
-  background: var(--error);
+  color: #e0a54f; /* 호박색 — 아직 안 본 출력 있음 */
 }
 .tab.dead:not(.active) .tab-label {
-  color: #1a1a1a;
+  color: var(--error);
 }
 
 /* ── 설정 다이얼로그 ───────────────────────────────────────────────────────── */
@@ -983,6 +1023,42 @@ button {
   margin-top: 6px;
   padding-bottom: 2px;
   border-bottom: 1px solid var(--border);
+}
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.settings-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-tab:hover {
+  color: var(--fg);
+}
+.settings-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.settings-body {
+  min-height: 300px;
+}
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: -2px 0 4px;
 }
 .theme-grid {
   display: grid;
@@ -1079,7 +1155,7 @@ button {
 }
 .num-input,
 .sel-input {
-  background: #00000022;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1091,6 +1167,11 @@ button {
 .num-input:focus,
 .sel-input:focus {
   border-color: var(--accent);
+}
+/* 드롭다운 목록(옵션)도 어둡게 — 기본은 OS 밝은 배경으로 뜬다. */
+.sel-input option {
+  background: var(--panel);
+  color: var(--fg);
 }
 
 /* ── 버전 정보(About) ─────────────────────────────────────────────────────── */
@@ -1138,6 +1219,55 @@ button {
 .settings-card .about-actions button {
   width: 100%;
   white-space: nowrap;
+}
+.about-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.about-info-row {
+  display: flex;
+  gap: 10px;
+}
+.about-info-key {
+  width: 68px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.about-info-val {
+  color: var(--fg);
+  word-break: break-all;
+}
+.about-oss {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 11.5px;
+}
+.about-oss-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "comp lic" "use use";
+  column-gap: 10px;
+  padding: 3px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.about-oss-comp {
+  grid-area: comp;
+  color: var(--fg);
+}
+.about-oss-lic {
+  grid-area: lic;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.about-oss-use {
+  grid-area: use;
+  color: var(--muted);
+  font-size: 11px;
 }
 .about-credit {
   margin-top: 10px;
@@ -1356,9 +1486,16 @@ button {
   z-index: 90;
 }
 /* 이중 패널(로컬 | 원격) */
-.sftp-dual {
-  width: min(1180px, 96vw) !important;
-  height: min(720px, 92vh) !important;
+/* .sftp-panel 보다 구체적(2클래스)이라 !important 없이 이긴다 → resize 의 inline width/height 가 먹힘 */
+.sftp-panel.sftp-dual {
+  width: min(1180px, 96vw);
+  height: min(720px, 92vh);
+  min-width: 760px;
+  min-height: 480px;
+  max-width: 99vw;
+  max-height: 98vh;
+  resize: both; /* 우하단을 끌어 창 크기 확대 */
+  overflow: hidden;
 }
 .sftp-body {
   flex: 1 1 auto;
@@ -1753,4 +1890,62 @@ button {
 }
 .modal-buttons button:not(.btn-accent):hover {
   border-color: var(--muted);
+}
+
+/* ── 화면보호기(무활동 자동잠금 0일 때) ─────────────────────────────────────── */
+.screensaver {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000;
+  cursor: none;
+  overflow: hidden;
+}
+.screensaver canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.screensaver-hint {
+  position: absolute;
+  bottom: 22px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* 사이드바 세션 행의 SFTP 글자칩(폴더 아이콘 대신 명확히 'SFTP') */
+.tree-act.sftp-chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--muted);
+  width: auto;
+}
+.tree-act.sftp-chip:hover {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 세션 트리 스크롤바 — 전역보다 뚜렷하게(휠 대신 끌기 쉽도록) */
+#session-tree::-webkit-scrollbar {
+  width: 12px;
+}
+#session-tree::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  min-height: 32px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 8px;
+}
+#session-tree::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+  background-clip: padding-box;
 }

@@ -61,6 +61,8 @@ export interface SessionInfo {
   lastConnectedUtc: number;
   /** 포트 포워딩 규칙(줄 단위). L:로컬포트:대상호스트:대상포트 / R:... */
   portForwards: string;
+  /** 이 세션의 터미널 글자 크기(0 = 전역 설정 따름). Ctrl+휠 조절 시 세션별로 기록. */
+  fontSize: number;
 }
 
 /** 새 세션 기본값. */
@@ -86,6 +88,7 @@ export function blankSession(): SessionInfo {
     enableSftp: true,
     lastConnectedUtc: 0,
     portForwards: "",
+    fontSize: 0,
   };
 }
 

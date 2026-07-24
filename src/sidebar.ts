@@ -167,7 +167,7 @@ export class Sidebar {
     }
 
     this.tree.innerHTML = "";
-    // 검색 중이 아니면 상단에 최근 접속 5개(바로 접속 가능).
+    // 검색 중이 아니면 상단에 최근 접속 10개(바로 접속 가능).
     if (!this.filter) this.renderRecent();
     // 빈 폴더만 있어도 그려야 하므로 폴더 유무까지 본다.
     const visible = [...rootNode.folders.values()].length > 0 || rootNode.sessions.length > 0;
@@ -183,12 +183,12 @@ export class Sidebar {
     this.renderNode(rootNode, this.tree, 0);
   }
 
-  /** 상단 '최근 접속' 섹션 — 접속 이력이 있는 세션 최근 5개, 클릭 시 바로 접속. */
+  /** 상단 '최근 접속' 섹션 — 접속 이력이 있는 세션 최근 10개, 클릭 시 바로 접속. */
   private renderRecent(): void {
     const recent = this.sessions
       .filter((s) => s.lastConnectedUtc > 0)
       .sort((a, b) => b.lastConnectedUtc - a.lastConnectedUtc)
-      .slice(0, 5);
+      .slice(0, 10);
     if (recent.length === 0) return;
 
     const head = document.createElement("div");
@@ -319,7 +319,8 @@ export class Sidebar {
     sftp.className = "tree-act";
     sftp.style.display = s.kind === "local" || !s.enableSftp ? "none" : "";
     sftp.title = "SFTP 파일 전송";
-    applyIcon(sftp, "sftp");
+    sftp.classList.add("sftp-chip");
+    sftp.textContent = "SFTP";
     sftp.addEventListener("click", (e) => {
       e.stopPropagation();
       this.cb.onSftp(s);

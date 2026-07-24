@@ -45,6 +45,7 @@ import {
 import { applyAppTheme, themeById } from "./themes";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { applyIcon } from "./icons";
+import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -54,6 +55,8 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 let sessions: SessionInfo[] = [];
 let settings: Settings;
+/** 자동 업데이트 경고 등에서 접속 세션 수를 참조하기 위한 모듈 레벨 핸들. */
+let tabManager: TabManager | undefined;
 /** 사이드바 재그리기 — main() 에서 Sidebar 생성 후 실제 구현이 주입된다. */
 let redraw: () => void = () => {};
 /** 사이드바 표시 옵션 적용(정렬·세부정보) — 마찬가지로 main() 에서 주입된다. */
@@ -75,6 +78,18 @@ async function persist(): Promise<void> {
     return;
   }
   await sessionsSave(sessions);
+}
+
+/** 세션별 글자 크기 저장 — Ctrl+휠 조절 시 세션에 기록해 다음 접속에 복원.
+ *  휠은 빠르게 연속 발생하므로 저장은 디바운스한다. 임시(미저장) 세션은 무시. */
+let fontSaveTimer = 0;
+function onSessionFontSize(session: SessionInfo, size: number): void {
+  const idx = sessions.findIndex((x) => x.id === session.id);
+  if (idx < 0) return; // 빠른 접속 등 저장되지 않은 세션
+  if (sessions[idx].fontSize === size) return;
+  sessions = sessions.map((x) => (x.id === session.id ? { ...x, fontSize: size } : x));
+  window.clearTimeout(fontSaveTimer);
+  fontSaveTimer = window.setTimeout(() => void persist(), 500);
 }
 
 /**
@@ -386,7 +401,9 @@ async function main(): Promise<void> {
     (name) => confirmDialog(`'${name}' 세션이 연결되어 있습니다. 닫을까요?`),
     settings,
     updateStatusBar,
+    onSessionFontSize,
   );
+  tabManager = tabs;
 
   const sidebar = new Sidebar(
     $("session-tree"),
@@ -592,7 +609,7 @@ async function main(): Promise<void> {
     if (await ensureVaultUnlocked()) await refreshLockIndicator();
   });
   $("new-folder").addEventListener("click", () => void newFolderFlow(""));
-  $("open-about").addEventListener("click", () => void aboutDialog());
+  $("open-about").addEventListener("click", () => void aboutDialog(() => tabs.connectedCount()));
 
   // Ctrl+Shift+T = 빠른 접속(WPF 0.31.0)
   document.addEventListener("keydown", (e) => {
@@ -623,36 +640,39 @@ async function main(): Promise<void> {
   void checkForUpdates();
 }
 
-/** 설정 버튼(⚙): 다이얼로그에서 변경 즉시 라이브 적용, 닫으면 영속화. */
+/**
+ * 설정 버튼(⚙): 변경은 라이브 미리보기로 즉시 반영하되, 저장은 '저장' 버튼을 눌러야만 한다.
+ * 취소/Esc/바깥클릭은 미리보기를 되돌리고 저장하지 않는다(사용자 요청).
+ */
 function wireSettings(tabs: TabManager): void {
+  const applyLive = (live: Settings) => {
+    settings = live;
+    applyAppTheme(themeById(live.theme));
+    tabs.applySettings(live);
+    applyDisplayOptions(live);
+    restartAutoLock();
+    restartScreensaver();
+  };
   $("open-settings").addEventListener("click", async () => {
-    const before = { ...settings };
-    const result = await settingsDialog(
+    const { saved, settings: result } = await settingsDialog(
       settings,
-      (live) => {
-        settings = live;
-        applyAppTheme(themeById(live.theme));
-        tabs.applySettings(live);
-        applyDisplayOptions(live);
-        restartAutoLock();
-      },
+      applyLive,
       () => void changeMasterFlow(),
       {
         initial: await keystoreHas().catch(() => false),
         toggle: (enable) => toggleAutoUnlock(enable),
       },
     );
-    // 다이얼로그가 열려 있는 동안 백그라운드(업데이트 확인 실패 등)에서 바뀐 항목은
-    // 스냅샷으로 되돌리지 않는다. onLive 가 settings 를 이미 최신으로 유지한다.
-    settings = { ...result, checkUpdateOnStartup: settings.checkUpdateOnStartup };
-    const result2 = settings;
-    if (JSON.stringify(before) !== JSON.stringify(result2)) {
+    if (saved) {
+      // '저장'을 누른 경우에만 디스크에 기록한다.
+      applyLive(result);
       try {
-        await saveSettings(result2);
+        await saveSettings(settings);
       } catch (e) {
         console.error("설정 저장 실패", e);
       }
     }
+    // 취소면 settingsDialog 가 이미 onLive(original) 로 되돌렸으므로 아무것도 하지 않는다.
   });
 }
 
@@ -834,11 +854,28 @@ function restartAutoLock(): void {
   );
 }
 
+/** 화면보호기 유휴 타이머(무활동 자동잠금=0 일 때만). 기본 5분. */
+let screensaverTimer = 0;
+const SCREENSAVER_IDLE_MS = 5 * 60 * 1000;
+function restartScreensaver(): void {
+  window.clearTimeout(screensaverTimer);
+  if (isScreensaverOn()) hideScreensaver();
+  // 자동 잠금이 켜져 있으면(>0) 잠금이 우선 — 화면보호기는 띄우지 않는다.
+  if ((settings?.autoLockMinutes ?? 0) !== 0) return;
+  screensaverTimer = window.setTimeout(() => showScreensaver(), SCREENSAVER_IDLE_MS);
+}
+
 function wireAutoLock(): void {
-  for (const ev of ["keydown", "mousedown", "wheel"]) {
-    window.addEventListener(ev, () => restartAutoLock(), { passive: true });
+  const onActivity = () => {
+    if (isScreensaverOn()) hideScreensaver();
+    restartAutoLock();
+    restartScreensaver();
+  };
+  for (const ev of ["keydown", "mousedown", "mousemove", "wheel"]) {
+    window.addEventListener(ev, onActivity, { passive: true });
   }
   restartAutoLock();
+  restartScreensaver();
 }
 
 /** 사이드바 검색(250ms 디바운스 + ✕ 클리어). */
@@ -997,7 +1034,12 @@ async function checkForUpdates(): Promise<void> {
   }
 
   if (!update) return;
-  const ok = await confirmDialog(`새 버전 ${update.version} 이(가) 있습니다. 지금 설치할까요?`);
+  const live = tabManager?.connectedCount() ?? 0;
+  const msg =
+    live > 0
+      ? `새 버전 ${update.version} 이(가) 있습니다.\n접속 중인 세션 ${live}개가 있으며, 업데이트를 진행하면 모두 종료됩니다.\n지금 설치할까요?`
+      : `새 버전 ${update.version} 이(가) 있습니다. 지금 설치할까요?`;
+  const ok = await confirmDialog(msg);
   if (!ok) return;
   try {
     await update.downloadAndInstall();

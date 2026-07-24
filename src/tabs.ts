@@ -96,7 +96,8 @@ class TerminalTab {
   private readonly fit: FitAddon;
   private readonly search: SearchAddon;
   private settings: Settings;
-  private zoomDelta = 0;
+  /** 이 세션의 글자 크기(0 = 전역 설정 따름). Ctrl+휠/±로 조절, 세션에 저장된다. */
+  private sessionFontSize = 0;
   private toastTimer = 0;
   private searchOpen = false;
   private triggerBuf = "";
@@ -109,9 +110,11 @@ class TerminalTab {
     private readonly onInput: (bytes: Uint8Array) => void,
     onResize: () => void,
     private readonly onActive: () => void,
+    private readonly onFontSize: (size: number) => void = () => {},
   ) {
     this.session = session;
     this.settings = settings;
+    this.sessionFontSize = session.fontSize > 0 ? session.fontSize : 0;
 
     this.root = el("div", "term-pane");
     // 타일(분할) 모드에서만 보이는 헤더 — 세션명 + 닫기(WPF 0.45.3).
@@ -137,7 +140,7 @@ class TerminalTab {
     const theme = themeById(settings.theme);
     this.term = new Terminal({
       fontFamily: fontStack(settings.fontFamily),
-      fontSize: settings.fontSize,
+      fontSize: session.fontSize > 0 ? session.fontSize : settings.fontSize,
       cursorBlink: settings.cursorBlink,
       cursorStyle: settings.cursorStyle,
       scrollback: settings.scrollback,
@@ -165,6 +168,10 @@ class TerminalTab {
   private wireInput(onInput: (bytes: Uint8Array) => void): void {
     this.term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      // IME(한글 등) 조합 중에는 어떤 키도 가로채지 않는다. 특히 Ctrl+Enter 를 조합 중에
+      // 가로채 LF 를 먼저 보내면, 아직 확정되지 않은 마지막 글자가 개행 뒤(다음 줄)로 밀린다.
+      // 조합이 끝난 뒤 다시 눌러야 정상 동작(모든 터미널 공통).
+      if (e.isComposing || e.keyCode === 229) return true;
       const ctrl = e.ctrlKey;
       const stop = () => {
         e.preventDefault(); // false 반환만으론 webview 확대 등 기본동작이 남음
@@ -268,17 +275,24 @@ class TerminalTab {
     }, 1200);
   }
 
+  /** 현재 적용 글자 크기 — 세션 지정값이 있으면 그것, 없으면 전역 설정. */
+  private effectiveFontSize(): number {
+    return this.sessionFontSize > 0 ? this.sessionFontSize : this.settings.fontSize;
+  }
   private bumpZoom(d: number): void {
-    this.zoomDelta = clamp(this.zoomDelta + d, -6, 14);
+    this.sessionFontSize = clamp(this.effectiveFontSize() + d, 6, 40);
     this.applyFont();
+    this.onFontSize(this.sessionFontSize); // 세션에 저장
   }
   private setZoom(v: number): void {
-    this.zoomDelta = v;
+    // Ctrl+0 = 세션 지정 해제(전역 설정으로 복귀).
+    this.sessionFontSize = v > 0 ? v : 0;
     this.applyFont();
+    this.onFontSize(this.sessionFontSize);
   }
   private applyFont(): void {
     this.term.options.fontFamily = fontStack(this.settings.fontFamily);
-    this.term.options.fontSize = this.settings.fontSize + this.zoomDelta;
+    this.term.options.fontSize = this.effectiveFontSize();
     this.fitNow();
     this.onActive();
   }
@@ -323,7 +337,7 @@ class TerminalTab {
     this.settings = s;
     const t = this.term;
     t.options.fontFamily = fontStack(s.fontFamily);
-    t.options.fontSize = s.fontSize + this.zoomDelta;
+    t.options.fontSize = this.effectiveFontSize();
     t.options.cursorBlink = s.cursorBlink;
     t.options.cursorStyle = s.cursorStyle;
     t.options.scrollback = s.scrollback;
@@ -465,6 +479,7 @@ export class TabManager {
     private readonly confirmClose: (name: string) => Promise<boolean>,
     settings: Settings,
     private readonly onStatus: (info: StatusInfo) => void,
+    private readonly onSessionFontSize: (session: SessionInfo, size: number) => void = () => {},
   ) {
     this.settings = settings;
 
@@ -625,6 +640,7 @@ export class TabManager {
       () => {
         if (tab === this.active) this.emitStatus();
       },
+      (size) => this.onSessionFontSize(tab.session, size),
     );
     tab.headerClose.addEventListener("click", (e) => {
       e.stopPropagation();

@@ -1,7 +1,7 @@
 // 앱 설정 모델 + 영속화 + 폰트 목록. 스키마는 프론트 소유(백엔드는 JSON 통째 저장).
 
 import { settingsLoad, settingsSave } from "./ipc";
-import { DEFAULT_THEME_ID } from "./themes";
+import { DEFAULT_THEME_ID, THEMES } from "./themes";
 
 export type CursorStyle = "block" | "underline" | "bar";
 /** 세션 화면 배치(tabs.ts ViewMode 와 동일 — 순환 import 를 피하려 여기서 정의). */
@@ -61,9 +61,13 @@ export interface FontChoice {
 /** 내장 4종(설치 불필요) + 대표 시스템 고정폭. 내장은 @font-face 로 로드됨. */
 export const FONTS: FontChoice[] = [
   { id: "D2Coding", label: "D2Coding", note: "내장 · 한글+영문 (Naver)", embedded: true },
+  { id: "NanumGothicCoding", label: "나눔고딕코딩", note: "내장 · 한글+영문 (Naver, OFL)", embedded: true },
   { id: "JetBrains Mono", label: "JetBrains Mono", note: "내장 · Apache 2.0", embedded: true },
   { id: "IBM Plex Mono", label: "IBM Plex Mono", note: "내장 · SIL OFL", embedded: true },
   { id: "Hack", label: "Hack", note: "내장 · MIT", embedded: true },
+  { id: "Cascadia Code", label: "Cascadia Code", note: "내장 · OFL (Microsoft)", embedded: true },
+  { id: "Fira Code", label: "Fira Code", note: "내장 · OFL", embedded: true },
+  { id: "Source Code Pro", label: "Source Code Pro", note: "내장 · OFL (Adobe)", embedded: true },
   { id: "Consolas", label: "Consolas", note: "시스템", embedded: false },
   { id: "Courier New", label: "Courier New", note: "시스템", embedded: false },
 ];
@@ -76,9 +80,14 @@ export function fontStack(family: string): string {
 export async function loadSettings(): Promise<Settings> {
   try {
     const raw = await settingsLoad();
+    const firstRun = !raw || Object.keys(raw).length === 0;
     const merged = { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
     // 옛 설정 파일에 folders 가 없거나 형식이 깨진 경우 방어.
     if (!Array.isArray(merged.folders)) merged.folders = [];
+    // 최초 실행(설정 파일 없음)에는 세션바를 무조건 펼친 상태로 시작한다.
+    if (firstRun) merged.sidebarCollapsed = false;
+    // 제거된 테마 id(구버전)를 저장해 둔 경우 기본 테마로 정규화한다.
+    if (!THEMES.some((t) => t.id === merged.theme)) merged.theme = DEFAULT_THEME_ID;
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };

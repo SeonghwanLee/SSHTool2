@@ -73,6 +73,9 @@ pub struct SessionInfo {
     /// 포트 포워딩 규칙(줄 단위).
     #[serde(default)]
     pub port_forwards: String,
+    /// 세션별 터미널 글자 크기(0 = 전역 설정).
+    #[serde(default)]
+    pub font_size: u16,
 }
 
 fn default_kind() -> String {

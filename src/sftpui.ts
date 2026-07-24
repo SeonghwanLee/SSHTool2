@@ -286,6 +286,9 @@ export async function openSftpBrowser(
         empty.textContent = "…";
         this.el.appendChild(empty);
       }
+      // 현재 폴더가 트리 최상단에 보이도록 스크롤한다.
+      const cur = this.el.querySelector(".tree-current") as HTMLElement | null;
+      if (cur) this.el.scrollTop = Math.max(0, cur.offsetTop - this.el.offsetTop);
     }
 
     private renderNode(path: string, depth: number): void {
