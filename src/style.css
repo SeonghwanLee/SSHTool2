@@ -1101,13 +1101,36 @@ button {
   color: var(--fg);
   padding: 2px 8px 4px;
 }
-.about-actions {
-  flex-wrap: wrap;
+/* 버튼 4개를 2×2 그리드로 고정 — 글자 폭이 바뀌어도(예: "업데이트 확인"→"확인 중…")
+   줄바꿈·재배치 없이 자리가 유지된다(flex-wrap 은 폭 경계에서 3+1 로 접혔음). */
+.settings-card .about-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.settings-card .about-actions button {
+  width: 100%;
+  white-space: nowrap;
 }
 .about-credit {
+  margin-top: 10px;
   font-size: 11px;
   color: var(--muted);
   text-align: center;
+}
+/* '더보기' 토글 — 목록 아래 가운데, 링크풍으로 눈에 덜 튀게 */
+.about-more {
+  display: block;
+  margin: 4px auto 2px;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+.about-more:hover {
+  text-decoration: underline;
 }
 
 /* ── 컨텍스트 메뉴 ─────────────────────────────────────────────────────────── */

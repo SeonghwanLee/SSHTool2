@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.23.1",
+    date: "2026-07-24",
+    notes: [
+      "버전 정보 창 버튼 배치 정리 — 4개 버튼을 2×2 그리드로 고정. '업데이트 확인'이 '확인 중…'으로 바뀌어도 줄바꿈/재배치되지 않음. '더보기'는 가운데 링크풍, 크레딧 간격 정리",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-07-24",
     notes: [

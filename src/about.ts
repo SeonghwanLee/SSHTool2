@@ -69,7 +69,7 @@ export function aboutDialog(): Promise<void> {
 
         const more = document.createElement("button");
         more.type = "button";
-        more.className = "sftp-btn";
+        more.className = "about-more";
         more.addEventListener("click", () => {
           expanded = !expanded;
           drawLog();
