@@ -49,6 +49,9 @@ export class Sidebar {
   private folders: string[] = [];
   private collapsed = new Set<string>();
   private filter = "";
+  /** 표시 옵션(설정에서 주입). */
+  private sortByRecent = false;
+  private showDetail = true;
 
   constructor(
     private readonly tree: HTMLElement,
@@ -110,6 +113,13 @@ export class Sidebar {
     for (const el of this.tree.querySelectorAll(".tree-session.selected"))
       el.classList.remove("selected");
     row.classList.add("selected");
+  }
+
+  /** 설정 변경 시 표시 옵션을 반영한다. */
+  setDisplayOptions(sortByRecent: boolean, showDetail: boolean): void {
+    this.sortByRecent = sortByRecent;
+    this.showDetail = showDetail;
+    this.render(this.sessions);
   }
 
   /** 외부 검색창에서 호출. 필터 중에는 매칭이 보이도록 폴더 접힘을 무시한다. */
@@ -217,9 +227,11 @@ export class Sidebar {
       if (!isCollapsed) this.renderNode(f, parent, depth + 1);
     }
 
-    // 수동 정렬(sortOrder) 우선, 같으면 이름순.
-    const sessions = [...node.sessions].sort(
-      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ko"),
+    // 최근 접속순이 켜져 있으면 그 기준, 아니면 수동 정렬(sortOrder) → 이름순.
+    const sessions = [...node.sessions].sort((a, b) =>
+      this.sortByRecent
+        ? b.lastConnectedUtc - a.lastConnectedUtc || a.name.localeCompare(b.name, "ko")
+        : a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ko"),
     );
     for (const s of sessions) {
       parent.appendChild(this.sessionRow(s, depth));
@@ -248,7 +260,8 @@ export class Sidebar {
         : s.user
           ? `${s.user}@${s.host}:${s.port}`
           : `${s.host}:${s.port}`;
-    main.append(name, detail);
+    main.append(name);
+    if (this.showDetail) main.append(detail);
 
     const actions = document.createElement("div");
     actions.className = "tree-actions";

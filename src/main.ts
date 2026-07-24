@@ -43,6 +43,8 @@ let sessions: SessionInfo[] = [];
 let settings: Settings;
 /** 사이드바 재그리기 — main() 에서 Sidebar 생성 후 실제 구현이 주입된다. */
 let redraw: () => void = () => {};
+/** 사이드바 표시 옵션 적용(정렬·세부정보) — 마찬가지로 main() 에서 주입된다. */
+let applyDisplayOptions: (s: Settings) => void = () => {};
 
 /**
  * 세션 파일을 정상적으로 읽었을 때만 true. 읽기에 실패한 상태에서 저장하면
@@ -266,7 +268,15 @@ async function main(): Promise<void> {
   const sidebar = new Sidebar(
     $("session-tree"),
     {
-      onOpen: (s) => void tabs.openSession(s),
+      onOpen: (s) => {
+        // 최근 접속순 정렬용으로 마지막 접속 시각을 기록한다(저장 세션만).
+        if (sessions.some((x) => x.id === s.id)) {
+          const now = Math.floor(Date.now() / 1000);
+          sessions = sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: now } : x));
+          void persist().then(redraw);
+        }
+        void tabs.openSession(s);
+      },
       onEdit: async (s) => {
         const edited = await sessionDialog(s, "세션 편집");
         if (!edited) return;
@@ -419,6 +429,8 @@ async function main(): Promise<void> {
 
   // 사이드바 재그리기(세션 + 빈 폴더).
   redraw = () => sidebar.render(sessions, settings.folders);
+  applyDisplayOptions = (s) => sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail);
+  applyDisplayOptions(settings);
 
   wireCommandBar(tabs);
   wireViewModes(tabs);
@@ -463,6 +475,7 @@ function wireSettings(tabs: TabManager): void {
         settings = live;
         applyAppTheme(themeById(live.theme));
         tabs.applySettings(live);
+        applyDisplayOptions(live);
         restartAutoLock();
       },
       () => void changeMasterFlow(),

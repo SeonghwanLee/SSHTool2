@@ -42,6 +42,8 @@ export interface SessionInfo {
   triggers: TriggerRule[];
   /** true 면 터미널 수신 내용을 logs/ 에 파일로 기록. */
   enableLog: boolean;
+  /** 마지막 접속 시각(unix 초, 0=없음). '최근 접속순 정렬'에 사용. */
+  lastConnectedUtc: number;
 }
 
 /** 새 세션 기본값. */
@@ -62,6 +64,7 @@ export function blankSession(): SessionInfo {
     startupCommands: "",
     triggers: [],
     enableLog: false,
+    lastConnectedUtc: 0,
   };
 }
 

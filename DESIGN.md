@@ -63,7 +63,8 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **상태바** — 세션 상태 / 터미널 크기 / 커서 / 인코딩
 - [x] **사이드바 검색**(250ms 디바운스+✕클리어) + 폴더 접힘 유지
 - [x] Shift+PageUp/Down 스크롤백, Ctrl+Shift+T 빠른접속 — v0.10.0
-- [ ] 남음: 한영·CAP·NUM 표시, 세션 1줄 세부토글
+- [x] 세션 세부정보 토글 — v0.12.0
+- [ ] 남음: 한영·CAP·NUM 표시
 
 ### Phase 2 — 데이터 & 온보딩 (v0.7) ✅
 - [x] **세션 임포트** PuTTY(레지스트리·CP949)/SecureCRT(ini)/MobaXterm(ini) — 프로그램/폴더 그룹 트리, 검색, host+user 중복제거, 비밀번호 제외
@@ -72,7 +73,7 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **호스트키 TOFU 검증** — SHA-256 지문 known_hosts.json, 불일치 시 거부 + 안내, 관리 UI(개별/전체 삭제)
 - [x] **세션별 옵션** — 문자셋(UTF-8/EUC-KR/CP949, 스트리밍 변환)·접속시 자동실행 명령·트리거(패턴→자동입력, 쿨다운·평문 경고)
 - [x] 드래그앤드롭 순서변경(삽입선)·폴더 이동 — v0.11.0
-- [ ] 남음: 최근접속순 정렬
+- [x] 최근접속순 정렬 — v0.12.0
 
 ### Phase 3 — SFTP 완전판 (v0.8) ✅
 - [x] **로컬 | 원격 이중 패널**(FileZilla식) — 각 패널 경로바·상위·새로고침·새 폴더
@@ -98,7 +99,7 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **About/체인지로그** — 배너·버전 배지·이력(최근 5 + 더보기)·업데이트 확인·진단 정보 복사 — v0.10.0
 - [x] 설정 export/import(JSON 번들)·공장초기화 — v0.10.0
 - [x] 오프라인(내부망) 모드 — v0.11.0
-- [ ] 남음: 세션상세 토글
+
 
 ---
 

@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.12.0",
+    date: "2026-07-24",
+    notes: [
+      "세션 목록 표시 옵션 — '최근 접속순 정렬'과 '세션 세부 정보 표시(user@host:port)' 를 설정에서 켜고 끌 수 있음",
+    ],
+  },
+  {
     version: "0.11.0",
     date: "2026-07-24",
     notes: [

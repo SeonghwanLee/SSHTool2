@@ -182,6 +182,20 @@ export function settingsDialog(
     scrollRow.appendChild(scroll);
     card.appendChild(scrollRow);
 
+    card.appendChild(sectionLabel("세션 목록"));
+    card.appendChild(
+      checkRow("최근 접속순으로 정렬", working.sortByRecent, (v) => {
+        working = { ...working, sortByRecent: v };
+        apply();
+      }),
+    );
+    card.appendChild(
+      checkRow("세션 세부 정보 표시 (user@host:port)", working.showSessionDetail, (v) => {
+        working = { ...working, showSessionDetail: v };
+        apply();
+      }),
+    );
+
     // ── 보안 ──
     card.appendChild(sectionLabel("보안"));
 

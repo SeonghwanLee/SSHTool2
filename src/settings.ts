@@ -23,6 +23,10 @@ export interface Settings {
   viewMode: ViewModeSetting;
   /** 시작 시 업데이트 확인. 내부망 전용 PC 에서는 꺼두면 외부 통신을 시도하지 않는다. */
   checkUpdateOnStartup: boolean;
+  /** 세션 목록을 최근 접속순으로 정렬(끄면 수동 순서 + 이름순). */
+  sortByRecent: boolean;
+  /** 세션 행에 user@host:port 한 줄을 함께 표시. */
+  showSessionDetail: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -37,6 +41,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoLockMinutes: 0,
   viewMode: "tabs",
   checkUpdateOnStartup: true,
+  sortByRecent: false,
+  showSessionDetail: true,
 };
 
 export interface FontChoice {

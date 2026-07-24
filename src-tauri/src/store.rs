@@ -58,6 +58,9 @@ pub struct SessionInfo {
     /// true 면 터미널 수신 내용을 logs/ 에 기록.
     #[serde(default)]
     pub enable_log: bool,
+    /// 마지막 접속 시각(unix 초, 0=없음).
+    #[serde(default)]
+    pub last_connected_utc: i64,
 }
 
 fn default_kind() -> String {
