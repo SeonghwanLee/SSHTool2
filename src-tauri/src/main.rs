@@ -6,6 +6,7 @@ mod hostkey;
 mod import;
 mod localfs;
 mod localshell;
+mod portfwd;
 mod sftp;
 mod ssh;
 mod store;
@@ -28,8 +29,9 @@ async fn ssh_connect(
     rows: u32,
     charset: String,
     log_name: Option<String>,
+    port_forwards: String,
 ) -> Result<String, String> {
-    ssh::connect(app, host, port, user, password, cols, rows, charset, log_name).await
+    ssh::connect(app, host, port, user, password, cols, rows, charset, log_name, port_forwards).await
 }
 
 #[tauri::command]

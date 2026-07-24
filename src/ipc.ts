@@ -17,6 +17,8 @@ export interface ConnectArgs {
   charset: string;
   /** 세션 로그를 남길 이름(없으면 기록하지 않음). */
   logName: string | null;
+  /** 포트 포워딩 규칙(줄 단위). */
+  portForwards: string;
 }
 
 export const sshConnect = (a: ConnectArgs): Promise<string> =>

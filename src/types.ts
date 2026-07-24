@@ -44,6 +44,8 @@ export interface SessionInfo {
   enableLog: boolean;
   /** 마지막 접속 시각(unix 초, 0=없음). '최근 접속순 정렬'에 사용. */
   lastConnectedUtc: number;
+  /** 포트 포워딩 규칙(줄 단위). L:로컬포트:대상호스트:대상포트 / R:... */
+  portForwards: string;
 }
 
 /** 새 세션 기본값. */
@@ -65,6 +67,7 @@ export function blankSession(): SessionInfo {
     triggers: [],
     enableLog: false,
     lastConnectedUtc: 0,
+    portForwards: "",
   };
 }
 

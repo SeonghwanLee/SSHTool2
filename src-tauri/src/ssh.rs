@@ -12,6 +12,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 use crate::hostkey;
+use crate::portfwd;
+use tokio::task::AbortHandle;
 
 /// Managed Tauri state: session id -> command sender.
 pub type SessionMap = Mutex<HashMap<String, SessionHandle>>;
@@ -19,6 +21,8 @@ pub type SessionMap = Mutex<HashMap<String, SessionHandle>>;
 /// Handle stored per live session; the read/drive task owns the channel.
 pub struct SessionHandle {
     tx: mpsc::UnboundedSender<SessionCommand>,
+    /// 이 세션에 붙은 포트 포워딩 리스너들. 세션 종료 시 abort 한다.
+    forwards: Vec<AbortHandle>,
 }
 
 enum SessionCommand {
@@ -116,9 +120,9 @@ pub async fn connect(
     cols: u32,
     rows: u32,
     charset: String,
-    // Some(세션명) 이면 수신 내용을 logs/<이름>-<시각>-<id>.log 에 기록.
-    // (파라미터에는 /// 문서 주석을 달 수 없다 — 컴파일 에러가 된다)
     log_name: Option<String>,
+    // 포트 포워딩 규칙(줄 단위). L:로컬:대상호스트:대상포트 / R:...
+    port_forwards: String,
 ) -> Result<String, String> {
     // 대화형 셸은 오래 유휴 상태일 수 있으므로 inactivity 타임아웃으로 끊지 않는다.
     // 대신 keepalive로 죽은 연결(피어 무응답)을 감지해 정리한다.
@@ -178,16 +182,49 @@ pub async fn connect(
 
     let id = uuid::Uuid::new_v4().to_string();
     let (tx, mut rx) = mpsc::unbounded_channel::<SessionCommand>();
+    let task_id = id.clone();
+
+    // 포워딩·종료(disconnect)를 위해 핸들을 여러 태스크가 공유한다.
+    let handle = Arc::new(handle);
+
+    // 포트 포워딩 리스너 기동. 상태 문구는 이 세션 터미널에 표시한다.
+    let mut forwards: Vec<AbortHandle> = Vec::new();
+    {
+        let notify_app = app.clone();
+        let notify_id = task_id.clone();
+        let notify = move |msg: String| {
+            let _ = notify_app.emit(
+                "ssh://data",
+                DataPayload {
+                    id: notify_id.clone(),
+                    data: format!("\r\n\x1b[36m{msg}\x1b[0m\r\n").into_bytes(),
+                },
+            );
+        };
+        let (rules, bad) = portfwd::parse(&port_forwards);
+        for line in bad {
+            notify(format!("[포워딩] 형식 오류로 건너뜀: {line}"));
+        }
+        for rule in rules {
+            if rule.local {
+                forwards.push(portfwd::spawn_local(handle.clone(), rule, notify.clone()));
+            } else {
+                notify(format!(
+                    "[포워딩] R:{} — 원격 포워딩(-R)은 아직 지원되지 않습니다",
+                    rule.bind_port
+                ));
+            }
+        }
+    }
 
     {
         let state = app.state::<SessionMap>();
         state
             .lock()
             .unwrap()
-            .insert(id.clone(), SessionHandle { tx });
+            .insert(id.clone(), SessionHandle { tx, forwards });
     }
 
-    let task_id = id.clone();
     let encoding = resolve_encoding(&charset);
     // 같은 세션을 같은 초에 두 번 열어도 파일이 섞이지 않도록 세션 id 를 붙인다.
     let mut log_file = log_name
@@ -278,7 +315,12 @@ pub async fn connect(
         }
 
         let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
-        app.state::<SessionMap>().lock().unwrap().remove(&task_id);
+        // 세션이 끝나면 이 세션의 포워딩 리스너도 정리한다.
+        if let Some(h) = app.state::<SessionMap>().lock().unwrap().remove(&task_id) {
+            for a in h.forwards {
+                a.abort();
+            }
+        }
         let _ = app.emit(
             "ssh://closed",
             ClosedPayload { id: task_id.clone(), message: reason },
@@ -313,6 +355,9 @@ pub fn close(app: &AppHandle, id: &str) -> Result<(), String> {
     let map = state.lock().unwrap();
     if let Some(handle) = map.get(id) {
         let _ = handle.tx.send(SessionCommand::Close);
+        for a in &handle.forwards {
+            a.abort();
+        }
     }
     Ok(())
 }

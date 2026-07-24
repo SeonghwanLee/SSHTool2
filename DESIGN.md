@@ -34,7 +34,7 @@ WPF의 최대 비용(OLE 마우스 캡처 도난, 커스텀 ScrollBar/ControlTem
 | `hostkey.rs` | known_hosts TOFU, SHA-256 지문 검증 | ✅ |
 | `localfs.rs` | SFTP 좌측 패널용 로컬 파일시스템 | ✅ |
 | `localshell.rs` | 로컬 셸(portable-pty) — cmd/pwsh, claude CLI 등 | ✅ |
-| `portfwd.rs` | 포트 포워딩 L:/R: | ❌ |
+| `portfwd.rs` | 포트 포워딩 L(구현)/R(예정) | 🟡 |
 
 ### 프론트 (TypeScript, `src/`)
 ```
@@ -88,7 +88,7 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **복구키**(160비트 base32 1회 발급) + **마스터 변경** + **무활동 자동잠금** — v0.8.0 선반영
       · 볼트 v2 구조: 랜덤 DEK 를 마스터/복구키로 각각 wrap → 마스터 변경 시 재암호화 불필요
 - [ ] OS 키체인 자동해제(이 PC에서 자동 잠금 해제)
-- [ ] **포트 포워딩** L:/R: 자동시작
+- [x] **포트 포워딩** L: 자동시작 — v0.13.0 (R: 예정)
 - [x] **뷰 모드** 탭/세로타일/가로타일(2×2, 포커스 테두리, 타일별 닫기, Ctrl+1–9) — v0.9.0
 - [x] **로컬 셸 세션**(portable-pty) — 서버 없이 cmd/PowerShell·claude CLI 실행 — v0.10.0
       · SSH 와 동일 이벤트를 써서 터미널 표시 경로 공유, 인증·SFTP 없음

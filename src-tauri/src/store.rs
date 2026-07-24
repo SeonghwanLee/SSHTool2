@@ -61,6 +61,9 @@ pub struct SessionInfo {
     /// 마지막 접속 시각(unix 초, 0=없음).
     #[serde(default)]
     pub last_connected_utc: i64,
+    /// 포트 포워딩 규칙(줄 단위).
+    #[serde(default)]
+    pub port_forwards: String,
 }
 
 fn default_kind() -> String {

@@ -53,4 +53,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           # Windows NSIS 인스톨러 타겟. 서명된 .nsis.zip + latest.json 이 릴리스에 업로드됨.
-          args: --target x86_64-pc-windows-msvc --bundles nsis,updater
+          args: --target x86_64-pc-windows-msvc --bundles nsis

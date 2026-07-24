@@ -438,6 +438,8 @@ export class TabManager {
   private readonly byLiveId = new Map<string, TerminalTab>();
   /** 아직 탭에 연결되기 전에 도착한 종료 이벤트(liveId → 사유). */
   private readonly pendingClosed = new Map<string, string>();
+  /** 접속 응답보다 먼저 도착한 출력(포워딩 상태 배너 등)을 잠시 보관한다. */
+  private readonly pendingData = new Map<string, number[][]>();
   private active: TerminalTab | null = null;
   private settings: Settings;
   private viewMode: ViewMode = "tabs";
@@ -455,7 +457,14 @@ export class TabManager {
 
     void onSshData((e) => {
       const tab = this.byLiveId.get(e.id);
-      if (!tab) return;
+      if (!tab) {
+        // 아직 이 id 가 탭에 연결되기 전 — 버려지지 않게 보관해 두었다가 연결 시 반영.
+        const buf = this.pendingData.get(e.id) ?? [];
+        buf.push(e.data);
+        if (buf.length <= 200) this.pendingData.set(e.id, buf); // 폭주 방지 상한
+        window.setTimeout(() => this.pendingData.delete(e.id), 10_000);
+        return;
+      }
       tab.writeBytes(e.data);
       if (tab !== this.active && !tab.activity) {
         tab.activity = true;
@@ -648,6 +657,7 @@ export class TabManager {
         rows: tab.rows,
         charset: tab.session.charset,
         logName: tab.session.enableLog ? tab.session.name || tab.session.host : null,
+            portForwards: tab.session.portForwards,
           });
       if (tab.disposed) {
         // 접속이 완료되기 전에 탭을 닫은 경우 — 세션이 새지 않도록 즉시 정리.
@@ -656,6 +666,12 @@ export class TabManager {
       }
       tab.setConnected(liveId);
       this.byLiveId.set(liveId, tab);
+      // 접속 응답보다 먼저 도착했던 출력(포워딩 배너 등)을 이제 반영한다.
+      const earlyData = this.pendingData.get(liveId);
+      if (earlyData) {
+        this.pendingData.delete(liveId);
+        for (const chunk of earlyData) tab.writeBytes(chunk);
+      }
       // 접속 응답보다 먼저 도착했던 종료 이벤트가 있으면 지금 반영한다.
       const early = this.pendingClosed.get(liveId);
       if (early !== undefined) {

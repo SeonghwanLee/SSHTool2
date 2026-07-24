@@ -69,6 +69,13 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         startup.placeholder = "접속 후 자동 실행 (한 줄에 하나)\n예: cd /projects\n예: claude";
         startup.value = initial.startupCommands;
 
+        const forwards = document.createElement("textarea");
+        forwards.className = "area-input";
+        forwards.rows = 2;
+        forwards.placeholder =
+          "포트 포워딩 (한 줄에 하나)\n예: L:8080:127.0.0.1:80\n(로컬 8080 → 서버 경유 → 대상)";
+        forwards.value = initial.portForwards;
+
         const logRow = document.createElement("label");
         logRow.className = "check-row";
         const logBox = document.createElement("input");
@@ -99,6 +106,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         buttons.append(cancel, ok);
 
         const charsetField = field("문자셋", charset);
+        const forwardsField = field("포트 포워딩", forwards);
         const hostField = field("호스트", host);
         const portField = field("포트", port);
         const userField = field("사용자", user);
@@ -114,6 +122,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
             (el as HTMLElement).style.display = local ? "" : "none";
           // 문자셋 변환은 SSH 전용 — 로컬 셸에서는 적용되지 않으므로 숨긴다.
           charsetField.style.display = local ? "none" : "";
+          forwardsField.style.display = local ? "none" : "";
         };
         kind.addEventListener("change", syncKind);
 
@@ -134,6 +143,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           section("자동화"),
           charsetField,
           field("접속 시 자동 실행", startup),
+          forwardsField,
           logRow,
           triggers.render(),
           err,
@@ -168,6 +178,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
             savePassword: savePw.checked,
             charset: charset.value as Charset,
             startupCommands: startup.value,
+            portForwards: forwards.value,
             enableLog: logBox.checked,
             triggers: triggers.value(),
           };
