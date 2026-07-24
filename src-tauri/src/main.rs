@@ -406,6 +406,64 @@ fn local_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
 }
 
+/// 세션(터미널) 시작 시 IME 를 영문(ALPHANUMERIC) 모드로 전환한다(Windows, best-effort).
+/// 포커스된 입력 창(WebView2 자식 HWND)의 IME 컨텍스트를 GetGUIThreadInfo 로 찾아 설정한다.
+#[cfg(windows)]
+#[tauri::command]
+fn ime_set_english() {
+    use std::os::raw::c_void;
+    #[repr(C)]
+    struct GuiThreadInfo {
+        cb_size: u32,
+        flags: u32,
+        hwnd_active: *mut c_void,
+        hwnd_focus: *mut c_void,
+        hwnd_capture: *mut c_void,
+        hwnd_menu_owner: *mut c_void,
+        hwnd_move_size: *mut c_void,
+        hwnd_caret: *mut c_void,
+        rc_caret: [i32; 4],
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetForegroundWindow() -> *mut c_void;
+        fn GetGUIThreadInfo(id_thread: u32, lpgui: *mut GuiThreadInfo) -> i32;
+    }
+    #[link(name = "imm32")]
+    extern "system" {
+        fn ImmGetContext(hwnd: *mut c_void) -> *mut c_void;
+        fn ImmSetConversionStatus(himc: *mut c_void, conversion: u32, sentence: u32) -> i32;
+        fn ImmReleaseContext(hwnd: *mut c_void, himc: *mut c_void) -> i32;
+    }
+    const IME_CMODE_ALPHANUMERIC: u32 = 0x0000;
+    const IME_SMODE_NONE: u32 = 0x0000;
+    unsafe {
+        let mut gti: GuiThreadInfo = std::mem::zeroed();
+        gti.cb_size = std::mem::size_of::<GuiThreadInfo>() as u32;
+        let mut hwnd = if GetGUIThreadInfo(0, &mut gti) != 0 && !gti.hwnd_focus.is_null() {
+            gti.hwnd_focus
+        } else {
+            std::ptr::null_mut()
+        };
+        if hwnd.is_null() {
+            hwnd = GetForegroundWindow();
+        }
+        if hwnd.is_null() {
+            return;
+        }
+        let himc = ImmGetContext(hwnd);
+        if himc.is_null() {
+            return;
+        }
+        ImmSetConversionStatus(himc, IME_CMODE_ALPHANUMERIC, IME_SMODE_NONE);
+        ImmReleaseContext(hwnd, himc);
+    }
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn ime_set_english() {}
+
 #[tauri::command]
 async fn sftp_mkdir(state: State<'_, SftpMap>, id: String, path: String) -> Result<(), String> {
     sftp::mkdir(&state, &id, path).await
@@ -499,7 +557,8 @@ fn main() {
             local_rename,
             local_exists,
             open_path,
-            local_temp_dir
+            local_temp_dir,
+            ime_set_english
         ])
         .run(tauri::generate_context!())
         .expect("error while running SSHTool2");

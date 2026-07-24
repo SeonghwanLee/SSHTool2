@@ -195,6 +195,12 @@ export class Sidebar {
     this.renderNode(rootNode, this.tree, 0);
   }
 
+  /** 폴더와 그 하위 모든 폴더를 접는다(우클릭 '폴더 접기'). */
+  private collapseTree(node: FolderNode): void {
+    this.collapsed.add(node.path);
+    for (const child of node.folders.values()) this.collapseTree(child);
+  }
+
   /** 상단 '최근 접속' 섹션 — 접속 이력이 있는 세션 최근 10개, 클릭 시 바로 접속. */
   private renderRecent(): void {
     if (this.recentLimit <= 0) return; // 0 = 최근 접속 섹션 숨김
@@ -264,6 +270,15 @@ export class Sidebar {
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         showContextMenu(e.clientX, e.clientY, [
+          {
+            label: "폴더 접기 (하위 폴더까지)",
+            accel: "c",
+            action: () => {
+              this.collapseTree(f);
+              this.render(this.sessions);
+            },
+          },
+          { separator: true },
           { label: "하위 새 폴더", accel: "n", action: () => this.cb.onNewFolder(f.path) },
           { label: "폴더 이름 변경", accel: "r", action: () => this.cb.onRenameFolder(f.path) },
           { separator: true },

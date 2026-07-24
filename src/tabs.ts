@@ -24,6 +24,7 @@ import {
   localClose,
   onSshData,
   onSshClosed,
+  imeSetEnglish,
 } from "./ipc";
 
 /** 세션 종류에 따라 전송 경로를 고른다(로컬 셸도 이벤트는 SSH 와 동일). */
@@ -156,6 +157,9 @@ class TerminalTab {
     this.term.loadAddon(uni);
     this.term.unicode.activeVersion = "11";
     this.term.open(this.termHost);
+    // 행 높이가 컨테이너에 딱 안 떨어질 때 하단에 남는 잔여 영역이 검게 비치는 걸 막는다
+    // — 컨테이너 배경을 터미널 배경색과 같게 칠해 눈에 띄지 않게 한다(글자 크기 무관).
+    this.termHost.style.background = theme.term.background ?? "";
 
     this.term.onData((d) => onInput(new TextEncoder().encode(d)));
     this.term.onResize(() => onResize());
@@ -350,7 +354,9 @@ class TerminalTab {
     t.options.cursorBlink = s.cursorBlink;
     t.options.cursorStyle = s.cursorStyle;
     t.options.scrollback = s.scrollback;
-    t.options.theme = themeById(s.theme).term;
+    const term = themeById(s.theme).term;
+    t.options.theme = term;
+    this.termHost.style.background = term.background ?? ""; // 하단 잔여 영역 색 동기화
     this.fitNow();
   }
 
@@ -374,7 +380,14 @@ class TerminalTab {
   }
   focus(): void {
     this.term.focus();
+    // 세션 첫 시작(첫 포커스) 시 1회만 IME 를 영문으로 전환한다(사용자 요청).
+    // 이후 사용자가 한글로 바꾸면 그대로 존중 — 매 포커스마다 강제하지 않는다.
+    if (!this.imeInitDone) {
+      this.imeInitDone = true;
+      setTimeout(() => void imeSetEnglish(), 80); // 포커스/IMC 안정 후
+    }
   }
+  private imeInitDone = false;
   writeBytes(data: number[]): void {
     const bytes = new Uint8Array(data);
     this.term.write(bytes);

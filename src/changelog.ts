@@ -9,6 +9,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.29.0",
+    date: "2026-07-24",
+    notes: [
+      "터미널 하단에 글자 크기에 따라 검게 보이던 잔여 띠 제거 — 컨테이너 배경을 터미널 배경색과 일치",
+      "세션(터미널) 첫 시작 시 입력기를 영문으로 전환(Windows) — 이후 한글로 바꾸면 그대로 유지",
+      "세션 목록에서 폴더 우클릭 → '폴더 접기 (하위 폴더까지)' 로 하위 폴더 전체를 한 번에 접기",
+    ],
+  },
+  {
     version: "0.28.0",
     date: "2026-07-24",
     notes: [

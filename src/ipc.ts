@@ -221,6 +221,8 @@ export const localExists = (path: string): Promise<boolean> =>
   invoke<boolean>("local_exists", { path });
 export const openPath = (path: string): Promise<void> => invoke("open_path", { path });
 export const localTempDir = (): Promise<string> => invoke<string>("local_temp_dir");
+/** 세션 시작 시 IME 를 영문 모드로(Windows best-effort, 그 외 플랫폼은 무동작). */
+export const imeSetEnglish = (): Promise<void> => invoke("ime_set_english");
 
 export const sftpMkdir = (id: string, path: string): Promise<void> =>
   invoke("sftp_mkdir", { id, path });
