@@ -620,7 +620,7 @@ button {
 #cmd-input {
   flex: 1 1 auto;
   min-width: 0;
-  background: #1b1b1b;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -886,7 +886,7 @@ button {
 }
 #session-search {
   width: 100%;
-  background: #00000022;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1068,7 +1068,7 @@ button {
 .theme-swatch {
   background: transparent;
   border: 2px solid transparent;
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 2px;
   cursor: pointer;
 }
@@ -1253,7 +1253,7 @@ button {
   grid-template-areas: "comp lic" "use use";
   column-gap: 10px;
   padding: 3px 2px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border);
 }
 .about-oss-comp {
   grid-area: comp;
@@ -1413,7 +1413,7 @@ button {
 .key-row input {
   flex: 1 1 auto;
   min-width: 0;
-  background: #00000022;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1422,7 +1422,7 @@ button {
   outline: none;
 }
 .area-input {
-  background: #00000022;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1465,7 +1465,7 @@ button {
 }
 .trigger-row input[type="text"],
 .trigger-row input:not([type]) {
-  background: #00000022;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1556,11 +1556,11 @@ button {
   user-select: none;
 }
 .sftp-tree .tree-node:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-2);
 }
 .sftp-tree .tree-node.tree-current {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 .sftp-tree .tree-arrow {
   flex: 0 0 12px;
@@ -1718,7 +1718,7 @@ button {
 .sftp-path {
   flex: 1 1 auto;
   min-width: 0;
-  background: #1b1b1b;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1741,7 +1741,7 @@ button {
   gap: 8px;
   padding: 6px 14px;
   font-size: 13px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
 }
 .sftp-row:hover {
   background: var(--panel-2);
@@ -1847,7 +1847,7 @@ button {
   color: var(--muted);
 }
 .field input {
-  background: #1b1b1b;
+  background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1948,4 +1948,23 @@ button {
 #session-tree::-webkit-scrollbar-thumb:hover {
   background: var(--accent);
   background-clip: padding-box;
+}
+
+.choice-buttons {
+  flex-wrap: wrap;
+}
+
+.tree-session.selected .tree-act {
+  color: var(--accent-ink);
+}
+
+/* 키보드 포커스 표시 — 웹뷰 기본 아웃라인을 껐으므로 명시적으로 준다. */
+button:focus-visible,
+.tab:focus-visible,
+.ctx-item:focus-visible,
+.tree-session:focus-visible,
+.font-row:focus-visible,
+.theme-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

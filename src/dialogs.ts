@@ -331,3 +331,48 @@ export function confirmDialog(message: string): Promise<boolean> {
     }, () => resolve(false));
   });
 }
+
+/** 여러 선택지 중 하나 고르기. 반환=선택한 value, 취소/Esc/바깥클릭=null. */
+export function choiceDialog(
+  message: string,
+  choices: { label: string; value: string; danger?: boolean; accent?: boolean }[],
+  title = "선택",
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    openModal(
+      (close) => {
+        const card = document.createElement("div");
+        const h = document.createElement("h3");
+        h.textContent = title;
+        const msg = document.createElement("div");
+        msg.className = "modal-msg";
+        msg.textContent = message;
+
+        const buttons = document.createElement("div");
+        buttons.className = "modal-buttons choice-buttons";
+        const cancel = document.createElement("button");
+        cancel.textContent = "취소";
+        cancel.addEventListener("click", () => {
+          close();
+          resolve(null);
+        });
+        buttons.appendChild(cancel);
+        for (const c of choices) {
+          const b = document.createElement("button");
+          b.textContent = c.label;
+          if (c.accent) b.className = "btn-accent";
+          if (c.danger) b.classList.add("danger-btn");
+          b.addEventListener("click", () => {
+            close();
+            resolve(c.value);
+          });
+          buttons.appendChild(b);
+        }
+
+        card.append(h, msg, buttons);
+        return card;
+      },
+      () => resolve(null),
+    );
+  });
+}

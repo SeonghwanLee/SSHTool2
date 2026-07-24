@@ -29,6 +29,7 @@ import {
   confirmDialog,
   textPrompt,
   alertDialog,
+  choiceDialog,
 } from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
 import { settingsDialog } from "./settingsdialog";
@@ -155,6 +156,30 @@ function applyDrop(all: SessionInfo[], sourceId: string, target: DropTarget): Se
   return all.map((s) =>
     order.has(s.id) ? { ...s, folder: dest.folder, sortOrder: order.get(s.id)! } : s,
   );
+}
+
+/**
+ * 폴더를 다른 폴더 안(destParent) 또는 루트("")로 옮긴다.
+ * 하위 폴더·세션 경로 접두사를 함께 바꿔 안의 것들이 모두 따라 이동한다.
+ */
+async function moveFolder(sourcePath: string, destParent: string): Promise<void> {
+  const seg = sourcePath.split("/").pop() ?? sourcePath;
+  const newPath = destParent ? `${destParent}/${seg}` : seg;
+  if (newPath === sourcePath) return; // 제자리
+  if (destParent === sourcePath || destParent.startsWith(`${sourcePath}/`)) {
+    await alertDialog("폴더를 자기 자신이나 그 하위로 옮길 수 없습니다.");
+    return;
+  }
+  const rePrefix = (folder: string): string => {
+    if (folder === sourcePath) return newPath;
+    if (folder.startsWith(`${sourcePath}/`)) return newPath + folder.slice(sourcePath.length);
+    return folder;
+  };
+  sessions = sessions.map((s) => ({ ...s, folder: rePrefix(s.folder) }));
+  settings = { ...settings, folders: settings.folders.map(rePrefix) };
+  await persist();
+  await saveSettings(settings);
+  redraw();
 }
 
 /** 볼트가 잠겨 있으면 마스터 입력을 받아 해제(없으면 최초 생성). 준비되면 true. */
@@ -511,6 +536,9 @@ async function main(): Promise<void> {
         await persist();
         redraw();
       },
+      onMoveFolder: async (sourcePath, destParent) => {
+        await moveFolder(sourcePath, destParent);
+      },
       onNewFolder: (parent) => void newFolderFlow(parent),
       onRenameFolder: async (path) => {
         const last = path.split("/").pop() ?? path;
@@ -534,13 +562,40 @@ async function main(): Promise<void> {
         redraw();
       },
       onDeleteFolder: async (path) => {
-        const ok = await confirmDialog(
-          `'${path}' 폴더를 삭제할까요? 안의 세션은 삭제되지 않고 루트로 이동합니다.`,
+        const inFolder = (x: SessionInfo) => x.folder === path || x.folder.startsWith(`${path}/`);
+        const count = sessions.filter(inFolder).length;
+        const choice = await choiceDialog(
+          count > 0
+            ? `'${path}' 폴더에 세션 ${count}개가 있습니다. 어떻게 삭제할까요?`
+            : `'${path}' 폴더를 삭제할까요?`,
+          [
+            { label: "폴더만 삭제 (세션은 루트로)", value: "folder", accent: true },
+            ...(count > 0
+              ? [{ label: "폴더 + 세션까지 삭제", value: "all", danger: true } as const]
+              : []),
+          ],
+          "폴더 삭제",
         );
-        if (!ok) return;
-        sessions = sessions.map((x) =>
-          x.folder === path || x.folder.startsWith(`${path}/`) ? { ...x, folder: "" } : x,
-        );
+        if (!choice) return;
+
+        if (choice === "all") {
+          const ok = await confirmDialog(
+            `폴더 안의 세션 ${count}개까지 모두 삭제합니다. 되돌릴 수 없습니다. 계속할까요?`,
+          );
+          if (!ok) return;
+          const removed = sessions.filter(inFolder);
+          sessions = sessions.filter((x) => !inFolder(x));
+          for (const s of removed) {
+            try {
+              await vaultDeletePassword(s.id);
+            } catch {
+              /* 무시 */
+            }
+          }
+        } else {
+          // 폴더만: 안의 세션은 루트로 이동.
+          sessions = sessions.map((x) => (inFolder(x) ? { ...x, folder: "" } : x));
+        }
         settings = {
           ...settings,
           folders: settings.folders.filter((f) => f !== path && !f.startsWith(`${path}/`)),

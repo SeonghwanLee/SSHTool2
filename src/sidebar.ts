@@ -22,6 +22,8 @@ interface SidebarCallbacks {
   onDeleteFolder: (path: string) => void;
   /** 드래그로 세션을 다른 세션 위/아래(순서) 또는 폴더 안으로 옮길 때. */
   onDropSession: (sourceId: string, target: DropTarget) => void;
+  /** 폴더를 다른 폴더 안(또는 루트)으로 이동 — 하위 폴더·세션까지 함께 옮긴다. */
+  onMoveFolder: (sourcePath: string, destParent: string) => void;
 }
 
 /** 드롭 위치 — 세션 앞/뒤에 끼우기, 또는 폴더로 이동. */
@@ -30,6 +32,7 @@ export type DropTarget =
   | { kind: "folder"; path: string };
 
 const DRAG_TYPE = "application/x-sshtool-session";
+const DRAG_FOLDER = "application/x-sshtool-folder";
 
 interface FolderNode {
   name: string;
@@ -73,7 +76,9 @@ export class Sidebar {
 
     // 빈 영역에 드롭 = 루트로 꺼내기(모든 세션이 폴더 안이면 다른 방법이 없다).
     this.tree.addEventListener("dragover", (e) => {
-      if (e.target !== this.tree || !e.dataTransfer?.types.includes(DRAG_TYPE)) return;
+      const ty = e.dataTransfer?.types;
+      if (e.target !== this.tree || !ty || (!ty.includes(DRAG_TYPE) && !ty.includes(DRAG_FOLDER)))
+        return;
       e.preventDefault();
       this.tree.classList.add("drop-root");
     });
@@ -86,7 +91,12 @@ export class Sidebar {
       if (e.target !== this.tree) return;
       e.preventDefault();
       const id = e.dataTransfer?.getData(DRAG_TYPE);
-      if (id) this.cb.onDropSession(id, { kind: "folder", path: "" });
+      if (id) {
+        this.cb.onDropSession(id, { kind: "folder", path: "" });
+        return;
+      }
+      const src = e.dataTransfer?.getData(DRAG_FOLDER);
+      if (src) this.cb.onMoveFolder(src, ""); // 폴더를 루트로 이동
     });
 
     // 빈 영역 우클릭 = 트리 전체 대상 메뉴.
@@ -237,6 +247,12 @@ export class Sidebar {
       label.className = "tree-folder-label";
       label.textContent = f.name;
       row.append(arrow, label);
+      row.draggable = true;
+      row.addEventListener("dragstart", (e) => {
+        e.stopPropagation();
+        e.dataTransfer?.setData(DRAG_FOLDER, f.path);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
       row.addEventListener("click", () => {
         if (isCollapsed) this.collapsed.delete(f.path);
         else this.collapsed.add(f.path);
@@ -257,7 +273,8 @@ export class Sidebar {
         ]);
       });
       row.addEventListener("dragover", (e) => {
-        if (!e.dataTransfer?.types.includes(DRAG_TYPE)) return;
+        const ty = e.dataTransfer?.types;
+        if (!ty || (!ty.includes(DRAG_TYPE) && !ty.includes(DRAG_FOLDER))) return;
         e.preventDefault();
         row.classList.add("drop-into");
       });
@@ -268,12 +285,15 @@ export class Sidebar {
       row.addEventListener("drop", (e) => {
         e.preventDefault();
         row.classList.remove("drop-into");
+        // 접혀 있으면 펼쳐 준다 — 안 그러면 옮긴 항목이 사라진 것처럼 보인다.
+        this.collapsed.delete(f.path);
         const id = e.dataTransfer?.getData(DRAG_TYPE);
         if (id) {
-          // 접혀 있으면 펼쳐 준다 — 안 그러면 옮긴 세션이 사라진 것처럼 보인다.
-          this.collapsed.delete(f.path);
           this.cb.onDropSession(id, { kind: "folder", path: f.path });
+          return;
         }
+        const src = e.dataTransfer?.getData(DRAG_FOLDER);
+        if (src) this.cb.onMoveFolder(src, f.path); // 이 폴더 안으로 이동
       });
 
       parent.appendChild(row);
