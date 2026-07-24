@@ -454,6 +454,7 @@ export class TabManager {
   private active: TerminalTab | null = null;
   private settings: Settings;
   private viewMode: ViewMode = "tabs";
+  private refitPending = false;
 
   constructor(
     private readonly tabbar: HTMLElement,
@@ -498,7 +499,36 @@ export class TabManager {
       if (tab === this.active) this.emitStatus();
     });
 
-    window.addEventListener("resize", () => this.fitActive());
+    // 패널 영역 크기가 바뀌면 항상 터미널을 다시 맞춘다 — 창 리사이즈뿐 아니라
+    // 동시명령 창 토글·사이드바 폭 조절처럼 window resize 가 안 뜨는 경우까지 커버.
+    // (안 하면 줄어들었던 영역이 터미널 배경(검은색)으로 남는다.) rAF 로 합쳐 과호출 방지.
+    const scheduleRefit = () => {
+      if (this.refitPending) return;
+      this.refitPending = true;
+      requestAnimationFrame(() => {
+        this.refitPending = false;
+        this.fitActive();
+      });
+    };
+    window.addEventListener("resize", scheduleRefit);
+    new ResizeObserver(scheduleRefit).observe(this.panes);
+
+    // 듀얼모니터에서 배율이 다른 화면으로 창을 옮기면 devicePixelRatio 가 바뀐다.
+    // CSS 픽셀 크기가 그대로여도(→ ResizeObserver 안 뜸) 셀 계측이 어긋날 수 있으니
+    // DPR 변화를 직접 감지해 refit. 미디어쿼리는 특정 배율에 고정돼 한 번 쓰고 재등록한다.
+    const watchDpr = () => {
+      window
+        .matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+        .addEventListener(
+          "change",
+          () => {
+            scheduleRefit();
+            watchDpr();
+          },
+          { once: true },
+        );
+    };
+    watchDpr();
 
     document.addEventListener("keydown", (e) => {
       if (!e.ctrlKey) return;

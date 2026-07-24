@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.20.1",
+    date: "2026-07-24",
+    notes: [
+      "동시명령 창을 켰다 끄면 그 영역이 검게 남던 문제 수정 — 터미널 컨테이너에 ResizeObserver 를 달아 창 리사이즈 이벤트가 없어도 항상 다시 맞춤(사이드바 폭 조절 시에도 동일 적용)",
+      "듀얼모니터 대응 — 배율(DPI)이 다른 화면으로 창을 옮겨 devicePixelRatio 가 바뀌면 터미널을 자동으로 다시 맞춤",
+    ],
+  },
+  {
     version: "0.20.0",
     date: "2026-07-24",
     notes: [
