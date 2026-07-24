@@ -16,6 +16,7 @@ import {
   sftpCanonicalize,
   onSftpProgress,
   localDefaultDir,
+  localRoots,
   localList,
   localParent,
   localMkdir,
@@ -53,6 +54,27 @@ function remoteParent(path: string): string {
   if (cut < 0) return ".";
   if (cut === 0) return "/";
   return p.slice(0, cut);
+}
+
+/** path 가 root 아래(또는 root 자신)인가 — 트리 루트 판별용. */
+function pathUnder(path: string, root: string): boolean {
+  if (root === "/") return path.startsWith("/");
+  const r = root.replace(/\/+$/, "");
+  return path === r || path.startsWith(`${r}/`);
+}
+
+/** root 부터 path 까지의 조상 경로 체인 [root, …, path](트리 펼침용). */
+function dirChain(root: string, path: string): string[] {
+  const chain = [root];
+  if (!pathUnder(path, root)) return chain;
+  const rest = path.slice(root.length).replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!rest) return chain;
+  let cur = root === "/" ? "" : root.replace(/\/+$/, "");
+  for (const seg of rest.split("/")) {
+    cur = `${cur}/${seg}`;
+    chain.push(cur);
+  }
+  return chain;
 }
 
 function fmtSize(n: number): string {
@@ -235,18 +257,129 @@ export async function openSftpBrowser(
     if (e.target === overlay) cleanup();
   });
 
+  // ── 디렉터리 트리(지연 로딩) ──
+  // 각 패널 상단의 폴더 트리. 확장 시에만 하위 폴더를 조회하고, 목록 이동 시
+  // 해당 경로까지 자동으로 펼쳐 강조한다. 클릭하면 아래 목록이 그 폴더로 이동.
+  class DirTree {
+    readonly el = document.createElement("div");
+    private roots: string[] = [];
+    private readonly expanded = new Set<string>();
+    private readonly children = new Map<string, string[]>(); // 경로 → 하위 폴더 경로들
+    private current = "";
+
+    constructor(
+      private readonly side: Side,
+      private readonly onPick: (path: string) => void,
+    ) {
+      this.el.className = "sftp-tree";
+    }
+
+    init(roots: string[]): void {
+      this.roots = roots;
+      this.render();
+    }
+
+    /** 하위 폴더 목록을 조회(캐시). 실패해도 빈 배열로 안전 처리. */
+    private async load(path: string): Promise<string[]> {
+      const cached = this.children.get(path);
+      if (cached) return cached;
+      try {
+        const entries =
+          this.side === "local" ? await localList(path) : await sftpList(sftpId!, path || ".");
+        const dirs = (entries as Entry[])
+          .filter((e) => e.isDir && e.name !== "." && e.name !== "..")
+          .map((e) => e.path)
+          .sort((a, b) => baseName(a).localeCompare(baseName(b), "ko"));
+        this.children.set(path, dirs);
+        return dirs;
+      } catch {
+        this.children.set(path, []);
+        return [];
+      }
+    }
+
+    /**
+     * 주어진 경로까지 조상들을 펼치고 강조(목록 이동과 동기화).
+     * force=true 면 그 폴더의 하위 캐시를 버려 다시 조회(생성/삭제/이름변경 반영).
+     */
+    async reveal(path: string, force = false): Promise<void> {
+      this.current = path;
+      if (force) this.children.delete(path);
+      const root = this.roots.find((r) => pathUnder(path, r));
+      if (root) {
+        for (const seg of dirChain(root, path)) {
+          this.expanded.add(seg);
+          await this.load(seg);
+        }
+      }
+      this.render();
+    }
+
+    private render(): void {
+      this.el.innerHTML = "";
+      for (const r of this.roots) this.renderNode(r, 0);
+      if (this.roots.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "tree-empty";
+        empty.textContent = "…";
+        this.el.appendChild(empty);
+      }
+    }
+
+    private renderNode(path: string, depth: number): void {
+      const kids = this.children.get(path);
+      const isOpen = this.expanded.has(path);
+      const expandable = kids === undefined || kids.length > 0; // 미조회는 일단 펼침 가능으로
+
+      const row = document.createElement("div");
+      row.className = "tree-node" + (path === this.current ? " tree-current" : "");
+      row.style.paddingLeft = `${4 + depth * 14}px`;
+
+      const arrow = document.createElement("span");
+      arrow.className = "tree-arrow";
+      arrow.textContent = expandable ? (isOpen ? "▾" : "▸") : "";
+      arrow.addEventListener("click", async (e) => {
+        e.stopPropagation(); // 화살표는 펼침만, 이동은 안 함
+        if (this.expanded.has(path)) this.expanded.delete(path);
+        else {
+          this.expanded.add(path);
+          await this.load(path);
+        }
+        this.render();
+      });
+
+      const icon = document.createElement("span");
+      icon.className = "tree-folder-icon";
+      icon.textContent = isOpen ? "📂" : "📁";
+
+      const label = document.createElement("span");
+      label.className = "tree-node-label";
+      label.textContent = this.roots.includes(path) ? path : baseName(path);
+
+      row.append(arrow, icon, label);
+      row.addEventListener("click", () => this.onPick(path));
+      this.el.appendChild(row);
+
+      if (isOpen && kids) {
+        for (const k of kids) this.renderNode(k, depth + 1);
+      }
+    }
+  }
+
   // ── 파일 목록 패널 ──
   class Pane {
     path = "";
     entries: Entry[] = [];
     readonly selected = new Set<string>();
     readonly root = document.createElement("div");
+    readonly tree: DirTree;
     private readonly listEl = document.createElement("div");
     private readonly pathInput = document.createElement("input");
     other!: Pane;
 
     constructor(readonly side: Side) {
       this.root.className = "sftp-pane";
+      this.tree = new DirTree(side, (p) => void this.go(p));
 
       const head = document.createElement("div");
       head.className = "sftp-pane-head";
@@ -298,10 +431,34 @@ export async function openSftpBrowser(
         }
       });
 
-      this.root.append(head, this.listEl);
+      // 트리(상단) ↔ 목록(하단) 세로 크기 조절 스플리터.
+      const hsplit = document.createElement("div");
+      hsplit.className = "sftp-hsplitter";
+      hsplit.addEventListener("mousedown", (down) => {
+        down.preventDefault();
+        const startY = down.clientY;
+        const startH = this.tree.el.getBoundingClientRect().height;
+        const paneH = this.root.getBoundingClientRect().height;
+        const onUp = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+        };
+        const onMove = (m: MouseEvent) => {
+          if (m.buttons === 0) {
+            onUp();
+            return;
+          }
+          const h = Math.max(48, Math.min(paneH - 120, startH + (m.clientY - startY)));
+          this.tree.el.style.flex = `0 0 ${h}px`;
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      });
+
+      this.root.append(head, this.tree.el, hsplit, this.listEl);
     }
 
-    async go(path: string): Promise<void> {
+    async go(path: string, force = false): Promise<void> {
       try {
         const entries =
           this.side === "local" ? await localList(path) : await sftpList(sftpId!, path || ".");
@@ -310,13 +467,14 @@ export async function openSftpBrowser(
         this.entries = entries as Entry[];
         this.selected.clear();
         this.draw();
+        void this.tree.reveal(path, force); // 트리 강조·펼침 동기화(reload 는 캐시 갱신)
       } catch (e) {
         setStatus(`목록 실패: ${String(e)}`);
       }
     }
 
     reload(): Promise<void> {
-      return this.go(this.path);
+      return this.go(this.path, true); // 폴더 생성/삭제/이름변경 후 트리도 갱신
     }
 
     focusList(): void {
@@ -629,6 +787,11 @@ export async function openSftpBrowser(
   // ── 시작: 로컬 기본 폴더 + 원격 접속 ──
   setStatus("접속 중…");
   try {
+    local.tree.init(await localRoots());
+  } catch {
+    local.tree.init(["/"]);
+  }
+  try {
     const start = await localDefaultDir();
     await local.go(start);
   } catch {
@@ -650,6 +813,7 @@ export async function openSftpBrowser(
     } catch {
       start = ".";
     }
+    remote.tree.init(["/"]); // 원격 트리 루트
     await remote.go(start);
     setStatus("연결됨");
     // 인증이 확인된 뒤에만 저장 제안 등을 수행한다(틀린 비번을 볼트에 넣지 않도록).

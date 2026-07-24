@@ -9,6 +9,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.18.0",
+    date: "2026-07-24",
+    notes: [
+      "SFTP 4분할 — 로컬/원격 각 패널에 폴더 트리 추가(FileZilla 방식). 트리 클릭으로 이동, 목록 이동 시 트리 자동 펼침·강조",
+      "트리는 펼칠 때만 하위 폴더를 조회(지연 로딩), 폴더 생성/삭제/이름변경 시 자동 갱신",
+      "Windows 는 드라이브(C:/, D:/…)를, 그 외는 / 를 트리 루트로 표시",
+      "트리↔목록 세로 크기 조절 스플리터",
+    ],
+  },
+  {
     version: "0.17.0",
     date: "2026-07-24",
     notes: [

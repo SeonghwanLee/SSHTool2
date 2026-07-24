@@ -207,6 +207,7 @@ export interface LocalEntry {
 }
 
 export const localDefaultDir = (): Promise<string> => invoke<string>("local_default_dir");
+export const localRoots = (): Promise<string[]> => invoke<string[]>("local_roots");
 export const localList = (path: string): Promise<LocalEntry[]> =>
   invoke<LocalEntry[]>("local_list", { path });
 export const localParent = (path: string): Promise<string> =>

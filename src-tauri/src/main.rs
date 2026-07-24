@@ -342,6 +342,11 @@ fn local_default_dir() -> String {
 }
 
 #[tauri::command]
+fn local_roots() -> Vec<String> {
+    localfs::roots()
+}
+
+#[tauri::command]
 fn local_list(path: String) -> Result<Vec<localfs::LocalEntry>, String> {
     localfs::list(&path)
 }
@@ -456,6 +461,7 @@ fn main() {
             local_resize,
             local_close,
             local_default_dir,
+            local_roots,
             local_list,
             local_parent,
             local_mkdir,

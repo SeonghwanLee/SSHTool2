@@ -48,6 +48,28 @@ fn dirs_home() -> PathBuf {
     }
 }
 
+/// 트리 루트 목록 — Windows 는 드라이브(C:/, D:/…), 그 외는 "/".
+pub fn roots() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        let mut out = Vec::new();
+        for c in b'A'..=b'Z' {
+            let drive = format!("{}:/", c as char);
+            if Path::new(&drive).is_dir() {
+                out.push(drive);
+            }
+        }
+        if out.is_empty() {
+            out.push("C:/".to_string());
+        }
+        out
+    }
+    #[cfg(not(windows))]
+    {
+        vec!["/".to_string()]
+    }
+}
+
 pub fn list(path: &str) -> Result<Vec<LocalEntry>, String> {
     let dir = if path.trim().is_empty() {
         dirs_home()

@@ -1092,6 +1092,55 @@ button {
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
 }
+/* 4분할: 패널 상단 폴더 트리 + 세로 스플리터 */
+.sftp-tree {
+  flex: 0 0 34%;
+  min-height: 48px;
+  overflow: auto;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.06);
+}
+.sftp-hsplitter {
+  flex: 0 0 6px;
+  cursor: row-resize;
+  background: var(--border);
+}
+.sftp-hsplitter:hover {
+  background: var(--accent);
+}
+.sftp-tree .tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding-right: 8px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.sftp-tree .tree-node:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.sftp-tree .tree-node.tree-current {
+  background: var(--accent);
+  color: #fff;
+}
+.sftp-tree .tree-arrow {
+  flex: 0 0 12px;
+  text-align: center;
+  font-size: 10px;
+  opacity: 0.8;
+}
+.sftp-tree .tree-folder-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+.sftp-tree .tree-node-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .pane-label {
   font-size: 12px;
   font-weight: 600;
