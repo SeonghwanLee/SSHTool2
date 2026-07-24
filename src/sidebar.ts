@@ -19,7 +19,16 @@ interface SidebarCallbacks {
   onImport: () => void;
   onRenameFolder: (path: string) => void;
   onDeleteFolder: (path: string) => void;
+  /** 드래그로 세션을 다른 세션 위/아래(순서) 또는 폴더 안으로 옮길 때. */
+  onDropSession: (sourceId: string, target: DropTarget) => void;
 }
+
+/** 드롭 위치 — 세션 앞/뒤에 끼우기, 또는 폴더로 이동. */
+export type DropTarget =
+  | { kind: "session"; id: string; before: boolean }
+  | { kind: "folder"; path: string };
+
+const DRAG_TYPE = "application/x-sshtool-session";
 
 interface FolderNode {
   name: string;
@@ -166,6 +175,19 @@ export class Sidebar {
           },
         ]);
       });
+      row.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer?.types.includes(DRAG_TYPE)) return;
+        e.preventDefault();
+        row.classList.add("drop-into");
+      });
+      row.addEventListener("dragleave", () => row.classList.remove("drop-into"));
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        row.classList.remove("drop-into");
+        const id = e.dataTransfer?.getData(DRAG_TYPE);
+        if (id) this.cb.onDropSession(id, { kind: "folder", path: f.path });
+      });
+
       parent.appendChild(row);
       if (!isCollapsed) this.renderNode(f, parent, depth + 1);
     }
@@ -232,6 +254,33 @@ export class Sidebar {
       this.cb.onDelete(s);
     });
     actions.append(sftp, edit, del);
+
+    row.draggable = true;
+    row.addEventListener("dragstart", (e) => {
+      e.dataTransfer?.setData(DRAG_TYPE, s.id);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    });
+    row.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types.includes(DRAG_TYPE)) return;
+      e.preventDefault();
+      // 행의 위/아래 절반에 따라 삽입 위치를 표시(WPF 0.6.2 삽입선).
+      const r = row.getBoundingClientRect();
+      const before = e.clientY < r.top + r.height / 2;
+      row.classList.toggle("drop-before", before);
+      row.classList.toggle("drop-after", !before);
+    });
+    row.addEventListener("dragleave", () => {
+      row.classList.remove("drop-before", "drop-after");
+    });
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const before = row.classList.contains("drop-before");
+      row.classList.remove("drop-before", "drop-after");
+      const id = e.dataTransfer?.getData(DRAG_TYPE);
+      if (id && id !== s.id) {
+        this.cb.onDropSession(id, { kind: "session", id: s.id, before });
+      }
+    });
 
     row.append(icon, main, actions);
     // 더블클릭 = 접속(단일 클릭 중복·오접속 방지). 선택 하이라이트만 단일 클릭.

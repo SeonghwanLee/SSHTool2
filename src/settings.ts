@@ -21,6 +21,8 @@ export interface Settings {
   autoLockMinutes: number;
   /** 세션 화면 배치(탭/세로 분할/가로 분할). */
   viewMode: ViewModeSetting;
+  /** 시작 시 업데이트 확인. 내부망 전용 PC 에서는 꺼두면 외부 통신을 시도하지 않는다. */
+  checkUpdateOnStartup: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   folders: [],
   autoLockMinutes: 0,
   viewMode: "tabs",
+  checkUpdateOnStartup: true,
 };
 
 export interface FontChoice {

@@ -183,6 +183,16 @@ button {
 .tree-session:hover {
   background: var(--panel-2);
 }
+.tree-session.drop-before {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+.tree-session.drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+.tree-folder.drop-into {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
 .tree-session.selected {
   background: var(--accent);
 }

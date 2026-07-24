@@ -217,6 +217,13 @@ export function settingsDialog(
     hostRow.appendChild(hostBtn);
     card.appendChild(hostRow);
 
+    card.appendChild(
+      checkRow("시작 시 업데이트 확인 (내부망이면 꺼두세요)", working.checkUpdateOnStartup, (v) => {
+        working = { ...working, checkUpdateOnStartup: v };
+        apply();
+      }),
+    );
+
     // ── 데이터(백업·복원·초기화) ──
     card.appendChild(sectionLabel("데이터"));
 

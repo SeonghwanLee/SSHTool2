@@ -62,7 +62,8 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **탭 상태색** — 비활성 탭 출력=호박색, 끊김=적색(글자 검정), 열어보면 해제
 - [x] **상태바** — 세션 상태 / 터미널 크기 / 커서 / 인코딩
 - [x] **사이드바 검색**(250ms 디바운스+✕클리어) + 폴더 접힘 유지
-- [ ] 남음: Shift+PageUp/Down 스크롤백 단축키, 한영·CAP·NUM 표시, 세션 1줄 세부토글, Ctrl+Shift+T
+- [x] Shift+PageUp/Down 스크롤백, Ctrl+Shift+T 빠른접속 — v0.10.0
+- [ ] 남음: 한영·CAP·NUM 표시, 세션 1줄 세부토글
 
 ### Phase 2 — 데이터 & 온보딩 (v0.7) ✅
 - [x] **세션 임포트** PuTTY(레지스트리·CP949)/SecureCRT(ini)/MobaXterm(ini) — 프로그램/폴더 그룹 트리, 검색, host+user 중복제거, 비밀번호 제외
@@ -70,7 +71,8 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **우클릭 컨텍스트 메뉴** + 단축키(C/F/E/U/M/R/K/J/N/D/B/I)
 - [x] **호스트키 TOFU 검증** — SHA-256 지문 known_hosts.json, 불일치 시 거부 + 안내, 관리 UI(개별/전체 삭제)
 - [x] **세션별 옵션** — 문자셋(UTF-8/EUC-KR/CP949, 스트리밍 변환)·접속시 자동실행 명령·트리거(패턴→자동입력, 쿨다운·평문 경고)
-- [ ] 남음: 드래그앤드롭 순서변경(삽입선), 최근접속순 정렬
+- [x] 드래그앤드롭 순서변경(삽입선)·폴더 이동 — v0.11.0
+- [ ] 남음: 최근접속순 정렬
 
 ### Phase 3 — SFTP 완전판 (v0.8) ✅
 - [x] **로컬 | 원격 이중 패널**(FileZilla식) — 각 패널 경로바·상위·새로고침·새 폴더
@@ -94,7 +96,9 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 ### Phase 5 — 마감 폴리시 (v1.0)
 - [ ] **인앱 한글 오토마타**(두벌식, 플로팅 IME 제거 — HangulComposer 로직 이식)
 - [x] **About/체인지로그** — 배너·버전 배지·이력(최근 5 + 더보기)·업데이트 확인·진단 정보 복사 — v0.10.0
-- [ ] 설정 export/import(zip), 오프라인 모드, 공장초기화, 세션상세 토글
+- [x] 설정 export/import(JSON 번들)·공장초기화 — v0.10.0
+- [x] 오프라인(내부망) 모드 — v0.11.0
+- [ ] 남음: 세션상세 토글
 
 ---
 

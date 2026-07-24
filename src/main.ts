@@ -17,7 +17,7 @@ import {
   vaultDeletePassword,
 } from "./ipc";
 import { TabManager, type CredentialProvider, type StatusInfo } from "./tabs";
-import { Sidebar } from "./sidebar";
+import { Sidebar, type DropTarget } from "./sidebar";
 import { passwordPrompt, masterPrompt, confirmDialog, textPrompt, alertDialog } from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
 import { settingsDialog } from "./settingsdialog";
@@ -78,6 +78,38 @@ function reorderSession(all: SessionInfo[], target: SessionInfo, dir: -1 | 1): S
   order.set(siblings[swapWith].id, idx);
 
   return all.map((s) => (order.has(s.id) ? { ...s, sortOrder: order.get(s.id)! } : s));
+}
+
+/**
+ * 드래그로 옮긴 결과를 세션 목록에 반영한다.
+ * - 폴더에 드롭: 그 폴더로 이동(순서는 맨 뒤)
+ * - 세션 위/아래에 드롭: 대상과 같은 폴더로 옮기고 그 앞/뒤에 끼운다
+ */
+function applyDrop(all: SessionInfo[], sourceId: string, target: DropTarget): SessionInfo[] {
+  const source = all.find((s) => s.id === sourceId);
+  if (!source) return all;
+
+  if (target.kind === "folder") {
+    if (source.folder === target.path) return all;
+    return all.map((s) => (s.id === sourceId ? { ...s, folder: target.path } : s));
+  }
+
+  const dest = all.find((s) => s.id === target.id);
+  if (!dest || dest.id === sourceId) return all;
+
+  // 대상 폴더의 형제들을 현재 표시 순서대로 모아 source 를 원하는 자리에 끼운다.
+  const siblings = all
+    .filter((s) => s.folder === dest.folder && s.id !== sourceId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ko"));
+
+  const at = siblings.findIndex((s) => s.id === dest.id);
+  const insertAt = target.before ? at : at + 1;
+  const ordered = [...siblings.slice(0, insertAt), source, ...siblings.slice(insertAt)];
+
+  const order = new Map(ordered.map((s, i) => [s.id, i]));
+  return all.map((s) =>
+    order.has(s.id) ? { ...s, folder: dest.folder, sortOrder: order.get(s.id)! } : s,
+  );
 }
 
 /** 볼트가 잠겨 있으면 마스터 입력을 받아 해제(없으면 최초 생성). 준비되면 true. */
@@ -314,6 +346,11 @@ async function main(): Promise<void> {
         const imported = await importDialog(sessions);
         if (imported.length === 0) return;
         sessions = [...sessions, ...imported];
+        await persist();
+        redraw();
+      },
+      onDropSession: async (sourceId, target) => {
+        sessions = applyDrop(sessions, sourceId, target);
         await persist();
         redraw();
       },
@@ -561,15 +598,29 @@ function wireCommandBar(tabs: TabManager): void {
 }
 
 async function checkForUpdates(): Promise<void> {
+  // 내부망 전용 PC 에서는 아예 시도하지 않는다.
+  if (!settings.checkUpdateOnStartup) return;
   try {
     const update = await check();
     if (!update) return;
-    const ok = confirm(`새 버전 ${update.version} 이(가) 있습니다. 지금 설치할까요?`);
+    const ok = await confirmDialog(`새 버전 ${update.version} 이(가) 있습니다. 지금 설치할까요?`);
     if (!ok) return;
     await update.downloadAndInstall();
     await relaunch();
-  } catch {
-    // 무업데이트/오프라인/미구성은 조용히 무시.
+  } catch (e) {
+    // 인터넷이 안 되는 환경이면 매번 실패하므로, 그 자리에서 끌 수 있게 제안한다.
+    console.error("업데이트 확인 실패", e);
+    const turnOff = await confirmDialog(
+      "업데이트 확인에 실패했습니다(인터넷 연결 불가로 보입니다).\n" +
+        "시작 시 업데이트 확인 기능을 끌까요? (설정에서 다시 켤 수 있습니다)",
+    );
+    if (!turnOff) return;
+    settings = { ...settings, checkUpdateOnStartup: false };
+    try {
+      await saveSettings(settings);
+    } catch {
+      /* 무시 */
+    }
   }
 }
 

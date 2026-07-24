@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.11.0",
+    date: "2026-07-24",
+    notes: [
+      "세션 목록 드래그 정리 — 세션을 끌어 다른 세션 위/아래로 순서를 바꾸거나 폴더 안으로 이동. 놓을 위치가 선으로 표시됨",
+      "내부망 모드 — 시작 시 업데이트 확인을 끌 수 있고, 확인에 실패하면 그 자리에서 끌지 물어봄(설정에서 다시 켜기 가능)",
+    ],
+  },
+  {
     version: "0.10.0",
     date: "2026-07-24",
     notes: [
