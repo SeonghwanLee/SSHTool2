@@ -333,10 +333,47 @@ function applyStaticIcons(): void {
     const el = document.getElementById(id);
     if (el) applyIcon(el, name);
   }
+  const lockGlyph = document.querySelector(".lock-overlay-glyph");
+  if (lockGlyph) applyIcon(lockGlyph, "lock");
+}
+
+/**
+ * 웹뷰 기본 단축키(리로드·찾기·인쇄·확대 등) 차단 — 앱이 의도적으로 쓰는 키는 보존.
+ * preventDefault 만 하고 전파는 막지 않으므로, 각 컴포넌트의 자체 핸들러(SFTP F5 새로고침,
+ * 터미널 검색 등)는 그대로 동작한다.
+ */
+function wireBrowserKeyGuard(): void {
+  // 앱이 쓰지 않는 브라우저 전용 기능키.
+  const blockedFn = new Set(["F1", "F3", "F6", "F7"]);
+  // Ctrl 단독 조합 중 브라우저 전용(찾기·인쇄·저장·열기·소스·다운로드·히스토리).
+  const blockedCtrl = new Set(["f", "g", "p", "s", "o", "u", "j", "h", "d"]);
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      // 리로드: F5 / Ctrl+R / Ctrl+Shift+R — 앱이 통째로 새로고침되지 않도록 차단.
+      if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) {
+        e.preventDefault();
+        return;
+      }
+      if (blockedFn.has(e.key)) {
+        e.preventDefault();
+        return;
+      }
+      if (!e.ctrlKey || e.altKey) return;
+      if (e.shiftKey) return; // Ctrl+Shift+F(검색)·Ctrl+Shift+T(빠른접속) 등 앱 단축키 보존
+      const k = e.key.toLowerCase();
+      // 웹뷰 확대/축소(Ctrl +,-,0) 차단 — 터미널 폰트 줌은 자체 핸들러가 처리.
+      if (k === "=" || k === "-" || k === "+" || k === "0" || blockedCtrl.has(k)) {
+        e.preventDefault();
+      }
+    },
+    { capture: true },
+  );
 }
 
 async function main(): Promise<void> {
   applyStaticIcons();
+  wireBrowserKeyGuard();
   // 설정 로드 + 테마 즉시 적용(첫 페인트 전).
   settings = await loadSettings();
   applyAppTheme(themeById(settings.theme));
@@ -860,8 +897,8 @@ function updateStatusBar(info: StatusInfo): void {
   const session = $("st-session");
   session.textContent = info.label;
   session.className = "st-left st-" + info.state;
-  $("st-enc").textContent = info.cipher ? `🔒 ${info.cipher}` : "";
-  $("st-charset").textContent = info.encoding ? `🌐 ${info.encoding}` : "";
+  $("st-enc").textContent = info.cipher;
+  $("st-charset").textContent = info.encoding;
   $("st-cursor").textContent = info.cursor ? `⌖ ${info.cursor}` : "";
   $("st-size").textContent = info.size;
 }

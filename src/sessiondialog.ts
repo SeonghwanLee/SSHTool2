@@ -4,6 +4,7 @@
 import { openModal, field } from "./dialogs";
 import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType } from "./types";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { applyIcon } from "./icons";
 
 const CHARSETS: Charset[] = [
   "UTF-8",
@@ -271,7 +272,7 @@ class TriggerEditor {
     const add = document.createElement("button");
     add.type = "button";
     add.className = "sftp-btn";
-    add.textContent = "＋ 규칙";
+    add.textContent = "규칙 추가";
     add.addEventListener("click", () => {
       this.rules = [...this.rules, { pattern: "", send: "", regex: false }];
       this.draw();
@@ -309,7 +310,7 @@ class TriggerEditor {
       const del = document.createElement("button");
       del.type = "button";
       del.className = "tree-act";
-      del.textContent = "🗑";
+      applyIcon(del, "delete");
       del.title = "규칙 삭제";
       del.addEventListener("click", () => {
         this.rules = this.rules.filter((_, k) => k !== i);

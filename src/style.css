@@ -164,6 +164,23 @@ button {
 .recent-row .tree-icon.mdl2 {
   font-size: 14px;
 }
+/* SFTP 창 아이콘 크기 */
+.sftp-icon.mdl2 {
+  font-size: 15px;
+}
+.sftp-btn.mdl2 {
+  font-size: 14px;
+}
+.tree-folder-icon.mdl2 {
+  font-size: 13px;
+}
+.pane-label-icon.mdl2 {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  color: var(--accent);
+  margin-right: 5px;
+}
 
 /* ── 앱 레이아웃: 타이틀바 / 본문 / 정보바(3행), 본문은 사이드바 | 작업영역 ── */
 #app {
@@ -341,6 +358,16 @@ button {
   border: 1px dashed var(--border);
   border-radius: 6px;
   background: var(--panel-2);
+}
+.lock-overlay-glyph {
+  display: block;
+  font-size: 30px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.lock-overlay-title {
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 #lock-overlay small {
   color: var(--muted);

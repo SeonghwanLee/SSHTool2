@@ -71,3 +71,34 @@ export function iconSpan(name: string, className = ""): HTMLSpanElement {
   applyIcon(s, name);
   return s;
 }
+
+// ── SFTP 파일 유형 아이콘 — WPF Sftp/FileIcons.cs 와 동일(글리프 + 색) ──────────
+const FILE_TABLE: Array<[string[], number, string]> = [
+  [["xls", "xlsx", "xlsm", "csv"], 0xe80a, "#4cc273"], // Table
+  [["doc", "docx", "hwp", "hwpx", "rtf", "odt"], 0xe8a5, "#5b9bd5"], // Document
+  [["ppt", "pptx"], 0xe786, "#ed7d31"], // Slideshow
+  [["pdf"], 0xea90, "#e5534b"],
+  [["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tif", "tiff"], 0xe91b, "#b180d7"], // Photo
+  [["zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "xz"], 0xe7b8, "#c9a227"], // Package
+  [
+    // prettier-ignore
+    ["sh","py","js","ts","jsx","tsx","json","xml","yml","yaml","sql","c","h","cpp","hpp","cs","java","go","rs","php","html","css","conf","ini","toml","ps1"],
+    0xe943,
+    "#56b6c2",
+  ], // Code
+  [["exe", "msi", "bat", "cmd", "com"], 0xe756, "#98c379"], // CommandPrompt
+  [["txt", "log", "md"], 0xe8a5, "#9da5b4"], // plain
+  [["mp3", "wav", "flac", "ogg", "m4a"], 0xe8d6, "#d19a66"], // MusicNote
+  [["mp4", "avi", "mkv", "mov", "wmv", "webm"], 0xe714, "#d19a66"], // Video
+];
+
+/** 파일명·폴더 여부로 (글리프, 색) 반환 — WPF FileIcons 규칙. */
+export function fileIcon(name: string, isDir: boolean): { glyph: string; color: string } {
+  if (isDir) return { glyph: String.fromCharCode(0xe8b7), color: "#e8c170" }; // Folder — warm yellow
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  for (const [exts, cp, color] of FILE_TABLE) {
+    if (exts.includes(ext)) return { glyph: String.fromCharCode(cp), color };
+  }
+  return { glyph: String.fromCharCode(0xe8a5), color: "#9da5b4" }; // default document
+}

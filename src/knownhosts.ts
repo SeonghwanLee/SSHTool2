@@ -3,6 +3,7 @@
 
 import { openModal, confirmDialog } from "./dialogs";
 import { hostkeysList, hostkeyRemove, hostkeysClear, type KnownHostEntry } from "./ipc";
+import { applyIcon } from "./icons";
 
 export async function knownHostsDialog(): Promise<void> {
   let entries: KnownHostEntry[] = [];
@@ -48,7 +49,7 @@ export async function knownHostsDialog(): Promise<void> {
             fp.textContent = e.fingerprint;
             const del = document.createElement("button");
             del.className = "tree-act";
-            del.textContent = "🗑";
+            applyIcon(del, "delete");
             del.title = "삭제";
             del.addEventListener("click", async () => {
               await hostkeyRemove(e.target);

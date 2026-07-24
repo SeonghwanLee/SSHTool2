@@ -25,6 +25,7 @@ import {
   localExists,
 } from "./ipc";
 import { confirmDialog, textPrompt } from "./dialogs";
+import { applyIcon, fileIcon } from "./icons";
 import { showContextMenu } from "./contextmenu";
 import {
   conflictDialog,
@@ -91,52 +92,12 @@ function fmtTime(unixSec: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-const ARCHIVE = ["zip", "gz", "tar", "7z", "rar", "xz", "bz2", "tgz"];
-const IMAGE = ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"];
-const DOC = ["doc", "docx", "hwp", "pdf", "txt", "md", "rtf", "odt"];
-const SHEET = ["xls", "xlsx", "csv", "ods"];
-const CODE = ["c", "h", "cpp", "rs", "ts", "js", "py", "java", "go", "sh", "json", "xml", "yaml", "yml"];
-const EXE = ["exe", "bat", "cmd", "run", "bin", "msi", "app"];
-const MEDIA = ["mp3", "mp4", "avi", "mkv", "wav", "flac", "mov"];
-
-const ext = (name: string): string => {
-  const i = name.lastIndexOf(".");
-  return i > 0 ? name.slice(i + 1).toLowerCase() : "";
-};
-
-/** 확장자 카테고리 아이콘(WPF 0.29.0 대응). */
-function entryIcon(e: Entry): string {
-  if (e.isDir) return "📁";
-  const x = ext(e.name);
-  if (ARCHIVE.includes(x)) return "🗜";
-  if (IMAGE.includes(x)) return "🖼";
-  if (SHEET.includes(x)) return "📊";
-  if (x === "pdf") return "📕";
-  if (DOC.includes(x)) return "📄";
-  if (CODE.includes(x)) return "🧩";
-  if (EXE.includes(x)) return "⚙";
-  if (MEDIA.includes(x)) return "🎬";
-  return "📄";
-}
-
 /** 파일유형 열 텍스트. */
 function entryType(e: Entry): string {
   if (e.isDir) return "폴더";
-  const x = ext(e.name);
-  return x ? `${x.toUpperCase()} 파일` : "파일";
-}
-
-/** 확장자에 따른 색(터미널 ls 색상 관례 + 확장자 구분). */
-function entryColor(e: Entry): string {
-  if (e.isDir) return "#7db8ff";
-  const ext = e.name.toLowerCase().split(".").pop() ?? "";
-  if (["sh", "bash", "exe", "bat", "cmd", "run", "bin"].includes(ext)) return "#8ec07c";
-  if (["zip", "gz", "tar", "7z", "rar", "xz", "bz2"].includes(ext)) return "#e0c060";
-  if (["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp"].includes(ext)) return "#c08ee0";
-  if (["log", "txt", "md", "conf", "cfg", "ini", "yaml", "yml", "json", "xml"].includes(ext))
-    return "#cfcfcf";
-  if (["c", "h", "cpp", "rs", "ts", "js", "py", "java", "go"].includes(ext)) return "#79d0c8";
-  return "";
+  const dot = e.name.lastIndexOf(".");
+  const x = dot > 0 ? e.name.slice(dot + 1).toUpperCase() : "";
+  return x ? `${x} 파일` : "파일";
 }
 
 export async function openSftpBrowser(
@@ -169,7 +130,7 @@ export async function openSftpBrowser(
   status.className = "sftp-status";
   const closeBtn = document.createElement("button");
   closeBtn.className = "sftp-close";
-  closeBtn.textContent = "×";
+  applyIcon(closeBtn, "close");
   header.append(title, status, closeBtn);
 
   const setStatus = (m: string) => {
@@ -192,7 +153,7 @@ export async function openSftpBrowser(
   pInfo.className = "prog-info";
   const cancelBtn = document.createElement("button");
   cancelBtn.className = "tree-act";
-  cancelBtn.textContent = "✕";
+  applyIcon(cancelBtn, "cancel");
   cancelBtn.title = "전송 취소";
   cancelBtn.addEventListener("click", () => {
     cancelled = true;
@@ -350,7 +311,7 @@ export async function openSftpBrowser(
 
       const icon = document.createElement("span");
       icon.className = "tree-folder-icon";
-      icon.textContent = isOpen ? "📂" : "📁";
+      applyIcon(icon, isOpen ? "folderOpen" : "folder");
 
       const label = document.createElement("span");
       label.className = "tree-node-label";
@@ -383,16 +344,19 @@ export async function openSftpBrowser(
 
       const head = document.createElement("div");
       head.className = "sftp-pane-head";
+      const labelIcon = document.createElement("span");
+      labelIcon.className = "pane-label-icon";
+      applyIcon(labelIcon, side === "local" ? "local" : "globe");
       const label = document.createElement("span");
       label.className = "pane-label";
       label.textContent = side === "local" ? "로컬" : "원격";
-      head.appendChild(label);
+      head.append(labelIcon, label);
 
-      const up = mkBtn("↑", "상위 폴더");
+      const up = mkBtn("up", "상위 폴더");
       up.addEventListener("click", () => void this.up());
-      const refresh = mkBtn("⟳", "새로고침(F5)");
+      const refresh = mkBtn("refresh", "새로고침(F5)");
       refresh.addEventListener("click", () => void this.reload());
-      const mkdirBtn = mkBtn("＋", "새 폴더");
+      const mkdirBtn = mkBtn("newFolder", "새 폴더");
       mkdirBtn.addEventListener("click", () => void this.makeDir());
       head.append(up, refresh, mkdirBtn);
 
@@ -575,15 +539,15 @@ export async function openSftpBrowser(
       el.dataset.path = entry.path;
       el.draggable = true;
 
+      const fi = fileIcon(entry.name, entry.isDir);
       const icon = document.createElement("span");
-      icon.className = "sftp-icon";
-      icon.textContent = entryIcon(entry);
+      icon.className = "sftp-icon mdl2";
+      icon.textContent = fi.glyph;
+      icon.style.color = fi.color;
 
       const name = document.createElement("span");
       name.className = "sftp-name";
       name.textContent = entry.name;
-      const color = entryColor(entry);
-      if (color) name.style.color = color;
 
       const type = document.createElement("span");
       type.className = "sftp-type";
@@ -829,10 +793,10 @@ export async function openSftpBrowser(
   void localExists;
 }
 
-function mkBtn(label: string, title: string): HTMLButtonElement {
+function mkBtn(iconName: string, title: string): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = "sftp-btn";
-  b.textContent = label;
+  applyIcon(b, iconName);
   b.title = title;
   return b;
 }
