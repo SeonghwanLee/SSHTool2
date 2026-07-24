@@ -156,7 +156,10 @@ export const sftpConnect = (
   port: number,
   user: string,
   password: string,
-): Promise<string> => invoke<string>("sftp_connect", { host, port, user, password });
+  authType: string,
+  privateKeyPath: string,
+): Promise<string> =>
+  invoke<string>("sftp_connect", { host, port, user, password, authType, privateKeyPath });
 
 export const sftpList = (id: string, path: string): Promise<SftpEntry[]> =>
   invoke<SftpEntry[]>("sftp_list", { id, path });

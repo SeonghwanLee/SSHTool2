@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use russh::client::{self, Config, Handle};
 use russh::keys::ssh_key;
+use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
+use std::sync::Arc as StdArc;
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -76,6 +78,8 @@ pub async fn connect(
     port: u16,
     user: String,
     password: String,
+    auth_type: String,
+    private_key_path: String,
 ) -> Result<String, String> {
     let config = Arc::new(Config {
         inactivity_timeout: None,
@@ -93,12 +97,29 @@ pub async fn connect(
         .await
         .map_err(|e| format!("SFTP 연결 실패(호스트 키 변경 시에도 발생): {e}"))?;
 
-    let auth = handle
-        .authenticate_password(user, password)
-        .await
-        .map_err(|e| format!("SFTP 인증 오류: {e}"))?;
-    if !auth.success() {
-        return Err("SFTP 인증 실패: 아이디 또는 비밀번호를 확인하세요".into());
+    let ok = if auth_type == "key" {
+        let passphrase = if password.is_empty() { None } else { Some(password.as_str()) };
+        let key = load_secret_key(&private_key_path, passphrase)
+            .map_err(|e| format!("SFTP 개인키 로드 실패: {e}"))?;
+        let hash = handle
+            .best_supported_rsa_hash()
+            .await
+            .map_err(|e| format!("SFTP 인증 협상 오류: {e}"))?
+            .flatten();
+        handle
+            .authenticate_publickey(user, PrivateKeyWithHashAlg::new(StdArc::new(key), hash))
+            .await
+            .map_err(|e| format!("SFTP 인증 오류: {e}"))?
+            .success()
+    } else {
+        handle
+            .authenticate_password(user, password)
+            .await
+            .map_err(|e| format!("SFTP 인증 오류: {e}"))?
+            .success()
+    };
+    if !ok {
+        return Err("SFTP 인증 실패: 자격증명을 확인하세요".into());
     }
 
     let channel = handle

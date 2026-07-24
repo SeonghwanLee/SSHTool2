@@ -591,7 +591,14 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
     await local.go("");
   }
   try {
-    sftpId = await sftpConnect(session.host, session.port, session.user, password);
+    sftpId = await sftpConnect(
+      session.host,
+      session.port,
+      session.user,
+      password,
+      session.authType,
+      session.privateKeyPath,
+    );
     // "." 로 두면 상위 이동이 불가능하므로 절대경로(홈)로 정규화한다.
     let start = ".";
     try {

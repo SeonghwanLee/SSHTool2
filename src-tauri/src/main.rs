@@ -177,8 +177,10 @@ async fn sftp_connect(
     port: u16,
     user: String,
     password: String,
+    auth_type: String,
+    private_key_path: String,
 ) -> Result<String, String> {
-    sftp::connect(app, host, port, user, password).await
+    sftp::connect(app, host, port, user, password, auth_type, private_key_path).await
 }
 
 #[tauri::command]

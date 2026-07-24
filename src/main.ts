@@ -240,7 +240,7 @@ const credentials: CredentialProvider = {
     return passwordPrompt(session);
   },
   async onConnected(session, password) {
-    reflectLock(false); // 접속 성공 = 볼트가 열려 있음
+    void refreshLockIndicator(); // 접속했다고 잠금이 풀리는 건 아님 — 실제 볼트 상태로 갱신
     if (!session.savePassword) return;
     try {
       if (await ensureVaultUnlocked()) await vaultSetPassword(session.id, password);
@@ -682,6 +682,16 @@ function reflectLock(locked: boolean): void {
   const sidebar = document.getElementById("sidebar")!;
   sidebar.classList.toggle("locked", locked);
   $("lock-overlay").classList.toggle("hidden", !locked);
+}
+
+/** 실제 볼트 상태를 조회해 잠금 표시를 맞춘다(존재하고 잠겨 있으면 잠금). */
+async function refreshLockIndicator(): Promise<void> {
+  try {
+    const st = await vaultStatus();
+    reflectLock(st.exists && !st.unlocked);
+  } catch {
+    /* 무시 */
+  }
 }
 
 /** 무활동 자동 잠금 — 설정된 시간 동안 입력이 없으면 볼트를 잠근다. */
