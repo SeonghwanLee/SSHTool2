@@ -45,6 +45,7 @@ import {
 } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { applyIcon } from "./icons";
 import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
 
@@ -411,12 +412,28 @@ function wireBrowserKeyGuard(): void {
   );
 }
 
+/** 앱 전역 토스트(하단 가운데, 자동 소멸) — 세션 토스트와 별개의 짧은 안내. */
+function appToast(message: string): void {
+  const el = document.createElement("div");
+  el.className = "app-toast";
+  el.textContent = message;
+  document.body.appendChild(el);
+  window.setTimeout(() => el.classList.add("show"), 10);
+  window.setTimeout(() => {
+    el.classList.remove("show");
+    window.setTimeout(() => el.remove(), 250);
+  }, 2200);
+}
+
 async function main(): Promise<void> {
   applyStaticIcons();
   wireBrowserKeyGuard();
   // 설정 로드 + 테마 즉시 적용(첫 페인트 전).
   settings = await loadSettings();
   applyAppTheme(themeById(settings.theme));
+
+  // 중복 실행 시 백엔드(single-instance)가 기존 창을 앞으로 가져오고 이 이벤트를 보낸다.
+  void listen("second-instance", () => appToast("이미 실행 중입니다 — 기존 창을 표시합니다"));
 
   const tabs = new TabManager(
     $("tabbar"),
@@ -528,6 +545,19 @@ async function main(): Promise<void> {
             /* 무시 */
           }
         }
+        redraw();
+      },
+      onRemoveRecent: async (s) => {
+        // 세션은 유지하고 접속 이력(lastConnectedUtc)만 지운다.
+        sessions = sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: 0 } : x));
+        await persist();
+        redraw();
+      },
+      onClearRecent: async () => {
+        const ok = await confirmDialog("최근 접속 기록을 모두 지울까요? (세션은 삭제되지 않습니다)");
+        if (!ok) return;
+        sessions = sessions.map((x) => (x.lastConnectedUtc > 0 ? { ...x, lastConnectedUtc: 0 } : x));
+        await persist();
         redraw();
       },
       onImport: () => void runImport(),

@@ -16,6 +16,10 @@ interface SidebarCallbacks {
   onRename: (s: SessionInfo) => void;
   onReorder: (s: SessionInfo, dir: -1 | 1) => void;
   onBulkDelete: () => void;
+  /** 최근 접속 목록에서 한 세션 제거(세션 자체는 유지, 접속 이력만 삭제). */
+  onRemoveRecent: (s: SessionInfo) => void;
+  /** 최근 접속 기록 전체 삭제. */
+  onClearRecent: () => void;
   onNewFolder: (parent: string) => void;
   onImport: () => void;
   onRenameFolder: (path: string) => void;
@@ -212,7 +216,17 @@ export class Sidebar {
 
     const head = document.createElement("div");
     head.className = "recent-head";
-    head.textContent = "최근 접속";
+    const headLabel = document.createElement("span");
+    headLabel.textContent = "최근 접속";
+    const clearAll = document.createElement("button");
+    clearAll.className = "recent-clear tree-act";
+    applyIcon(clearAll, "delete");
+    clearAll.title = "최근 기록 전체 삭제";
+    clearAll.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.cb.onClearRecent();
+    });
+    head.append(headLabel, clearAll);
     this.tree.appendChild(head);
 
     for (const s of recent) {
@@ -232,8 +246,32 @@ export class Sidebar {
       detail.className = "recent-detail";
       detail.textContent = detailText(s);
 
-      row.append(icon, name, detail);
+      // 마우스 오버 시 나타나는 개별 삭제(휴지통) 버튼.
+      const del = document.createElement("button");
+      del.className = "recent-del tree-act";
+      applyIcon(del, "delete");
+      del.title = "최근 목록에서 삭제";
+      del.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.cb.onRemoveRecent(s);
+      });
+
+      row.append(icon, name, detail, del);
       row.addEventListener("click", () => this.cb.onOpen(s));
+      row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        showContextMenu(e.clientX, e.clientY, [
+          { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
+          { separator: true },
+          {
+            label: "최근 목록에서 삭제",
+            accel: "d",
+            danger: true,
+            action: () => this.cb.onRemoveRecent(s),
+          },
+          { label: "최근 기록 전체 삭제", accel: "a", action: () => this.cb.onClearRecent() },
+        ]);
+      });
       this.tree.appendChild(row);
     }
 

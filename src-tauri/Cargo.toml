@@ -1,6 +1,6 @@
 [package]
 name = "sshtool2"
-version = "0.30.0"
+version = "0.31.0"
 description = "SSHTool2"
 authors = ["Seonghwan Lee"]
 edition = "2021"
@@ -26,6 +26,7 @@ base64 = "0.22"
 encoding_rs = "0.8"
 portable-pty = "0.9"
 keyring = { version = "3", features = ["windows-native", "linux-native"] }
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

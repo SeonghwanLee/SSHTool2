@@ -496,6 +496,18 @@ fn sftp_disconnect(state: State<'_, SftpMap>, id: String) {
 
 fn main() {
     tauri::Builder::default()
+        // 중복 실행 방지 — 이미 실행 중이면 두 번째 인스턴스는 종료되고, 이 콜백이
+        // 기존 인스턴스에서 실행돼 창을 앞으로 가져오고 프런트에 알림 이벤트를 보낸다.
+        // (single-instance 는 다른 플러그인보다 먼저 등록해야 한다 — Tauri 권장)
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::{Emitter, Manager};
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            let _ = app.emit("second-instance", ());
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())

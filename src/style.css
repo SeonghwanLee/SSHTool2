@@ -416,12 +416,27 @@ button {
 
 /* ── 최근 접속 섹션(사이드바 상단) ─────────────────────────────────────────── */
 .recent-head {
-  padding: 8px 12px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 4px 12px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.03em;
   color: var(--muted);
   text-transform: uppercase;
+}
+/* 전체 삭제 버튼 — 섹션에 마우스 올리면 표시. */
+.recent-clear {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.recent-head:hover .recent-clear {
+  opacity: 0.7;
+}
+.recent-clear:hover {
+  opacity: 1 !important;
+  color: var(--error);
 }
 .recent-row {
   display: flex;
@@ -453,6 +468,19 @@ button {
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 개별 삭제(휴지통) — 행에 마우스 올리면 표시. */
+.recent-del {
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.recent-row:hover .recent-del {
+  opacity: 0.75;
+}
+.recent-del:hover {
+  opacity: 1;
+  color: var(--error);
 }
 .recent-divider {
   height: 1px;
@@ -829,6 +857,31 @@ button {
 .term-host .xterm-composition-view {
   background: var(--panel-2);
   color: var(--fg);
+}
+
+/* 앱 전역 토스트(중복 실행 알림 등) — 하단 가운데, 페이드 인/아웃. */
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%) translateY(10px);
+  z-index: 9999;
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+  pointer-events: none;
+}
+.app-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .term-overlay {
