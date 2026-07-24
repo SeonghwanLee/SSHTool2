@@ -84,6 +84,87 @@ button {
   font-family: inherit;
 }
 
+/* ── 스크롤바 — 전역: 얇고 테마색(설정·버전정보·세션목록·SFTP 등 모두) ───────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── 아이콘 — WPF 동일 Segoe Fluent/MDL2 글리프 + 화면분할 도형 SVG ─────────── */
+.mdl2 {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+}
+.ic {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.ic-view {
+  width: 16px;
+  height: 13px;
+}
+/* 아이콘 버튼/칸 가운데 정렬 */
+#titlebar .view-btn,
+.tb-winbtns button,
+.side-head-actions button,
+.tree-act,
+.tree-icon,
+.recent-row .tree-icon,
+.sftp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 컨텍스트별 글리프 크기 */
+#titlebar .view-btn.mdl2 {
+  font-size: 16px;
+}
+.tb-winbtns button.mdl2 {
+  font-size: 10px;
+}
+.side-head-actions button.mdl2 {
+  font-size: 16px;
+}
+.tree-icon.mdl2 {
+  font-size: 15px;
+}
+.tree-act.mdl2 {
+  font-size: 14px;
+}
+.tree-arrow.mdl2 {
+  font-size: 14px;
+  color: var(--accent);
+}
+.tab-close.mdl2 {
+  font-size: 10px;
+}
+.recent-row .tree-icon.mdl2 {
+  font-size: 14px;
+}
+
 /* ── 앱 레이아웃: 타이틀바 / 본문 / 정보바(3행), 본문은 사이드바 | 작업영역 ── */
 #app {
   display: grid;

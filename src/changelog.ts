@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.23.0",
+    date: "2026-07-24",
+    notes: [
+      "아이콘 전면 교체 — 이모지 대신 WPF(SSHTool) 와 동일한 Segoe Fluent Icons/MDL2 라인 아이콘. 타이틀바·창버튼·사이드바 헤더·세션/폴더/최근접속·탭 닫기까지 통일. 화면분할 버튼은 WPF처럼 도형으로 표현",
+      "스크롤바 전면 개선 — 전역으로 얇고 테마색(설정·버전정보·세션목록·SFTP 등 모든 스크롤 영역)",
+    ],
+  },
+  {
     version: "0.22.0",
     date: "2026-07-24",
     notes: [

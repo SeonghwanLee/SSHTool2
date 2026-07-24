@@ -2,6 +2,7 @@
 
 import type { SessionInfo } from "./types";
 import { showContextMenu } from "./contextmenu";
+import { applyIcon } from "./icons";
 
 interface SidebarCallbacks {
   onOpen: (s: SessionInfo) => void;
@@ -202,7 +203,7 @@ export class Sidebar {
 
       const icon = document.createElement("span");
       icon.className = "tree-icon";
-      icon.textContent = s.kind === "local" ? "▣" : "»";
+      applyIcon(icon, s.kind === "local" ? "local" : "remote");
 
       const name = document.createElement("span");
       name.className = "recent-name";
@@ -231,7 +232,7 @@ export class Sidebar {
       row.style.paddingLeft = `${8 + depth * 14}px`;
       const arrow = document.createElement("span");
       arrow.className = "tree-arrow";
-      arrow.textContent = isCollapsed ? "▶" : "▼";
+      applyIcon(arrow, isCollapsed ? "folder" : "folderOpen");
       const label = document.createElement("span");
       label.className = "tree-folder-label";
       label.textContent = f.name;
@@ -297,7 +298,7 @@ export class Sidebar {
 
     const icon = document.createElement("span");
     icon.className = "tree-icon";
-    icon.textContent = s.kind === "local" ? "▣" : "»";
+    applyIcon(icon, s.kind === "local" ? "local" : "remote");
 
     const main = document.createElement("div");
     main.className = "tree-session-main";
@@ -318,7 +319,7 @@ export class Sidebar {
     sftp.className = "tree-act";
     sftp.style.display = s.kind === "local" || !s.enableSftp ? "none" : "";
     sftp.title = "SFTP 파일 전송";
-    sftp.textContent = "📁";
+    applyIcon(sftp, "sftp");
     sftp.addEventListener("click", (e) => {
       e.stopPropagation();
       this.cb.onSftp(s);
@@ -326,7 +327,7 @@ export class Sidebar {
     const edit = document.createElement("button");
     edit.className = "tree-act";
     edit.title = "편집";
-    edit.textContent = "✎";
+    applyIcon(edit, "edit");
     edit.addEventListener("click", (e) => {
       e.stopPropagation();
       this.cb.onEdit(s);
@@ -334,7 +335,7 @@ export class Sidebar {
     const del = document.createElement("button");
     del.className = "tree-act";
     del.title = "삭제";
-    del.textContent = "🗑";
+    applyIcon(del, "delete");
     del.addEventListener("click", (e) => {
       e.stopPropagation();
       this.cb.onDelete(s);

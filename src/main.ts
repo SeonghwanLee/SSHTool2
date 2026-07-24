@@ -44,6 +44,7 @@ import {
 } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { applyIcon } from "./icons";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -309,7 +310,33 @@ const credentials: CredentialProvider = {
   },
 };
 
+/** 정적 버튼(타이틀바·사이드바 헤더·창버튼)에 WPF 동일 Segoe 아이콘 적용. */
+function applyStaticIcons(): void {
+  const map: Record<string, string> = {
+    "view-tabs": "viewTabs",
+    "view-vertical": "viewVertical",
+    "view-horizontal": "viewHorizontal",
+    "cmd-toggle": "command",
+    "open-settings": "settings",
+    "open-about": "info",
+    "win-min": "minimize",
+    "win-max": "maximize",
+    "win-close": "close",
+    "quick-connect": "quickConnect",
+    "new-session": "newSession",
+    "new-folder": "newFolder",
+    "open-import": "import",
+    "vault-lock": "lock",
+    "session-search-clear": "cancel",
+  };
+  for (const [id, name] of Object.entries(map)) {
+    const el = document.getElementById(id);
+    if (el) applyIcon(el, name);
+  }
+}
+
 async function main(): Promise<void> {
+  applyStaticIcons();
   // 설정 로드 + 테마 즉시 적용(첫 페인트 전).
   settings = await loadSettings();
   applyAppTheme(themeById(settings.theme));
@@ -741,7 +768,7 @@ function reflectLock(locked: boolean): void {
   $("lock-overlay").classList.toggle("hidden", !locked);
   // 버튼 아이콘·툴팁으로 현재 상태와 클릭 동작을 함께 표시.
   const btn = $("vault-lock");
-  btn.textContent = locked ? "🔒" : "🔓";
+  applyIcon(btn, locked ? "lock" : "unlock");
   btn.title = locked ? "잠김 — 클릭하여 마스터 비밀번호로 잠금 해제" : "볼트 잠금";
 }
 

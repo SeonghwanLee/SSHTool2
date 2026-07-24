@@ -3,6 +3,7 @@
 // 검색(Ctrl+Shift+F), Ctrl+휠 zoom, Ctrl+Enter=LF, 탭 상태색, 탭 단축키, 상태바 연동.
 
 import { Terminal } from "@xterm/xterm";
+import { applyIcon } from "./icons";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -816,7 +817,7 @@ export class TabManager {
 
       const close = document.createElement("button");
       close.className = "tab-close";
-      close.textContent = "×";
+      applyIcon(close, "cancel");
       close.title = "닫기";
       close.addEventListener("click", (ev) => {
         ev.stopPropagation();
