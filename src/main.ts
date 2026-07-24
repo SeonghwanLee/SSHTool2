@@ -43,7 +43,7 @@ import {
   type ViewModeSetting,
 } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
-import { themePicker } from "./themepicker";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -482,17 +482,8 @@ async function main(): Promise<void> {
     redraw();
   };
   $("open-import").addEventListener("click", () => void runImport());
-  $("open-theme").addEventListener("click", () => {
-    void themePicker(settings.theme, async (id) => {
-      settings = { ...settings, theme: id };
-      applyAppTheme(themeById(id));
-      try {
-        await saveSettings(settings);
-      } catch (e) {
-        console.error("테마 저장 실패", e);
-      }
-    });
-  });
+  // 테마는 환경설정(⚙) 다이얼로그 안에 통합됨 — 별도 테마 버튼 없음.
+  wireWindowControls();
 
   newFolderFlow = async (parent) => {
     const name = await textPrompt("새 폴더 이름 ('A/B' 로 중첩 가능)", "", "만들기");
@@ -783,7 +774,15 @@ function wireSidebarSearch(sidebar: Sidebar): void {
   });
 }
 
-/** CapsLock/NumLock 표시 — 키 이벤트에서 상태를 읽어 상태바에 반영. */
+/** 커스텀 타이틀바 창 버튼(최소화/최대화/닫기) 배선. */
+function wireWindowControls(): void {
+  const win = getCurrentWindow();
+  $("win-min").addEventListener("click", () => void win.minimize());
+  $("win-max").addEventListener("click", () => void win.toggleMaximize());
+  $("win-close").addEventListener("click", () => void win.close());
+}
+
+/** 한/CapsLock/NumLock 표시 — 키·IME 상태를 상태바에 반영. */
 function wireLockKeys(): void {
   const update = (e: KeyboardEvent) => {
     if (typeof e.getModifierState !== "function") return;
@@ -792,16 +791,20 @@ function wireLockKeys(): void {
   };
   window.addEventListener("keydown", update, true);
   window.addEventListener("keyup", update, true);
+  // 한글 입력(IME) 조합 중이면 '한' 을 켠다 — 웹뷰에서 얻을 수 있는 최선의 신호.
+  window.addEventListener("compositionstart", () => $("st-hangul").classList.add("on"), true);
+  window.addEventListener("compositionend", () => $("st-hangul").classList.remove("on"), true);
 }
 
-/** 하단 상태바 갱신(TabManager onStatus 콜백). */
+/** 하단 정보바 갱신(TabManager onStatus 콜백). */
 function updateStatusBar(info: StatusInfo): void {
   const session = $("st-session");
   session.textContent = info.label;
   session.className = "st-left st-" + info.state;
-  $("st-size").textContent = info.size;
+  $("st-enc").textContent = info.cipher ? `🔒 ${info.cipher}` : "";
+  $("st-charset").textContent = info.encoding ? `🌐 ${info.encoding}` : "";
   $("st-cursor").textContent = info.cursor ? `⌖ ${info.cursor}` : "";
-  $("st-enc").textContent = info.encoding;
+  $("st-size").textContent = info.size;
 }
 
 /** 동시 명령 창: 접속된 모든 세션(또는 활성 탭)에 명령 한 줄을 동시에 전송. */

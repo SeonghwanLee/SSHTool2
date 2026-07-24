@@ -8,66 +8,96 @@
   </head>
   <body>
     <div id="app">
-      <aside id="sidebar">
-        <div id="sidebar-head">
-          <span class="side-title">세션</span>
-          <div class="side-head-actions">
-            <button id="quick-connect" title="빠른 접속 (저장 안 함)">⚡</button>
-            <button id="new-session" title="새 세션">＋</button>
-            <button id="new-folder" title="새 폴더">🗀</button>
-            <button id="open-import" title="다른 SSH 클라이언트에서 세션 가져오기 (PuTTY·SecureCRT·MobaXterm)">📥</button>
-            <button id="open-theme" title="테마 바꾸기">🎨</button>
-            <button id="vault-lock" title="볼트 잠금">🔒</button>
-            <button id="open-settings" title="설정">⚙</button>
-            <button id="open-about" title="버전 정보">ℹ</button>
-          </div>
+      <!-- ── 타이틀바(전폭) — 브랜드 + 화면분할/동시명령 + 환경설정 + 창버튼 ── -->
+      <div id="titlebar" data-tauri-drag-region>
+        <div class="tb-brand" data-tauri-drag-region>
+          <span class="tb-glyph">&gt;_</span>
+          <span class="tb-name">SSHTool2</span>
         </div>
-        <div id="sidebar-search">
-          <input id="session-search" placeholder="세션 검색 (이름·호스트·계정)" />
-          <button id="session-search-clear" title="지우기">×</button>
-        </div>
-        <div id="session-tree"></div>
-        <div id="lock-overlay" class="hidden">🔒 잠김 — 접속 시 마스터 비밀번호 필요</div>
-      </aside>
-      <div id="sidebar-resizer" title="드래그: 폭 조절 · 더블클릭: 접기/펼치기"></div>
-      <main id="workspace">
-        <div id="workbar">
-          <div id="tabbar"></div>
+        <div class="tb-fill" data-tauri-drag-region></div>
+        <div class="tb-group" role="group" aria-label="화면 분할">
           <button id="view-tabs" class="view-btn active" title="탭 보기">▭</button>
           <button id="view-vertical" class="view-btn" title="세로 분할(세션 나란히)">▥</button>
           <button id="view-horizontal" class="view-btn" title="가로 분할(세션 위아래)">▤</button>
-          <button id="cmd-toggle" title="동시 명령 창 (접속된 모든 세션에 전송)">⌨</button>
+          <button id="cmd-toggle" class="view-btn" title="동시 명령 창 (접속된 모든 세션에 전송)">⌨</button>
         </div>
-        <div id="term-area">
-          <div id="panes"></div>
-          <div id="empty-state">
-            <div class="empty-inner">
-              <div class="empty-glyph">&gt;_</div>
-              <div>좌측에서 세션을 선택해 접속하세요</div>
+        <div class="tb-group" role="group" aria-label="환경설정">
+          <button id="open-settings" class="view-btn" title="환경설정 (테마 포함)">⚙</button>
+          <button id="open-about" class="view-btn" title="버전 정보">ℹ</button>
+        </div>
+        <div class="tb-winbtns">
+          <button id="win-min" title="최소화">﹣</button>
+          <button id="win-max" title="최대화 / 복원">▢</button>
+          <button id="win-close" class="win-close" title="닫기">✕</button>
+        </div>
+      </div>
+
+      <!-- ── 본문: 세션영역(좌) | 리사이저 | 터미널·SFTP영역(우) ── -->
+      <div id="app-body">
+        <aside id="sidebar">
+          <div id="sidebar-head">
+            <span class="side-title">세션</span>
+            <div class="side-head-actions">
+              <div class="tb-group" role="group" aria-label="세션 추가">
+                <button id="quick-connect" title="빠른 접속 (저장 안 함)">⚡</button>
+                <button id="new-session" title="새 세션">＋</button>
+                <button id="new-folder" title="새 폴더">🗀</button>
+              </div>
+              <div class="tb-group" role="group" aria-label="관리">
+                <button id="open-import" title="다른 SSH 클라이언트에서 세션 가져오기 (PuTTY·SecureCRT·MobaXterm)">📥</button>
+                <button id="vault-lock" title="볼트 잠금">🔒</button>
+              </div>
             </div>
           </div>
-        </div>
-        <div id="cmdbar" class="hidden">
-          <span class="cmd-label">동시 명령</span>
-          <input id="cmd-input" placeholder="명령 입력 후 Enter — 접속된 세션에 동시 전송" />
-          <label class="cmd-target">
-            <input type="checkbox" id="cmd-all" checked />
-            <span>전체 세션</span>
-          </label>
-          <button id="cmd-send" class="btn-accent">전송</button>
-          <span id="cmd-status"></span>
-        </div>
-        <div id="statusbar">
-          <span id="st-session" class="st-left"></span>
-          <span class="st-right">
-            <span id="st-size"></span>
-            <span id="st-cursor"></span>
-            <span id="st-enc"></span>
-            <span id="st-caps" class="st-toggle">CAP</span>
-            <span id="st-num" class="st-toggle">NUM</span>
-          </span>
-        </div>
-      </main>
+          <div id="sidebar-search">
+            <input id="session-search" placeholder="세션 검색 (이름·호스트·계정)" />
+            <button id="session-search-clear" title="지우기">×</button>
+          </div>
+          <div id="session-tree"></div>
+          <div id="lock-overlay" class="hidden">🔒 잠김 — 접속 시 마스터 비밀번호 필요</div>
+        </aside>
+
+        <div id="sidebar-resizer" title="드래그: 폭 조절 · 더블클릭: 접기/펼치기"></div>
+
+        <main id="workspace">
+          <div id="workbar">
+            <div id="tabbar"></div>
+          </div>
+          <div id="term-area">
+            <div id="panes"></div>
+            <div id="empty-state">
+              <div class="empty-inner">
+                <div class="empty-glyph">&gt;_</div>
+                <div>좌측에서 세션을 선택해 접속하세요</div>
+              </div>
+            </div>
+          </div>
+          <div id="cmdbar" class="hidden">
+            <span class="cmd-label">동시 명령</span>
+            <input id="cmd-input" placeholder="명령 입력 후 Enter — 접속된 세션에 동시 전송" />
+            <label class="cmd-target">
+              <input type="checkbox" id="cmd-all" checked />
+              <span>전체 세션</span>
+            </label>
+            <button id="cmd-send" class="btn-accent">전송</button>
+            <span id="cmd-status"></span>
+          </div>
+        </main>
+      </div>
+
+      <!-- ── 정보영역(전폭 하단) — 세션·암호화·문자셋·커서·크기·한/CAP/NUM ── -->
+      <div id="statusbar">
+        <span id="st-session" class="st-left"></span>
+        <span class="st-right">
+          <span id="st-enc"></span>
+          <span id="st-charset"></span>
+          <span id="st-cursor"></span>
+          <span id="st-size"></span>
+          <span id="st-hangul" class="st-toggle">한</span>
+          <span id="st-caps" class="st-toggle">CAP</span>
+          <span id="st-num" class="st-toggle">NUM</span>
+        </span>
+      </div>
     </div>
     <div id="modal-root"></div>
     <script type="module" src="/src/main.ts"></script>

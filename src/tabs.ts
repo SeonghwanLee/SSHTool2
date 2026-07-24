@@ -56,7 +56,8 @@ export interface StatusInfo {
   state: "none" | "connecting" | "connected" | "disconnected";
   size: string;
   cursor: string;
-  encoding: string;
+  encoding: string; // 문자셋(charset)
+  cipher: string; // 암호화 방식(원격 SSH 세션에만)
 }
 
 /** 세션 화면 배치: 탭 / 세로 분할 / 가로 분할(WPF 0.20.0). */
@@ -748,11 +749,12 @@ export class TabManager {
   private emitStatus(): void {
     const tab = this.active;
     if (!tab) {
-      this.onStatus({ label: "", state: "none", size: "", cursor: "", encoding: "" });
+      this.onStatus({ label: "", state: "none", size: "", cursor: "", encoding: "", cipher: "" });
       return;
     }
     const s = tab.session;
-    const who = isLocal(s)
+    const local = isLocal(s);
+    const who = local
       ? `로컬 셸${s.shellExe ? ` · ${s.shellExe}` : ""}`
       : s.user
         ? `${s.user}@${s.host}:${s.port}`
@@ -762,7 +764,9 @@ export class TabManager {
       state: tab.status,
       size: `${tab.cols}×${tab.rows}`,
       cursor: tab.cursorPos(),
-      encoding: tab.session.charset || "UTF-8",
+      encoding: local ? "" : tab.session.charset || "UTF-8",
+      // 원격 세션은 SSH-2 로 암호화됨(정확한 협상 cipher 표기는 후속 과제).
+      cipher: local || tab.status !== "connected" ? "" : "SSH-2",
     });
   }
 

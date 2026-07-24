@@ -84,17 +84,101 @@ button {
   font-family: inherit;
 }
 
-/* ── 앱 레이아웃: 사이드바 | 작업영역 ─────────────────────────────────────── */
+/* ── 앱 레이아웃: 타이틀바 / 본문 / 정보바(3행), 본문은 사이드바 | 작업영역 ── */
 #app {
   display: grid;
-  grid-template-columns: var(--sidebar-w, 240px) 4px 1fr;
+  grid-template-rows: auto 1fr auto;
   height: 100vh;
 }
-#app.sidebar-collapsed {
+#app-body {
+  display: grid;
+  grid-template-columns: var(--sidebar-w, 240px) 4px 1fr;
+  min-height: 0;
+}
+#app.sidebar-collapsed #app-body {
   grid-template-columns: 0 4px 1fr;
 }
+/* display:none 으로 지우면 남은 그리드 아이템이 트랙을 밀어(리사이저=0px) 워크스페이스가
+   붕괴한다. 0폭 트랙에 그대로 두고 내용만 클립 — 리사이저(4px)는 남아 더블클릭으로 펼침 가능. */
 #app.sidebar-collapsed #sidebar {
-  display: none;
+  overflow: hidden;
+}
+
+/* ── 타이틀바(전폭) — 테마 accent 색으로 통일 ─────────────────────────────── */
+#titlebar {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  user-select: none;
+}
+.tb-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.tb-glyph {
+  font-family: var(--mono, monospace);
+  opacity: 0.85;
+}
+.tb-name {
+  font-size: 13px;
+}
+.tb-fill {
+  flex: 1 1 auto;
+}
+/* 기능별 아이콘 묶음 — 그룹 사이에 옅은 구분선 */
+.tb-group {
+  display: flex;
+  align-items: stretch;
+}
+#titlebar .tb-group + .tb-group {
+  border-left: 1px solid var(--accent-ink);
+  box-shadow: -1px 0 0 rgba(255, 255, 255, 0.12);
+}
+#titlebar .view-btn {
+  border: none;
+  background: transparent;
+  color: var(--accent-ink);
+  width: 38px;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0.9;
+}
+#titlebar .view-btn:hover {
+  background: rgba(0, 0, 0, 0.18);
+  opacity: 1;
+}
+#titlebar .view-btn.active {
+  background: rgba(0, 0, 0, 0.28);
+  opacity: 1;
+}
+/* 창 제어 버튼 */
+.tb-winbtns {
+  display: flex;
+  align-items: stretch;
+  margin-left: 4px;
+}
+.tb-winbtns button {
+  border: none;
+  background: transparent;
+  color: var(--accent-ink);
+  width: 44px;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.9;
+}
+.tb-winbtns button:hover {
+  background: rgba(0, 0, 0, 0.18);
+  opacity: 1;
+}
+.tb-winbtns .win-close:hover {
+  background: #e04a4a;
+  color: #fff;
 }
 #sidebar-resizer {
   cursor: col-resize;
@@ -129,7 +213,16 @@ button {
 
 .side-head-actions {
   display: flex;
+  align-items: center;
+  gap: 8px; /* 기능 그룹 사이 간격 */
+}
+.side-head-actions .tb-group {
+  display: flex;
   gap: 4px;
+}
+.side-head-actions .tb-group + .tb-group {
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
 }
 
 .side-head-actions button {
@@ -297,22 +390,6 @@ button {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   min-height: 34px;
-}
-
-#cmd-toggle {
-  flex: 0 0 auto;
-  background: transparent;
-  border: none;
-  border-left: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 16px;
-  width: 40px;
-  cursor: pointer;
-}
-#cmd-toggle:hover,
-#cmd-toggle.active {
-  color: var(--accent);
-  background: var(--panel-2);
 }
 
 #tabbar {
@@ -667,6 +744,16 @@ button {
 .st-right span:first-child:not(:empty)::before {
   content: "";
   margin: 0;
+}
+/* 토글 지표(한/CAP/NUM)는 개별 구분선 대신 그룹 앞에만 구분선을 둔다. */
+.st-right > span.st-toggle:not(:empty)::before {
+  content: "";
+  margin: 0;
+}
+#st-hangul {
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
 }
 
 /* ── 터미널 토스트/검색/탭 상태색 ─────────────────────────────────────────────── */
