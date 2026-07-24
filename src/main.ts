@@ -508,10 +508,24 @@ async function main(): Promise<void> {
   wireAutoLock();
   wireLockKeys();
   wireSidebarResize();
+  // 잠금 버튼 = 토글: 열려 있으면 잠그고, 잠겨 있으면 마스터 비밀번호로 해제.
   $("vault-lock").addEventListener("click", async () => {
-    await vaultLock();
-    reflectLock(true);
-    await alertDialog("볼트를 잠갔습니다. 저장된 비밀번호를 쓰려면 다시 마스터 비밀번호가 필요합니다.");
+    const st = await vaultStatus();
+    if (!st.exists) {
+      await alertDialog("아직 볼트가 없습니다. 세션 비밀번호를 저장하면 마스터 비밀번호를 설정하게 됩니다.");
+      return;
+    }
+    if (st.unlocked) {
+      await vaultLock();
+      reflectLock(true);
+      await alertDialog("볼트를 잠갔습니다. 저장된 비밀번호를 쓰려면 다시 마스터 비밀번호가 필요합니다.");
+    } else if (await ensureVaultUnlocked()) {
+      await refreshLockIndicator();
+    }
+  });
+  // 잠금 오버레이 클릭으로도 바로 해제.
+  $("lock-overlay").addEventListener("click", async () => {
+    if (await ensureVaultUnlocked()) await refreshLockIndicator();
   });
   $("new-folder").addEventListener("click", () => void newFolderFlow(""));
   $("open-about").addEventListener("click", () => void aboutDialog());
@@ -541,6 +555,7 @@ async function main(): Promise<void> {
 
   // OS 키체인에 저장된 마스터가 있으면 볼트를 자동 해제(프롬프트 없이). — 배선 누락이었음
   await tryAutoUnlock();
+  await refreshLockIndicator(); // 시작 시 잠금 버튼 아이콘·오버레이 초기화
   void checkForUpdates();
 }
 
@@ -724,6 +739,10 @@ function reflectLock(locked: boolean): void {
   const sidebar = document.getElementById("sidebar")!;
   sidebar.classList.toggle("locked", locked);
   $("lock-overlay").classList.toggle("hidden", !locked);
+  // 버튼 아이콘·툴팁으로 현재 상태와 클릭 동작을 함께 표시.
+  const btn = $("vault-lock");
+  btn.textContent = locked ? "🔒" : "🔓";
+  btn.title = locked ? "잠김 — 클릭하여 마스터 비밀번호로 잠금 해제" : "볼트 잠금";
 }
 
 /** 실제 볼트 상태를 조회해 잠금 표시를 맞춘다(존재하고 잠겨 있으면 잠금). */

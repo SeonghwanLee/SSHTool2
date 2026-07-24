@@ -104,77 +104,78 @@ button {
   overflow: hidden;
 }
 
-/* ── 타이틀바(전폭) — 테마 accent 색으로 통일 ─────────────────────────────── */
+/* ── 타이틀바(전폭) — 나머지 크롬과 같은 어두운 톤 + accent 는 포인트로만 ───── */
 #titlebar {
   display: flex;
   align-items: stretch;
-  height: 34px;
-  background: var(--accent);
-  color: var(--accent-ink);
+  height: 36px;
+  background: var(--panel);
+  color: var(--fg);
+  border-bottom: 1px solid var(--border);
   user-select: none;
 }
 .tb-brand {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 0 12px;
-  font-weight: 700;
+  padding: 0 14px;
   letter-spacing: 0.02em;
 }
 .tb-glyph {
-  font-family: var(--mono, monospace);
-  opacity: 0.85;
+  font-family: "D2Coding", monospace;
+  font-weight: 700;
+  color: var(--accent); /* 테마 포인트 */
 }
 .tb-name {
-  font-size: 13px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
 }
 .tb-fill {
   flex: 1 1 auto;
 }
-/* 기능별 아이콘 묶음 — 그룹 사이에 옅은 구분선 */
+/* 기능별 아이콘 묶음 — 그룹 사이 옅은 구분선 */
 .tb-group {
   display: flex;
   align-items: stretch;
 }
 #titlebar .tb-group + .tb-group {
-  border-left: 1px solid var(--accent-ink);
-  box-shadow: -1px 0 0 rgba(255, 255, 255, 0.12);
+  border-left: 1px solid var(--border);
 }
 #titlebar .view-btn {
   border: none;
   background: transparent;
-  color: var(--accent-ink);
-  width: 38px;
+  color: var(--muted);
+  width: 40px;
   font-size: 14px;
   cursor: pointer;
-  opacity: 0.9;
 }
 #titlebar .view-btn:hover {
-  background: rgba(0, 0, 0, 0.18);
-  opacity: 1;
+  background: var(--panel-2);
+  color: var(--fg);
 }
 #titlebar .view-btn.active {
-  background: rgba(0, 0, 0, 0.28);
-  opacity: 1;
+  color: var(--accent); /* 활성 뷰만 accent */
+  background: var(--panel-2);
 }
-/* 창 제어 버튼 */
+/* 창 제어 버튼 — 타이틀바와 분리감 위해 왼쪽 구분선 */
 .tb-winbtns {
   display: flex;
   align-items: stretch;
-  margin-left: 4px;
+  margin-left: 6px;
+  border-left: 1px solid var(--border);
 }
 .tb-winbtns button {
   border: none;
   background: transparent;
-  color: var(--accent-ink);
-  width: 44px;
+  color: var(--muted);
+  width: 46px;
   font-size: 13px;
   cursor: pointer;
-  opacity: 0.9;
 }
 .tb-winbtns button:hover {
-  background: rgba(0, 0, 0, 0.18);
-  opacity: 1;
+  background: var(--panel-2);
+  color: var(--fg);
 }
 .tb-winbtns .win-close:hover {
   background: #e04a4a;
@@ -249,10 +250,24 @@ button {
   padding: 4px 0;
 }
 #lock-overlay {
-  padding: 16px 12px;
-  font-size: 12px;
-  color: var(--muted);
+  margin: 12px;
+  padding: 18px 12px;
+  font-size: 13px;
+  color: var(--fg);
   text-align: center;
+  line-height: 1.7;
+  cursor: pointer;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+#lock-overlay small {
+  color: var(--muted);
+  font-size: 11px;
+}
+#lock-overlay:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 #lock-overlay.hidden {
   display: none;
