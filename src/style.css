@@ -618,7 +618,15 @@ button {
   gap: 12px;
   white-space: nowrap;
 }
-.st-right span:not(:empty)::before {
+.st-toggle {
+  opacity: 0.35;
+  font-weight: 600;
+}
+.st-toggle.on {
+  opacity: 1;
+  color: var(--accent);
+}
+.st-right > span:not(:empty)::before {
   content: "│ ";
   color: var(--border);
   margin-right: 6px;

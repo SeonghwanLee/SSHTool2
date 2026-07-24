@@ -80,7 +80,7 @@ impl client::Handler for Client {
         connected_port: u32,
         _originator_address: &str,
         _originator_port: u32,
-        _handle: russh::ChannelOpenHandleInner<russh::client::Msg>,
+        handle: russh::ChannelOpenHandleInner<russh::client::Msg>,
         _session: &mut russh::client::Session,
     ) -> Result<(), Self::Error> {
         let dest = self
@@ -89,10 +89,16 @@ impl client::Handler for Client {
             .unwrap()
             .get(&connected_port)
             .cloned();
-        if let Some((host, port)) = dest {
-            tokio::spawn(portfwd::pump_forwarded(channel, host, port));
-        } else {
-            let _ = connected_address; // 매핑 없는 포트는 무시
+        match dest {
+            Some((host, port)) => {
+                // 반드시 accept 해야 채널이 등록되어 데이터가 라우팅된다.
+                // handle 을 그냥 drop 하면 russh 가 자동으로 거부(AdministrativelyProhibited)한다.
+                handle.accept().await;
+                tokio::spawn(portfwd::pump_forwarded(channel, host, port));
+            }
+            None => {
+                let _ = connected_address; // 매핑 없는 포트는 거부(handle drop = 자동 reject)
+            }
         }
         Ok(())
     }

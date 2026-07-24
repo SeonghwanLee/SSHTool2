@@ -437,6 +437,7 @@ async function main(): Promise<void> {
   wireSettings(tabs);
   wireSidebarSearch(sidebar);
   wireAutoLock();
+  wireLockKeys();
   $("open-about").addEventListener("click", () => void aboutDialog());
 
   // Ctrl+Shift+T = 빠른 접속(WPF 0.31.0)
@@ -573,6 +574,17 @@ function wireSidebarSearch(sidebar: Sidebar): void {
     sidebar.setFilter("");
     input.focus();
   });
+}
+
+/** CapsLock/NumLock 표시 — 키 이벤트에서 상태를 읽어 상태바에 반영. */
+function wireLockKeys(): void {
+  const update = (e: KeyboardEvent) => {
+    if (typeof e.getModifierState !== "function") return;
+    $("st-caps").classList.toggle("on", e.getModifierState("CapsLock"));
+    $("st-num").classList.toggle("on", e.getModifierState("NumLock"));
+  };
+  window.addEventListener("keydown", update, true);
+  window.addEventListener("keyup", update, true);
 }
 
 /** 하단 상태바 갱신(TabManager onStatus 콜백). */

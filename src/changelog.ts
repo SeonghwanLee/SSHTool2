@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.14.1",
+    date: "2026-07-24",
+    notes: [
+      "원격 포워딩(-R) 수정 — 서버가 넘겨준 연결을 수락하지 않아 모든 -R 연결이 거부되던 문제(0.14.0에서 시작 배너만 뜨고 실제 통신은 안 됨)를 고침",
+      "상태바에 CAP(Caps Lock)·NUM(Num Lock) 표시 추가",
+    ],
+  },
+  {
     version: "0.14.0",
     date: "2026-07-24",
     notes: [
