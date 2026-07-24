@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use russh::client::{self, Config, Handle};
+use russh::client::{self, Config, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::ssh_key::{self, HashAlg};
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect};
@@ -14,6 +14,43 @@ use tokio::sync::mpsc;
 
 use crate::hostkey;
 use crate::portfwd;
+
+/// 비밀번호 인증을 시도하고, 서버가 password 방식을 끄고 keyboard-interactive(PAM)만
+/// 허용하는 경우(사내 RHEL/Rocky 등에 흔함) 같은 비밀번호로 대화형 프롬프트에 응답한다.
+/// SSH.NET(구 WPF)이 자동으로 하던 동작을 재현한다.
+pub(crate) async fn password_or_keyboard_interactive<H: client::Handler>(
+    handle: &mut Handle<H>,
+    user: &str,
+    password: &str,
+) -> Result<bool, String> {
+    if handle
+        .authenticate_password(user.to_string(), password.to_string())
+        .await
+        .map_err(|e| format!("인증 오류: {e}"))?
+        .success()
+    {
+        return Ok(true);
+    }
+
+    let mut res = handle
+        .authenticate_keyboard_interactive_start(user.to_string(), None)
+        .await
+        .map_err(|e| format!("인증 오류: {e}"))?;
+    loop {
+        match res {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                // 모든 프롬프트(대개 "Password:")에 같은 비밀번호로 응답.
+                let answers = prompts.iter().map(|_| password.to_string()).collect();
+                res = handle
+                    .authenticate_keyboard_interactive_respond(answers)
+                    .await
+                    .map_err(|e| format!("인증 오류: {e}"))?;
+            }
+        }
+    }
+}
 use tokio::task::AbortHandle;
 
 /// Managed Tauri state: session id -> command sender.
@@ -220,11 +257,7 @@ pub async fn connect(
             .map_err(|e| format!("인증 오류: {e}"))?
             .success()
     } else {
-        handle
-            .authenticate_password(user, password)
-            .await
-            .map_err(|e| format!("인증 오류: {e}"))?
-            .success()
+        password_or_keyboard_interactive(&mut handle, &user, &password).await?
     };
     if !ok {
         return Err(if auth_type == "key" {

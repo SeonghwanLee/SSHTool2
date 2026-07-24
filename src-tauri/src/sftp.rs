@@ -112,11 +112,8 @@ pub async fn connect(
             .map_err(|e| format!("SFTP 인증 오류: {e}"))?
             .success()
     } else {
-        handle
-            .authenticate_password(user, password)
-            .await
-            .map_err(|e| format!("SFTP 인증 오류: {e}"))?
-            .success()
+        // 셸과 동일하게 password → keyboard-interactive(PAM) 폴백.
+        crate::ssh::password_or_keyboard_interactive(&mut handle, &user, &password).await?
     };
     if !ok {
         return Err("SFTP 인증 실패: 자격증명을 확인하세요".into());

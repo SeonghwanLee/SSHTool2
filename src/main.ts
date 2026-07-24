@@ -863,6 +863,17 @@ function wireWindowControls(tabs: TabManager): void {
   $("win-min").addEventListener("click", () => void win.minimize());
   $("win-max").addEventListener("click", () => void win.toggleMaximize());
   $("win-close").addEventListener("click", () => void win.close());
+
+  // 최대화 상태에 따라 최대화/복원 아이콘을 토글한다.
+  const syncMaxIcon = async () => {
+    try {
+      applyIcon($("win-max"), (await win.isMaximized()) ? "restore" : "maximize");
+    } catch {
+      /* 무시 */
+    }
+  };
+  void syncMaxIcon();
+  void win.onResized(() => void syncMaxIcon());
   // 접속 중인 세션이 있으면 종료 전 확인 — 커스텀 버튼·Alt+F4·작업표시줄 닫기 모두 커버.
   // win.close() 는 이 이벤트를 거치고, win.destroy() 는 우회하므로 확인 후 destroy 로 강제 종료.
   let closing = false;

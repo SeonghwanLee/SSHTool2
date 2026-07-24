@@ -64,7 +64,7 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **사이드바 검색**(250ms 디바운스+✕클리어) + 폴더 접힘 유지
 - [x] Shift+PageUp/Down 스크롤백, Ctrl+Shift+T 빠른접속 — v0.10.0
 - [x] 세션 세부정보 토글 — v0.12.0
-- [ ] 남음: 한영·CAP·NUM 표시
+- [x] 한영·CAP·NUM 상태바 표시 — v0.14.1(CAP/NUM), 한영=IME compositionstart/end
 
 ### Phase 2 — 데이터 & 온보딩 (v0.7) ✅
 - [x] **세션 임포트** PuTTY(레지스트리·CP949)/SecureCRT(ini)/MobaXterm(ini) — 프로그램/폴더 그룹 트리, 검색, host+user 중복제거, 비밀번호 제외
@@ -96,10 +96,22 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [x] **세션 로그** 원문 파일 기록(stdout+stderr, 문자셋 변환 후) — v0.9.0
 
 ### Phase 5 — 마감 폴리시 (v1.0)
-- [ ] **인앱 한글 오토마타**(두벌식, 플로팅 IME 제거 — HangulComposer 로직 이식)
+- [x] **인앱 한글 오토마타 — 이식 불필요(플랫폼 제공)**. WPF가 두벌식 오토마타를 만든
+      이유는 Win32/WPF IME 입력창이 화면 구석에 뜨는 것을 막기 위함이었다. 웹 렌더러(WebView2)는
+      xterm.js 의 숨은 textarea 에서 **OS IME 조합이 커서 위치에 인라인으로 표시되고 완성 음절만
+      onData 로 전달**되므로 그 문제가 애초에 없다. 커스텀 오토마타를 이식하면 오히려 OS IME 와
+      충돌해 한글 입력이 깨진다. → 목적(인라인 한글 입력·플로팅 박스 없음)은 이미 충족.
 - [x] **About/체인지로그** — 배너·버전 배지·이력(최근 5 + 더보기)·업데이트 확인·진단 정보 복사 — v0.10.0
 - [x] 설정 export/import(JSON 번들)·공장초기화 — v0.10.0
 - [x] 오프라인(내부망) 모드 — v0.11.0
+
+---
+
+## 이관 상태: **사실상 완료** (v0.24.0 기준)
+
+WPF SSHTool 0.46.1 의 사용자 기능은 전부 이관되었다. 웹 렌더러가 플랫폼 차원에서 해결하는
+항목(한글 IME, 마우스 캡처, 커스텀 스크롤바/타이틀바 테마)은 커스텀 이식 대신 플랫폼 기능으로
+대체했다. 남은 "탐색기 in/out DnD"는 HTML5 DnD 채택으로 보류(웹뷰↔OS 파일 드래그는 별도 과제).
 
 
 ---

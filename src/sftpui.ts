@@ -51,6 +51,7 @@ const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?
 
 function remoteParent(path: string): string {
   const p = path.replace(/\/+$/, "");
+  if (p === "") return "/"; // 루트("/")에서 상위 = 루트 유지(홈으로 튀지 않게)
   const cut = p.lastIndexOf("/");
   if (cut < 0) return ".";
   if (cut === 0) return "/";

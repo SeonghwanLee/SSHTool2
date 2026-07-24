@@ -9,6 +9,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.25.0",
+    date: "2026-07-24",
+    notes: [
+      "비밀번호 인증 개선 — 서버가 비밀번호 방식을 끄고 keyboard-interactive(PAM)만 허용하는 경우(사내 RHEL/Rocky 등)에도 같은 비밀번호로 자동 로그인. 기존에는 비밀번호가 맞아도 인증 실패로 보이던 문제",
+      "SFTP 원격 루트(/)에서 상위 폴더 버튼이 홈으로 튀지 않고 루트를 유지",
+      "창 최대화 시 최대화 버튼이 복원 아이콘으로 바뀜",
+    ],
+  },
+  {
     version: "0.24.0",
     date: "2026-07-24",
     notes: [
