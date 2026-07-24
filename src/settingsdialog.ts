@@ -14,6 +14,7 @@ export function settingsDialog(
   current: Settings,
   onLive: (s: Settings) => void,
   onChangeMaster: () => void,
+  autoUnlock: { initial: boolean; toggle: (enable: boolean) => Promise<boolean> },
 ): Promise<Settings> {
   return new Promise((resolve) => {
     let working: Settings = { ...current };
@@ -214,6 +215,22 @@ export function settingsDialog(
     });
     lockRow.appendChild(lockInput);
     card.appendChild(lockRow);
+
+    // 이 PC 자동 잠금 해제(OS 키체인) — 상태·토글은 비동기라 별도 처리.
+    const autoRow = document.createElement("label");
+    autoRow.className = "check-row control-row";
+    const autoBox = document.createElement("input");
+    autoBox.type = "checkbox";
+    autoBox.checked = autoUnlock.initial;
+    const autoText = document.createElement("span");
+    autoText.textContent = "이 PC에서 자동 잠금 해제 (OS 키체인, 다른 PC에서는 안 됨)";
+    autoRow.append(autoText, autoBox);
+    autoBox.addEventListener("change", async () => {
+      autoBox.disabled = true;
+      autoBox.checked = await autoUnlock.toggle(autoBox.checked);
+      autoBox.disabled = false;
+    });
+    card.appendChild(autoRow);
 
     const masterRow = controlRow("마스터 비밀번호");
     const masterBtn = document.createElement("button");

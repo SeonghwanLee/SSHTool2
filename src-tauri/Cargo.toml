@@ -1,6 +1,6 @@
 [package]
 name = "sshtool2"
-version = "0.14.1"
+version = "0.15.0"
 description = "SSHTool2"
 authors = ["Seonghwan Lee"]
 edition = "2021"
@@ -25,6 +25,7 @@ sha2 = "0.10"
 base64 = "0.22"
 encoding_rs = "0.8"
 portable-pty = "0.9"
+keyring = { version = "3", features = ["windows-native", "linux-native"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

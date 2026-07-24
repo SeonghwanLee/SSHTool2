@@ -1030,6 +1030,13 @@ button {
 .sftp-pane:last-child {
   border-right: none;
 }
+.sftp-splitter {
+  cursor: col-resize;
+  background: var(--border);
+}
+.sftp-splitter:hover {
+  background: var(--accent);
+}
 .sftp-pane-head {
   display: flex;
   align-items: center;

@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.15.0",
+    date: "2026-07-24",
+    notes: [
+      "이 PC에서 자동 잠금 해제 — 설정 > 보안에서 켜면 마스터 비밀번호를 OS 키체인(이 PC·이 계정)에 보관해, 다음 실행부터 물어보지 않고 볼트를 엽니다(다른 PC/계정에서는 안 됨)",
+      "SFTP 개선 — 로컬|원격 패널 사이 폭 조절 스플리터, 전송 속도(MB/s)와 여러 파일 전체 진행(N/M) 표시",
+    ],
+  },
+  {
     version: "0.14.1",
     date: "2026-07-24",
     notes: [

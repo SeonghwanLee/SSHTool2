@@ -15,6 +15,10 @@ import {
   vaultSetPassword,
   vaultGetPassword,
   vaultDeletePassword,
+  keystoreStore,
+  keystoreGet,
+  keystoreHas,
+  keystoreClear,
 } from "./ipc";
 import { TabManager, type CredentialProvider, type StatusInfo } from "./tabs";
 import { Sidebar, type DropTarget } from "./sidebar";
@@ -480,6 +484,10 @@ function wireSettings(tabs: TabManager): void {
         restartAutoLock();
       },
       () => void changeMasterFlow(),
+      {
+        initial: await keystoreHas(),
+        toggle: (enable) => toggleAutoUnlock(enable),
+      },
     );
     // 다이얼로그가 열려 있는 동안 백그라운드(업데이트 확인 실패 등)에서 바뀐 항목은
     // 스냅샷으로 되돌리지 않는다. onLive 가 settings 를 이미 최신으로 유지한다.
@@ -522,6 +530,58 @@ function wireViewModes(tabs: TabManager): void {
   mark(settings.viewMode);
 }
 
+/** '이 PC 자동 잠금 해제' 토글. 켜면 마스터를 확인해 OS 키체인에 저장, 끄면 삭제. 최종 상태 반환. */
+async function toggleAutoUnlock(enable: boolean): Promise<boolean> {
+  if (!enable) {
+    try {
+      await keystoreClear();
+    } catch (e) {
+      console.error("키체인 삭제 실패", e);
+    }
+    return false;
+  }
+  // 켤 때는 마스터를 확인받아 저장한다(볼트가 없으면 먼저 생성 흐름).
+  const st = await vaultStatus();
+  if (!st.exists) {
+    await alertDialog("먼저 비밀번호를 저장할 세션에 접속해 볼트를 만든 뒤 사용하세요.");
+    return false;
+  }
+  const master = await masterPrompt(
+    "이 PC 자동 잠금 해제",
+    "확인을 위해 마스터 비밀번호를 입력하세요. OS 키체인(이 PC·이 계정)에 저장됩니다.",
+    "저장",
+  );
+  if (master === null) return false;
+  if (!(await vaultUnlock(master)).ok) {
+    await alertDialog("마스터 비밀번호가 올바르지 않습니다.");
+    return false;
+  }
+  try {
+    await keystoreStore(master);
+    return true;
+  } catch (e) {
+    await alertDialog(`키체인 저장 실패: ${String(e)}`);
+    return false;
+  }
+}
+
+/** 시작 시 OS 키체인에 저장된 마스터가 있으면 볼트를 자동 해제한다. */
+async function tryAutoUnlock(): Promise<void> {
+  try {
+    const master = await keystoreGet();
+    if (!master) return;
+    const outcome = await vaultUnlock(master);
+    if (!outcome.ok) {
+      // 마스터가 바뀌었는데 키체인이 낡은 경우 — 조용히 정리(다음엔 프롬프트).
+      await keystoreClear();
+    } else if (outcome.migratedRecovery) {
+      await showRecoveryKey(outcome.migratedRecovery);
+    }
+  } catch (e) {
+    console.error("자동 잠금 해제 실패", e);
+  }
+}
+
 /** 마스터 비밀번호 변경 — 잠겨 있으면 먼저 해제한 뒤 새 비밀번호를 받는다. */
 async function changeMasterFlow(): Promise<void> {
   try {
@@ -533,6 +593,12 @@ async function changeMasterFlow(): Promise<void> {
     );
     if (next === null) return;
     const recovery = await vaultChangeMaster(next);
+    // 자동 해제가 켜져 있었다면 키체인의 마스터도 새 값으로 갱신한다.
+    try {
+      if (await keystoreHas()) await keystoreStore(next);
+    } catch (e) {
+      console.error("키체인 갱신 실패", e);
+    }
     await showRecoveryKey(recovery);
   } catch (e) {
     await alertDialog(`마스터 변경 실패: ${String(e)}`);

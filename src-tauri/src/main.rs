@@ -4,6 +4,7 @@
 mod backup;
 mod hostkey;
 mod import;
+mod keystore;
 mod localfs;
 mod localshell;
 mod portfwd;
@@ -223,6 +224,30 @@ async fn sftp_canonicalize(
     sftp::canonicalize(&state, &id, path).await
 }
 
+// ── OS 키체인 자동 잠금해제 ───────────────────────────────────────────────────
+
+/// 마스터를 OS 키체인에 저장(이 PC 자동 해제 활성화).
+#[tauri::command]
+fn keystore_store(master: String) -> Result<(), String> {
+    keystore::store(&master)
+}
+
+/// 시작 시 자동 해제용으로 저장된 마스터를 꺼낸다(없으면 null).
+#[tauri::command]
+fn keystore_get() -> Option<String> {
+    keystore::load()
+}
+
+#[tauri::command]
+fn keystore_has() -> bool {
+    keystore::has()
+}
+
+#[tauri::command]
+fn keystore_clear() -> Result<(), String> {
+    keystore::clear()
+}
+
 // ── 설정 백업/복원/초기화 ────────────────────────────────────────────────────
 
 /// 설정 폴더를 JSON 번들로 내보낸다(비밀번호는 암호화된 상태 그대로).
@@ -385,6 +410,10 @@ fn main() {
             sftp_disconnect,
             sftp_cancel,
             sftp_canonicalize,
+            keystore_store,
+            keystore_get,
+            keystore_has,
+            keystore_clear,
             backup_export,
             backup_import,
             factory_reset,

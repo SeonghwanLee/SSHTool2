@@ -138,13 +138,38 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
   });
   strip.append(pName, bar, pInfo, cancelBtn);
 
+  // 전송 속도 계산용(이전 진행 시점).
+  let speedName = "";
+  let lastDone = 0;
+  let lastAt = 0;
+  let overall = ""; // "3/10" 같은 전체 진행
+
   const showProgress = (name: string, done: number, total: number) => {
     strip.classList.remove("hidden");
-    pName.textContent = name;
+    pName.textContent = overall ? `${name}  (${overall})` : name;
     const ratio = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
     fill.style.width = `${ratio}%`;
     pct.textContent = `${ratio}%`;
-    pInfo.textContent = total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done);
+
+    // 같은 파일이 진행 중일 때만 속도(MB/s)를 낸다.
+    let speed = "";
+    const now = performance.now();
+    if (name === speedName && now > lastAt) {
+      const bps = ((done - lastDone) / (now - lastAt)) * 1000;
+      if (bps > 0) speed = ` · ${fmtSize(bps)}/s`;
+    }
+    if (name !== speedName) {
+      speedName = name;
+      lastDone = 0;
+      lastAt = now;
+    } else {
+      lastDone = done;
+      lastAt = now;
+    }
+    pInfo.textContent = (total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done)) + speed;
+  };
+  const setOverall = (o: string) => {
+    overall = o;
   };
   const hideProgress = () => strip.classList.add("hidden");
 
@@ -433,7 +458,28 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
   const remote = new Pane("remote");
   local.other = remote;
   remote.other = local;
-  body.append(local.root, remote.root);
+
+  // 로컬|원격 폭 조절 스플리터.
+  const splitter = document.createElement("div");
+  splitter.className = "sftp-splitter";
+  body.append(local.root, splitter, remote.root);
+  splitter.addEventListener("mousedown", (down) => {
+    down.preventDefault();
+    const startX = down.clientX;
+    const rect = body.getBoundingClientRect();
+    const startLeft = local.root.getBoundingClientRect().width;
+    const onMove = (m: MouseEvent) => {
+      const w = Math.max(160, Math.min(rect.width - 160, startLeft + (m.clientX - startX)));
+      body.style.gridTemplateColumns = `${w}px 6px 1fr`;
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+
   panel.append(header, body, strip);
 
   // ── 전송 ──
@@ -459,6 +505,7 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
 
     for (let i = 0; i < items.length; i++) {
       if (cancelled) break;
+      if (items.length > 1) setOverall(`${i + 1}/${items.length}`);
       const item = items[i];
       let targetName = item.name;
 
@@ -484,6 +531,7 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
     }
 
     hideProgress();
+    setOverall("");
     currentTransfer = null;
     transferring = false;
     setStatus(

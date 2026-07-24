@@ -91,6 +91,13 @@ export const hostkeyRemove = (target: string): Promise<void> =>
   invoke("hostkey_remove", { target });
 export const hostkeysClear = (): Promise<void> => invoke("hostkeys_clear");
 
+// ── OS 키체인(이 PC 자동 잠금해제) ──────────────────────────────────────────
+export const keystoreStore = (master: string): Promise<void> =>
+  invoke("keystore_store", { master });
+export const keystoreGet = (): Promise<string | null> => invoke<string | null>("keystore_get");
+export const keystoreHas = (): Promise<boolean> => invoke<boolean>("keystore_has");
+export const keystoreClear = (): Promise<void> => invoke("keystore_clear");
+
 export const settingsLoad = (): Promise<Record<string, unknown>> =>
   invoke<Record<string, unknown>>("settings_load");
 

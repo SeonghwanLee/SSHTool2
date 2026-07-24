@@ -91,11 +91,12 @@ sha2 = "0.10"
 base64 = "0.22"
 encoding_rs = "0.8"
 portable-pty = "0.9"
+keyring = { version = "3", features = ["windows-native", "linux-native"] }
 EOF
 
 {
   echo "// 프로젝트의 실제 소스를 직접 참조한다(복사본 아님)."
-  for m in store vault hostkey localfs import ssh sftp localshell backup portfwd; do
+  for m in store vault hostkey localfs import ssh sftp localshell backup portfwd keystore; do
     echo "#[path = \"$SRC/$m.rs\"] pub mod $m;"
   done
 } > "$CHECK/src/lib.rs"
