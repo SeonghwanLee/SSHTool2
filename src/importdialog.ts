@@ -1,5 +1,5 @@
 // 다른 SSH 클라이언트에서 세션 가져오기 — PuTTY/SecureCRT/MobaXterm.
-// 프로그램 → 원본 폴더 → 세션 트리 미리보기, 체크박스 선택(상위 체크=하위 전체),
+// 프로그램 → 원본 폴더(중첩 트리) → 세션 미리보기, 체크박스 선택(폴더 체크=하위 전체, 부분선택 중간표시),
 // 검색 필터(선택 유지), host+user 중복 제외. 비밀번호는 가져오지 않음(첫 접속 시 입력).
 
 import { openModal } from "./dialogs";
@@ -56,6 +56,18 @@ export async function importDialog(existing: SessionInfo[]): Promise<SessionInfo
           ok.disabled = checked.size === 0;
         };
 
+        // 프로그램 → 폴더 → 하위폴더 → 세션 트리. 실제로 만들어질 depth 와 동일하게 표시.
+        interface Node {
+          name: string;
+          folders: Map<string, Node>;
+          sessions: ImportedSession[];
+        }
+        const newNode = (name: string): Node => ({ name, folders: new Map(), sessions: [] });
+        const collect = (n: Node): ImportedSession[] => [
+          ...n.sessions,
+          ...[...n.folders.values()].flatMap(collect),
+        ];
+
         function draw(): void {
           const q = search.value.trim().toLowerCase();
           const shown = candidates.filter(
@@ -66,56 +78,20 @@ export async function importDialog(existing: SessionInfo[]): Promise<SessionInfo
               s.user.toLowerCase().includes(q),
           );
 
-          list.innerHTML = "";
-          // 프로그램 → 폴더 순으로 그룹화.
-          const groups = new Map<string, ImportedSession[]>();
+          // 트리 구성: [소스, ...폴더 세그먼트] 경로로 내려가며 세션을 리프에 담는다.
+          const root = newNode("");
           for (const s of shown) {
-            const g = s.folder ? `${s.source} / ${s.folder}` : s.source;
-            if (!groups.has(g)) groups.set(g, []);
-            groups.get(g)!.push(s);
-          }
-
-          for (const g of [...groups.keys()].sort((a, b) => a.localeCompare(b, "ko"))) {
-            const items = groups.get(g)!;
-            const head = document.createElement("label");
-            head.className = "bulk-group bulk-group-check";
-            const gbox = document.createElement("input");
-            gbox.type = "checkbox";
-            gbox.checked = items.every((s) => checked.has(key(s)));
-            gbox.addEventListener("change", () => {
-              for (const s of items) {
-                if (gbox.checked) checked.add(key(s));
-                else checked.delete(key(s));
-              }
-              draw();
-              updateCount();
-            });
-            const gname = document.createElement("span");
-            gname.textContent = g;
-            head.append(gbox, gname);
-            list.appendChild(head);
-
-            for (const s of items) {
-              const row = document.createElement("label");
-              row.className = "bulk-row";
-              const cb = document.createElement("input");
-              cb.type = "checkbox";
-              cb.checked = checked.has(key(s));
-              cb.addEventListener("change", () => {
-                if (cb.checked) checked.add(key(s));
-                else checked.delete(key(s));
-                updateCount();
-              });
-              const label = document.createElement("span");
-              label.className = "bulk-label";
-              label.textContent = s.name;
-              const detail = document.createElement("span");
-              detail.className = "bulk-detail";
-              detail.textContent = s.user ? `${s.user}@${s.host}:${s.port}` : `${s.host}:${s.port}`;
-              row.append(cb, label, detail);
-              list.appendChild(row);
+            const segs = [s.source, ...s.folder.split(/[\\/]/).filter(Boolean)];
+            let node = root;
+            for (const seg of segs) {
+              if (!node.folders.has(seg)) node.folders.set(seg, newNode(seg));
+              node = node.folders.get(seg)!;
             }
+            node.sessions.push(s);
           }
+
+          list.innerHTML = "";
+          renderNode(root, 0);
 
           if (shown.length === 0) {
             const empty = document.createElement("div");
@@ -124,6 +100,61 @@ export async function importDialog(existing: SessionInfo[]): Promise<SessionInfo
               ? "검색 결과가 없습니다."
               : "가져올 새 세션이 없습니다.";
             list.appendChild(empty);
+          }
+        }
+
+        function renderNode(node: Node, depth: number): void {
+          const folders = [...node.folders.values()].sort((a, b) =>
+            a.name.localeCompare(b.name, "ko"),
+          );
+          for (const f of folders) {
+            const items = collect(f);
+            const head = document.createElement("label");
+            head.className = "bulk-group bulk-group-check";
+            head.style.paddingLeft = `${6 + depth * 16}px`;
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            const on = items.filter((s) => checked.has(key(s))).length;
+            box.checked = on > 0 && on === items.length;
+            box.indeterminate = on > 0 && on < items.length; // 부분 선택
+            box.addEventListener("change", () => {
+              for (const s of items) {
+                if (box.checked) checked.add(key(s));
+                else checked.delete(key(s));
+              }
+              draw();
+              updateCount();
+            });
+            const label = document.createElement("span");
+            label.textContent = `${f.name}  (${items.length})`;
+            head.append(box, label);
+            list.appendChild(head);
+
+            renderNode(f, depth + 1); // 하위 폴더/세션은 한 단계 더 들여쓴다
+          }
+
+          const sessions = [...node.sessions].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+          for (const s of sessions) {
+            const row = document.createElement("label");
+            row.className = "bulk-row";
+            row.style.paddingLeft = `${6 + depth * 16}px`;
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.checked = checked.has(key(s));
+            cb.addEventListener("change", () => {
+              if (cb.checked) checked.add(key(s));
+              else checked.delete(key(s));
+              draw(); // 상위 폴더 체크박스 상태(부분선택) 갱신
+              updateCount();
+            });
+            const label = document.createElement("span");
+            label.className = "bulk-label";
+            label.textContent = s.name;
+            const detail = document.createElement("span");
+            detail.className = "bulk-detail";
+            detail.textContent = s.user ? `${s.user}@${s.host}:${s.port}` : `${s.host}:${s.port}`;
+            row.append(cb, label, detail);
+            list.appendChild(row);
           }
         }
 

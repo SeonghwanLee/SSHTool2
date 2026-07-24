@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.16.1",
+    date: "2026-07-24",
+    notes: [
+      "가져오기 미리보기를 중첩 폴더 트리로 개선 — 그동안 폴더가 '프로그램 / 운영/DB' 처럼 평평하게 눌려 실제 만들어질 depth 와 달라 보이던 문제. 이제 프로그램 → 폴더 → 하위폴더 → 세션 순으로 실제 depth 그대로 표시하고, 폴더 체크로 하위 전체 선택(부분선택 중간표시)",
+    ],
+  },
+  {
     version: "0.16.0",
     date: "2026-07-24",
     notes: [
