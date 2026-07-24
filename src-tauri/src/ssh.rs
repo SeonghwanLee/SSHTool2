@@ -116,7 +116,8 @@ pub async fn connect(
     cols: u32,
     rows: u32,
     charset: String,
-    /// Some(세션명) 이면 수신 내용을 logs/<이름>-<epoch>.log 에 원문 그대로 기록.
+    // Some(세션명) 이면 수신 내용을 logs/<이름>-<시각>-<id>.log 에 기록.
+    // (파라미터에는 /// 문서 주석을 달 수 없다 — 컴파일 에러가 된다)
     log_name: Option<String>,
 ) -> Result<String, String> {
     // 대화형 셸은 오래 유휴 상태일 수 있으므로 inactivity 타임아웃으로 끊지 않는다.
