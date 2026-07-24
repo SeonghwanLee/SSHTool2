@@ -285,5 +285,7 @@ export function applyAppTheme(theme: Theme): void {
   r.setProperty("--accent-hover", a.accentHover);
   r.setProperty("--accent-ink", a.accentInk);
   r.setProperty("--error", a.error);
+  // 터미널 배경색 — 행 높이 잔여 영역(하단 띠)을 이 색으로 칠해 검게 비치지 않게 한다.
+  r.setProperty("--term-bg", theme.term.background ?? a.bg);
   document.documentElement.dataset.theme = theme.dark ? "dark" : "light";
 }

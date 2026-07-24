@@ -12,18 +12,6 @@
   font-display: block;
 }
 @font-face {
-  font-family: "NanumGothicCoding";
-  src: url("./fonts/NanumGothicCoding-Regular.ttf") format("truetype");
-  font-weight: normal;
-  font-display: block;
-}
-@font-face {
-  font-family: "NanumGothicCoding";
-  src: url("./fonts/NanumGothicCoding-Bold.ttf") format("truetype");
-  font-weight: bold;
-  font-display: block;
-}
-@font-face {
   font-family: "JetBrains Mono";
   src: url("./fonts/JetBrainsMono-Regular.ttf") format("truetype");
   font-weight: normal;
@@ -800,6 +788,7 @@ button {
   min-height: 0;
   min-width: 0;
   overflow: hidden; /* 셀 폭이 컨테이너에 딱 안 떨어질 때 생기는 가짜 가로 스크롤바 방지 */
+  background: var(--term-bg);
 }
 
 /* 뷰 모드 버튼 */
@@ -822,6 +811,9 @@ button {
 .term-host .xterm-viewport,
 .term-host .xterm-screen {
   height: 100%;
+  /* 마지막 행 아래 잔여 영역이 검게 비치지 않도록 터미널 배경색으로 채운다.
+     실제 글자/셀 배경은 .xterm-rows 가 위에 그리므로 영향 없음. */
+  background-color: var(--term-bg);
 }
 /* 세로 스크롤(스크롤백)만 허용, 가로 스크롤바는 숨긴다. */
 .term-host .xterm-viewport {

@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.30.0",
+    date: "2026-07-24",
+    notes: [
+      "나눔고딕코딩 글꼴 제거 — 한글 입력 시 커서 위에 얇은 잔상 라인을 유발하던 글꼴. 선택돼 있던 경우 기본 글꼴(D2Coding)로 자동 전환",
+      "터미널 하단 검은 띠 재수정 — xterm 내부 요소까지 터미널 배경색을 적용해 행 높이 잔여 영역이 검게 비치지 않도록",
+    ],
+  },
+  {
     version: "0.29.0",
     date: "2026-07-24",
     notes: [

@@ -64,7 +64,6 @@ export interface FontChoice {
 /** 내장 4종(설치 불필요) + 대표 시스템 고정폭. 내장은 @font-face 로 로드됨. */
 export const FONTS: FontChoice[] = [
   { id: "D2Coding", label: "D2Coding", note: "내장 · 한글+영문 (Naver)", embedded: true },
-  { id: "NanumGothicCoding", label: "나눔고딕코딩", note: "내장 · 한글+영문 (Naver, OFL)", embedded: true },
   { id: "JetBrains Mono", label: "JetBrains Mono", note: "내장 · Apache 2.0", embedded: true },
   { id: "IBM Plex Mono", label: "IBM Plex Mono", note: "내장 · SIL OFL", embedded: true },
   { id: "Hack", label: "Hack", note: "내장 · MIT", embedded: true },
@@ -91,6 +90,8 @@ export async function loadSettings(): Promise<Settings> {
     if (firstRun) merged.sidebarCollapsed = false;
     // 제거된 테마 id(구버전)를 저장해 둔 경우 기본 테마로 정규화한다.
     if (!THEMES.some((t) => t.id === merged.theme)) merged.theme = DEFAULT_THEME_ID;
+    // 제거된 폰트(나눔고딕코딩 등)를 선택해 둔 경우 기본 폰트로 정규화.
+    if (!FONTS.some((f) => f.id === merged.fontFamily)) merged.fontFamily = DEFAULT_SETTINGS.fontFamily;
     // 최근 접속 개수는 0~50 범위(구버전 파일 방어).
     if (!Number.isFinite(merged.recentLimit))
       merged.recentLimit = DEFAULT_SETTINGS.recentLimit;
