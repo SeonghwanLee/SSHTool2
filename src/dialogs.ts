@@ -2,6 +2,22 @@
 
 import type { SessionInfo } from "./types";
 
+/**
+ * 열려 있는 모달 오버레이 스택. Esc 는 **맨 위 모달만** 닫아야 한다
+ * (전에는 각 모달이 document 리스너를 따로 걸어 Esc 한 번에 여러 개가 같이 닫혔다).
+ */
+export const modalStack: HTMLElement[] = [];
+
+export function pushModal(el: HTMLElement): void {
+  modalStack.push(el);
+}
+export function popModal(el: HTMLElement): void {
+  const i = modalStack.lastIndexOf(el);
+  if (i >= 0) modalStack.splice(i, 1);
+}
+export const isTopModal = (el: HTMLElement): boolean =>
+  modalStack[modalStack.length - 1] === el;
+
 const root = (): HTMLElement => {
   const el = document.getElementById("modal-root");
   if (!el) throw new Error("missing #modal-root");
@@ -17,9 +33,10 @@ export function openModal(build: (close: () => void) => HTMLElement, onDismiss?:
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const esc = (e: KeyboardEvent) => {
-    if (e.key === "Escape") dismiss();
+    if (e.key === "Escape" && isTopModal(overlay)) dismiss();
   };
   const close = () => {
+    popModal(overlay);
     overlay.remove();
     document.removeEventListener("keydown", esc);
   };
@@ -34,6 +51,7 @@ export function openModal(build: (close: () => void) => HTMLElement, onDismiss?:
     if (e.target === overlay) dismiss(); // 바깥 클릭 = 취소
   });
   document.addEventListener("keydown", esc);
+  pushModal(overlay);
   root().appendChild(overlay);
 }
 

@@ -59,6 +59,24 @@ export class Sidebar {
     newBtn.addEventListener("click", () => this.cb.onNew());
     quickBtn.addEventListener("click", () => this.cb.onQuick());
 
+    // 빈 영역에 드롭 = 루트로 꺼내기(모든 세션이 폴더 안이면 다른 방법이 없다).
+    this.tree.addEventListener("dragover", (e) => {
+      if (e.target !== this.tree || !e.dataTransfer?.types.includes(DRAG_TYPE)) return;
+      e.preventDefault();
+      this.tree.classList.add("drop-root");
+    });
+    this.tree.addEventListener("dragleave", (e) => {
+      const to = e.relatedTarget as Node | null;
+      if (!to || !this.tree.contains(to)) this.tree.classList.remove("drop-root");
+    });
+    this.tree.addEventListener("drop", (e) => {
+      this.tree.classList.remove("drop-root");
+      if (e.target !== this.tree) return;
+      e.preventDefault();
+      const id = e.dataTransfer?.getData(DRAG_TYPE);
+      if (id) this.cb.onDropSession(id, { kind: "folder", path: "" });
+    });
+
     // 빈 영역 우클릭 = 트리 전체 대상 메뉴.
     this.tree.addEventListener("contextmenu", (e) => {
       if (e.target !== this.tree) return; // 행에서 올라온 이벤트는 각 행이 처리
@@ -180,12 +198,19 @@ export class Sidebar {
         e.preventDefault();
         row.classList.add("drop-into");
       });
-      row.addEventListener("dragleave", () => row.classList.remove("drop-into"));
+      row.addEventListener("dragleave", (e) => {
+        const to = e.relatedTarget as Node | null;
+        if (!to || !row.contains(to)) row.classList.remove("drop-into");
+      });
       row.addEventListener("drop", (e) => {
         e.preventDefault();
         row.classList.remove("drop-into");
         const id = e.dataTransfer?.getData(DRAG_TYPE);
-        if (id) this.cb.onDropSession(id, { kind: "folder", path: f.path });
+        if (id) {
+          // 접혀 있으면 펼쳐 준다 — 안 그러면 옮긴 세션이 사라진 것처럼 보인다.
+          this.collapsed.delete(f.path);
+          this.cb.onDropSession(id, { kind: "folder", path: f.path });
+        }
       });
 
       parent.appendChild(row);
@@ -227,6 +252,7 @@ export class Sidebar {
 
     const actions = document.createElement("div");
     actions.className = "tree-actions";
+    actions.draggable = false; // 버튼 위에서 행 드래그가 시작되지 않게
     // 로컬 셸 세션에는 SFTP 가 없다(로컬 파일은 탐색기로 접근).
     const sftp = document.createElement("button");
     sftp.className = "tree-act";
@@ -269,12 +295,15 @@ export class Sidebar {
       row.classList.toggle("drop-before", before);
       row.classList.toggle("drop-after", !before);
     });
-    row.addEventListener("dragleave", () => {
-      row.classList.remove("drop-before", "drop-after");
+    row.addEventListener("dragleave", (e) => {
+      const to = e.relatedTarget as Node | null;
+      if (!to || !row.contains(to)) row.classList.remove("drop-before", "drop-after");
     });
     row.addEventListener("drop", (e) => {
       e.preventDefault();
-      const before = row.classList.contains("drop-before");
+      // 클래스는 dragleave 로 지워질 수 있으므로 좌표에서 다시 계산한다.
+      const rect = row.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
       row.classList.remove("drop-before", "drop-after");
       const id = e.dataTransfer?.getData(DRAG_TYPE);
       if (id && id !== s.id) {

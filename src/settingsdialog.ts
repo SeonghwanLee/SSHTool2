@@ -8,7 +8,7 @@ import { knownHostsDialog } from "./knownhosts";
 import { save as saveDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { backupExport, backupImport, factoryReset } from "./ipc";
-import { alertDialog, confirmDialog } from "./dialogs";
+import { alertDialog, confirmDialog, pushModal, popModal, isTopModal } from "./dialogs";
 
 export function settingsDialog(
   current: Settings,
@@ -26,14 +26,16 @@ export function settingsDialog(
     overlay.appendChild(card);
 
     const close = () => {
+      popModal(overlay);
       overlay.remove();
       document.removeEventListener("keydown", onEsc);
       resolve(working);
     };
     const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape" && isTopModal(overlay)) close();
     };
     document.addEventListener("keydown", onEsc);
+    pushModal(overlay);
     overlay.addEventListener("mousedown", (e) => {
       if (e.target === overlay) close();
     });

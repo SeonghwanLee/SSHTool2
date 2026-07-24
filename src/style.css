@@ -184,13 +184,21 @@ button {
   background: var(--panel-2);
 }
 .tree-session.drop-before {
-  box-shadow: inset 0 2px 0 0 var(--accent);
+  box-shadow: inset 0 2px 0 0 var(--fg);
 }
 .tree-session.drop-after {
-  box-shadow: inset 0 -2px 0 0 var(--accent);
+  box-shadow: inset 0 -2px 0 0 var(--fg);
+}
+/* 트리 빈 영역도 드롭 대상(루트로 꺼내기) */
+#session-tree.drop-root {
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
 }
 .tree-folder.drop-into {
   background: var(--accent);
+  color: var(--accent-ink);
+}
+.tree-folder.drop-into .tree-arrow {
   color: var(--accent-ink);
 }
 .tree-session.selected {
@@ -1233,6 +1241,9 @@ button {
   position: fixed;
   inset: 0;
   pointer-events: none;
+  /* 이 컨테이너가 스택 컨텍스트를 만들므로, body 에 직접 붙는 설정(100)·SFTP(90)
+     오버레이보다 확실히 위에 오도록 명시한다. 확인/알림창이 뒤에 깔리면 클릭 불가. */
+  z-index: 1000;
 }
 .modal-overlay {
   position: fixed;

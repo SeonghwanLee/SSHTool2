@@ -91,7 +91,18 @@ function applyDrop(all: SessionInfo[], sourceId: string, target: DropTarget): Se
 
   if (target.kind === "folder") {
     if (source.folder === target.path) return all;
-    return all.map((s) => (s.id === sourceId ? { ...s, folder: target.path } : s));
+    // 대상 폴더 형제들을 0..n-1 로 다시 매기고 source 를 맨 뒤에 붙인다
+    // (그냥 folder 만 바꾸면 sortOrder 가 전부 0 으로 겹쳐 순서가 뒤죽박죽이 된다).
+    const siblings = all
+      .filter((s) => s.folder === target.path && s.id !== sourceId)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ko"));
+    const order = new Map(siblings.map((s, i) => [s.id, i]));
+    order.set(sourceId, siblings.length);
+    return all.map((s) =>
+      order.has(s.id)
+        ? { ...s, folder: target.path, sortOrder: order.get(s.id)! }
+        : s,
+    );
   }
 
   const dest = all.find((s) => s.id === target.id);
@@ -456,10 +467,13 @@ function wireSettings(tabs: TabManager): void {
       },
       () => void changeMasterFlow(),
     );
-    settings = result;
-    if (JSON.stringify(before) !== JSON.stringify(result)) {
+    // 다이얼로그가 열려 있는 동안 백그라운드(업데이트 확인 실패 등)에서 바뀐 항목은
+    // 스냅샷으로 되돌리지 않는다. onLive 가 settings 를 이미 최신으로 유지한다.
+    settings = { ...result, checkUpdateOnStartup: settings.checkUpdateOnStartup };
+    const result2 = settings;
+    if (JSON.stringify(before) !== JSON.stringify(result2)) {
       try {
-        await saveSettings(result);
+        await saveSettings(result2);
       } catch (e) {
         console.error("설정 저장 실패", e);
       }
@@ -600,13 +614,12 @@ function wireCommandBar(tabs: TabManager): void {
 async function checkForUpdates(): Promise<void> {
   // 내부망 전용 PC 에서는 아예 시도하지 않는다.
   if (!settings.checkUpdateOnStartup) return;
+
+  let update: Awaited<ReturnType<typeof check>> = null;
   try {
-    const update = await check();
-    if (!update) return;
-    const ok = await confirmDialog(`새 버전 ${update.version} 이(가) 있습니다. 지금 설치할까요?`);
-    if (!ok) return;
-    await update.downloadAndInstall();
-    await relaunch();
+    // '연결 불가' 판정은 확인 단계에만 적용한다 — 설치 실패까지 여기서 잡으면
+    // 일시적 오류 한 번으로 업데이트를 영구히 꺼버리게 된다.
+    update = await check();
   } catch (e) {
     // 인터넷이 안 되는 환경이면 매번 실패하므로, 그 자리에서 끌 수 있게 제안한다.
     console.error("업데이트 확인 실패", e);
@@ -614,13 +627,25 @@ async function checkForUpdates(): Promise<void> {
       "업데이트 확인에 실패했습니다(인터넷 연결 불가로 보입니다).\n" +
         "시작 시 업데이트 확인 기능을 끌까요? (설정에서 다시 켤 수 있습니다)",
     );
-    if (!turnOff) return;
-    settings = { ...settings, checkUpdateOnStartup: false };
-    try {
-      await saveSettings(settings);
-    } catch {
-      /* 무시 */
+    if (turnOff) {
+      settings = { ...settings, checkUpdateOnStartup: false };
+      try {
+        await saveSettings(settings);
+      } catch {
+        /* 무시 */
+      }
     }
+    return;
+  }
+
+  if (!update) return;
+  const ok = await confirmDialog(`새 버전 ${update.version} 이(가) 있습니다. 지금 설치할까요?`);
+  if (!ok) return;
+  try {
+    await update.downloadAndInstall();
+    await relaunch();
+  } catch (e) {
+    await alertDialog(`업데이트 설치에 실패했습니다: ${String(e)}`);
   }
 }
 
