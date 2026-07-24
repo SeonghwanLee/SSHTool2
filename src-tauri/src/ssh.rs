@@ -51,6 +51,8 @@ struct Client {
     port: u16,
     /// 지문 불일치로 거부했음을 connect() 에 알리는 플래그(오류 메시지 구분용).
     mismatch: Arc<AtomicBool>,
+    /// -R 원격 포워딩: 서버 바인드 포트 → (대상 호스트, 대상 포트).
+    remote_forwards: Arc<Mutex<HashMap<u32, (String, u16)>>>,
 }
 
 impl client::Handler for Client {
@@ -68,6 +70,31 @@ impl client::Handler for Client {
                 Ok(false)
             }
         }
+    }
+
+    /// -R: 서버가 원격 포워딩된 연결을 넘겨줄 때 — 대상에 연결해 중계한다.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<russh::client::Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _handle: russh::ChannelOpenHandleInner<russh::client::Msg>,
+        _session: &mut russh::client::Session,
+    ) -> Result<(), Self::Error> {
+        let dest = self
+            .remote_forwards
+            .lock()
+            .unwrap()
+            .get(&connected_port)
+            .cloned();
+        if let Some((host, port)) = dest {
+            tokio::spawn(portfwd::pump_forwarded(channel, host, port));
+        } else {
+            let _ = connected_address; // 매핑 없는 포트는 무시
+        }
+        Ok(())
     }
 }
 
@@ -133,12 +160,23 @@ pub async fn connect(
         ..Default::default()
     });
 
+    // 포워딩 규칙 미리 파싱 — -R 매핑을 Client(핸들러)에 넘겨야 한다.
+    let (fwd_rules, fwd_bad) = portfwd::parse(&port_forwards);
+    let remote_forwards: Arc<Mutex<HashMap<u32, (String, u16)>>> = Arc::new(Mutex::new(
+        fwd_rules
+            .iter()
+            .filter(|r| !r.local)
+            .map(|r| (r.bind_port as u32, (r.dest_host.clone(), r.dest_port)))
+            .collect(),
+    ));
+
     let mismatch = Arc::new(AtomicBool::new(false));
     let client = Client {
         app: app.clone(),
         host: host.clone(),
         port,
         mismatch: mismatch.clone(),
+        remote_forwards: remote_forwards.clone(),
     };
     let mut handle: Handle<Client> = match client::connect(config, (host.as_str(), port), client)
         .await
@@ -201,18 +239,21 @@ pub async fn connect(
                 },
             );
         };
-        let (rules, bad) = portfwd::parse(&port_forwards);
-        for line in bad {
+        for line in &fwd_bad {
             notify(format!("[포워딩] 형식 오류로 건너뜀: {line}"));
         }
-        for rule in rules {
+        for rule in &fwd_rules {
             if rule.local {
-                forwards.push(portfwd::spawn_local(handle.clone(), rule, notify.clone()));
+                forwards.push(portfwd::spawn_local(handle.clone(), rule.clone(), notify.clone()));
             } else {
-                notify(format!(
-                    "[포워딩] R:{} — 원격 포워딩(-R)은 아직 지원되지 않습니다",
-                    rule.bind_port
-                ));
+                // -R: 서버에 원격 포워딩 요청. 이후 연결은 위 콜백이 처리한다.
+                match handle.tcpip_forward("0.0.0.0", rule.bind_port as u32).await {
+                    Ok(_) => notify(format!(
+                        "[포워딩] R:{} → {}:{} 시작",
+                        rule.bind_port, rule.dest_host, rule.dest_port
+                    )),
+                    Err(e) => notify(format!("[포워딩] R:{} 요청 실패 — {e}", rule.bind_port)),
+                }
             }
         }
     }

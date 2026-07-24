@@ -130,6 +130,17 @@ where
     task.abort_handle()
 }
 
+/// -R: 서버가 열어준 forwarded-tcpip 채널을 로컬 대상(dest_host:dest_port)에 연결해 중계한다.
+/// Handler 콜백에서 tokio::spawn 으로 호출.
+pub async fn pump_forwarded(channel: Channel<Msg>, dest_host: String, dest_port: u16) {
+    match TcpStream::connect((dest_host.as_str(), dest_port)).await {
+        Ok(sock) => {
+            let _ = pump(channel, sock).await;
+        }
+        Err(_) => { /* 대상에 연결 못 함 — 이 채널만 버린다 */ }
+    }
+}
+
 /// TCP 소켓 ↔ SSH 채널 양방향 중계.
 async fn pump(mut channel: Channel<Msg>, mut sock: TcpStream) -> Result<(), std::io::Error> {
     let mut buf = vec![0u8; 16 * 1024];

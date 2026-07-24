@@ -73,7 +73,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         forwards.className = "area-input";
         forwards.rows = 2;
         forwards.placeholder =
-          "포트 포워딩 (한 줄에 하나)\n예: L:8080:127.0.0.1:80\n(로컬 8080 → 서버 경유 → 대상)";
+          "포트 포워딩 (한 줄에 하나)\n예: L:8080:127.0.0.1:80  (로컬→서버 경유→대상)\n예: R:9000:127.0.0.1:3000  (서버 포트→내 쪽 대상)";
         forwards.value = initial.portForwards;
 
         const logRow = document.createElement("label");
