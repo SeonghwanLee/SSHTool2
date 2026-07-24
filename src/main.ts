@@ -20,9 +20,16 @@ import {
   keystoreHas,
   keystoreClear,
 } from "./ipc";
-import { TabManager, type CredentialProvider, type StatusInfo } from "./tabs";
+import { TabManager, type CredentialProvider, type ResolvedCreds, type StatusInfo } from "./tabs";
 import { Sidebar, type DropTarget } from "./sidebar";
-import { passwordPrompt, masterPrompt, confirmDialog, textPrompt, alertDialog } from "./dialogs";
+import {
+  passwordPrompt,
+  loginPrompt,
+  masterPrompt,
+  confirmDialog,
+  textPrompt,
+  alertDialog,
+} from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
 import { settingsDialog } from "./settingsdialog";
 import { bulkDeleteDialog } from "./bulkdelete";
@@ -224,30 +231,71 @@ async function showRecoveryKey(recovery: string): Promise<void> {
   );
 }
 
-/** 저장(볼트) 우선, 없으면 프롬프트. 성공 시 저장, 인증 실패 시 저장분 폐기. */
+/**
+ * 자격증명 해결:
+ * - savePassword + 볼트에 저장돼 있고 사용자 이름도 있으면 → 그대로 사용(프롬프트 없음)
+ * - 사용자 이름이 없으면 → 로그인(아이디+비밀번호) 입력
+ * - 그 외 → 비밀번호만 입력
+ */
 const credentials: CredentialProvider = {
   async resolve(session) {
-    // 볼트 오류로 전체 접속이 조용히 실패하지 않도록 여기서 흡수하고 프롬프트로 폴백한다.
     try {
-      if (session.savePassword && (await ensureVaultUnlocked())) {
+      if (session.savePassword && session.user && (await ensureVaultUnlocked())) {
         const stored = await vaultGetPassword(session.id);
-        if (stored !== null) return stored;
+        if (stored !== null) return { user: session.user, password: stored, prompted: false };
       }
     } catch (e) {
-      console.error("볼트 사용 실패 — 비밀번호를 직접 입력받습니다", e);
+      console.error("볼트 사용 실패 — 직접 입력받습니다", e);
       await alertDialog(`저장된 비밀번호를 사용할 수 없습니다: ${String(e)}`);
     }
-    return passwordPrompt(session);
-  },
-  async onConnected(session, password) {
-    void refreshLockIndicator(); // 접속했다고 잠금이 풀리는 건 아님 — 실제 볼트 상태로 갱신
-    if (!session.savePassword) return;
-    try {
-      if (await ensureVaultUnlocked()) await vaultSetPassword(session.id, password);
-    } catch (e) {
-      console.error("비밀번호 저장 실패", e);
+
+    if (!session.user) {
+      // 가져온 세션 등 계정이 없는 경우 — 아이디+비밀번호를 함께 입력받는다.
+      const login = await loginPrompt(session);
+      if (login === null) return null;
+      return { user: login.user, password: login.password, prompted: true };
     }
+    const pw = await passwordPrompt(session);
+    if (pw === null) return null;
+    return { user: session.user, password: pw, prompted: true };
   },
+
+  async onConnected(session, creds) {
+    void refreshLockIndicator();
+    // 저장된 자격증명을 그대로 쓴 경우엔 물어볼 게 없다.
+    if (!creds.prompted) return;
+    // 임시(빠른 접속) 세션은 목록에 없으니 저장 제안 안 함.
+    const saved = sessions.find((x) => x.id === session.id);
+    if (!saved) return;
+
+    const persistCreds = async (updateUser: boolean) => {
+      if (updateUser || !saved.savePassword) {
+        sessions = sessions.map((x) =>
+          x.id === session.id ? { ...x, user: creds.user, savePassword: true } : x,
+        );
+        // 이 탭에서의 재접속도 저장된 계정을 쓰도록 라이브 세션도 갱신.
+        session.user = creds.user;
+        session.savePassword = true;
+        await persist();
+        redraw();
+      }
+      try {
+        if (await ensureVaultUnlocked()) await vaultSetPassword(session.id, creds.password);
+      } catch (e) {
+        console.error("비밀번호 저장 실패", e);
+      }
+    };
+
+    if (saved.savePassword) {
+      // 이미 저장 대상 — 조용히 최신 값으로 갱신(사용자 이름이 바뀌었으면 함께).
+      await persistCreds(saved.user !== creds.user);
+      return;
+    }
+    // 저장 안 하던 세션 — 입력한 계정 정보를 저장할지 물어본다(WPF 0.42.0).
+    const yes = await confirmDialog("입력한 계정 정보를 이 세션에 저장할까요?");
+    if (yes) await persistCreds(true);
+  },
+
   async onError(session, error) {
     // 저장된 비밀번호가 틀렸을 수 있으니 인증 실패면 폐기 → 다음엔 다시 물어봄.
     if (session.savePassword && /인증/.test(error)) {
@@ -307,10 +355,13 @@ async function main(): Promise<void> {
         redraw();
       },
       onSftp: async (s) => {
-        // SFTP 는 셸과 별개의 연결이라 비밀번호가 필요 — 저장분 우선, 없으면 프롬프트.
-        const pw = await credentials.resolve(s);
-        if (pw === null) return;
-        await openSftpBrowser(s, pw);
+        // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
+        const creds = await credentials.resolve(s);
+        if (creds === null) return;
+        // 계정을 새로 입력했으면 그 계정으로 접속하도록 임시 세션에 반영.
+        const target = creds.user !== s.user ? { ...s, user: creds.user } : s;
+        await credentials.onConnected(s, creds);
+        await openSftpBrowser(target, creds.password);
       },
       onNew: async () => {
         const created = await sessionDialog(blankSession(), "새 세션");

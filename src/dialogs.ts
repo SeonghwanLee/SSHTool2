@@ -109,6 +109,57 @@ export function passwordPrompt(session: SessionInfo): Promise<string | null> {
   });
 }
 
+/** 아이디+비밀번호 입력(계정 없는 세션 접속용). 확인={user,password}, 취소=null. */
+export function loginPrompt(session: SessionInfo): Promise<{ user: string; password: string } | null> {
+  const isKey = session.authType === "key";
+  return new Promise((resolve) => {
+    openModal(
+      (close) => {
+        const card = document.createElement("form");
+        const title = document.createElement("h3");
+        title.textContent = "로그인";
+        const sub = document.createElement("div");
+        sub.className = "modal-sub";
+        sub.textContent = `${session.name || session.host}:${session.port}`;
+
+        const user = document.createElement("input");
+        user.placeholder = "사용자 이름";
+        user.value = session.user;
+        const pass = document.createElement("input");
+        pass.type = "password";
+        pass.placeholder = isKey ? "키 암호 (없으면 비워두고 확인)" : "비밀번호";
+
+        const buttons = document.createElement("div");
+        buttons.className = "modal-buttons";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.textContent = "취소";
+        cancel.addEventListener("click", () => {
+          close();
+          resolve(null);
+        });
+        const ok = document.createElement("button");
+        ok.type = "submit";
+        ok.className = "btn-accent";
+        ok.textContent = "접속";
+        buttons.append(cancel, ok);
+
+        card.append(title, sub, field("사용자", user), field(isKey ? "키 암호" : "비밀번호", pass), buttons);
+        card.addEventListener("submit", (e) => {
+          e.preventDefault();
+          const u = user.value.trim();
+          if (!u) return; // 사용자 이름은 필수
+          close();
+          resolve({ user: u, password: pass.value });
+        });
+        setTimeout(() => (session.user ? pass : user).focus(), 0);
+        return card;
+      },
+      () => resolve(null),
+    );
+  });
+}
+
 /** 마스터 비밀번호 입력(볼트 생성/잠금해제 공용). 확인=문자열, 취소=null. */
 export function masterPrompt(
   title: string,

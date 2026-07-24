@@ -34,12 +34,22 @@ const resizeTo = (s: SessionInfo, id: string, cols: number, rows: number): Promi
 const closeOf = (s: SessionInfo, id: string): Promise<void> =>
   isLocal(s) ? localClose(id) : sshClose(id);
 
+/** 접속에 쓸 자격증명 + 사용자가 직접 입력했는지 여부(저장 제안용). */
+export interface ResolvedCreds {
+  user: string;
+  password: string;
+  /** true 면 이번에 프롬프트로 입력받은 것(저장 여부를 물어볼 대상). */
+  prompted: boolean;
+}
+
 /** 자격증명 해결·저장 정책. 볼트 연동은 main.ts 가 구현(탭은 UI-비종속). */
 export interface CredentialProvider {
-  resolve(session: SessionInfo): Promise<string | null>;
-  onConnected(session: SessionInfo, password: string): Promise<void>;
+  resolve(session: SessionInfo): Promise<ResolvedCreds | null>;
+  onConnected(session: SessionInfo, creds: ResolvedCreds): Promise<void>;
   onError(session: SessionInfo, error: string): Promise<void>;
 }
+
+const LOCAL_CREDS: ResolvedCreds = { user: "", password: "", prompted: false };
 
 export interface StatusInfo {
   label: string;
@@ -567,8 +577,8 @@ export class TabManager {
 
   async openSession(session: SessionInfo): Promise<void> {
     // 로컬 셸은 인증이 없다.
-    const pw = isLocal(session) ? "" : await this.credentials.resolve(session);
-    if (pw === null) return;
+    const creds = isLocal(session) ? LOCAL_CREDS : await this.credentials.resolve(session);
+    if (creds === null) return;
 
     const tab = new TerminalTab(
       session,
@@ -596,7 +606,7 @@ export class TabManager {
     this.panes.appendChild(tab.root);
     this.activate(tab);
     this.renderTabbar();
-    await this.doConnect(tab, pw);
+    await this.doConnect(tab, creds);
   }
 
   broadcast(data: Uint8Array): number {
@@ -628,13 +638,13 @@ export class TabManager {
   }
 
   private async reconnect(tab: TerminalTab): Promise<void> {
-    const pw = isLocal(tab.session) ? "" : await this.credentials.resolve(tab.session);
-    if (pw === null) return;
+    const creds = isLocal(tab.session) ? LOCAL_CREDS : await this.credentials.resolve(tab.session);
+    if (creds === null) return;
     this.activate(tab);
-    await this.doConnect(tab, pw);
+    await this.doConnect(tab, creds);
   }
 
-  private async doConnect(tab: TerminalTab, password: string): Promise<void> {
+  private async doConnect(tab: TerminalTab, creds: ResolvedCreds): Promise<void> {
     tab.setConnecting();
     this.renderTabbar();
     this.emitStatus();
@@ -651,8 +661,8 @@ export class TabManager {
         : await sshConnect({
         host: tab.session.host,
         port: tab.session.port,
-        user: tab.session.user,
-        password,
+        user: creds.user,
+        password: creds.password,
         cols: tab.cols,
         rows: tab.rows,
         charset: tab.session.charset,
@@ -685,7 +695,7 @@ export class TabManager {
         return;
       }
       tab.focus();
-      if (!isLocal(tab.session)) void this.credentials.onConnected(tab.session, password);
+      if (!isLocal(tab.session)) void this.credentials.onConnected(tab.session, creds);
       // 셸 프롬프트가 나온 뒤 자동 실행 명령 전송.
       if (tab.session.startupCommands.trim()) {
         window.setTimeout(() => tab.sendStartupCommands(), 500);
