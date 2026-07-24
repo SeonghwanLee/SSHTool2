@@ -75,9 +75,16 @@ export interface VaultStatus {
 }
 
 export const vaultStatus = (): Promise<VaultStatus> => invoke<VaultStatus>("vault_status");
-export const vaultInit = (master: string): Promise<void> => invoke("vault_init", { master });
+/** 볼트 생성 → 1회성 복구 키를 반환한다(반드시 사용자에게 보여줄 것). */
+export const vaultInit = (master: string): Promise<string> =>
+  invoke<string>("vault_init", { master });
 export const vaultUnlock = (master: string): Promise<boolean> =>
   invoke<boolean>("vault_unlock", { master });
+export const vaultUnlockRecovery = (recovery: string): Promise<boolean> =>
+  invoke<boolean>("vault_unlock_recovery", { recovery });
+/** 마스터 변경 → 새 복구 키 반환(기존 키 무효). */
+export const vaultChangeMaster = (newMaster: string): Promise<string> =>
+  invoke<string>("vault_change_master", { newMaster });
 export const vaultLock = (): Promise<void> => invoke("vault_lock");
 export const vaultSetPassword = (sessionId: string, password: string): Promise<void> =>
   invoke("vault_set_password", { sessionId, password });
@@ -106,11 +113,60 @@ export const sftpConnect = (
 export const sftpList = (id: string, path: string): Promise<SftpEntry[]> =>
   invoke<SftpEntry[]>("sftp_list", { id, path });
 
-export const sftpDownload = (id: string, remotePath: string, localPath: string): Promise<void> =>
-  invoke("sftp_download", { id, remotePath, localPath });
+export const sftpDownload = (
+  id: string,
+  remotePath: string,
+  localPath: string,
+  transferId: string,
+): Promise<void> => invoke("sftp_download", { id, remotePath, localPath, transferId });
 
-export const sftpUpload = (id: string, localPath: string, remotePath: string): Promise<void> =>
-  invoke("sftp_upload", { id, localPath, remotePath });
+export const sftpUpload = (
+  id: string,
+  localPath: string,
+  remotePath: string,
+  transferId: string,
+): Promise<void> => invoke("sftp_upload", { id, localPath, remotePath, transferId });
+
+export const sftpCancel = (transferId: string): Promise<void> =>
+  invoke("sftp_cancel", { transferId });
+
+/** 원격 경로를 절대경로로 정규화("." → 홈). */
+export const sftpCanonicalize = (id: string, path: string): Promise<string> =>
+  invoke<string>("sftp_canonicalize", { id, path });
+
+/** 전송 진행률 이벤트. */
+export interface ProgressEvent {
+  transferId: string;
+  name: string;
+  done: number;
+  total: number;
+}
+
+export const onSftpProgress = (cb: (e: ProgressEvent) => void): Promise<UnlistenFn> =>
+  listen<ProgressEvent>("sftp://progress", (e) => cb(e.payload));
+
+// ── 로컬 파일시스템(SFTP 좌측 패널) ───────────────────────────────────────────
+
+export interface LocalEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modified: number;
+}
+
+export const localDefaultDir = (): Promise<string> => invoke<string>("local_default_dir");
+export const localList = (path: string): Promise<LocalEntry[]> =>
+  invoke<LocalEntry[]>("local_list", { path });
+export const localParent = (path: string): Promise<string> =>
+  invoke<string>("local_parent", { path });
+export const localMkdir = (path: string): Promise<void> => invoke("local_mkdir", { path });
+export const localRemove = (path: string, isDir: boolean): Promise<void> =>
+  invoke("local_remove", { path, isDir });
+export const localRename = (from: string, to: string): Promise<void> =>
+  invoke("local_rename", { from, to });
+export const localExists = (path: string): Promise<boolean> =>
+  invoke<boolean>("local_exists", { path });
 
 export const sftpMkdir = (id: string, path: string): Promise<void> =>
   invoke("sftp_mkdir", { id, path });

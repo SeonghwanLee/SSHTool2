@@ -3,6 +3,7 @@
 
 mod hostkey;
 mod import;
+mod localfs;
 mod sftp;
 mod ssh;
 mod store;
@@ -92,9 +93,30 @@ fn vault_status(app: AppHandle, state: State<'_, VaultState>) -> Result<vault::V
     vault::status(&app, &state)
 }
 
+/// 볼트 생성. 반환값 = 1회성 복구 키(사용자에게 보여주고 보관하게 할 것).
 #[tauri::command]
-fn vault_init(app: AppHandle, state: State<'_, VaultState>, master: String) -> Result<(), String> {
+fn vault_init(app: AppHandle, state: State<'_, VaultState>, master: String) -> Result<String, String> {
     vault::init(&app, &state, master)
+}
+
+/// 마스터를 잊었을 때 복구 키로 해제. 이후 vault_change_master 로 새 비밀번호를 설정한다.
+#[tauri::command]
+fn vault_unlock_recovery(
+    app: AppHandle,
+    state: State<'_, VaultState>,
+    recovery: String,
+) -> Result<bool, String> {
+    vault::unlock_with_recovery(&app, &state, recovery)
+}
+
+/// 마스터 변경(해제 상태에서). 반환값 = 새 복구 키(기존 키는 무효).
+#[tauri::command]
+fn vault_change_master(
+    app: AppHandle,
+    state: State<'_, VaultState>,
+    new_master: String,
+) -> Result<String, String> {
+    vault::change_master(&app, &state, new_master)
 }
 
 #[tauri::command]
@@ -153,22 +175,79 @@ async fn sftp_list(
 
 #[tauri::command]
 async fn sftp_download(
+    app: AppHandle,
     state: State<'_, SftpMap>,
+    cancels: State<'_, sftp::TransferCancel>,
     id: String,
     remote_path: String,
     local_path: String,
+    transfer_id: String,
 ) -> Result<(), String> {
-    sftp::download(&state, &id, remote_path, local_path).await
+    sftp::download(app, &state, &cancels, &id, remote_path, local_path, transfer_id).await
 }
 
 #[tauri::command]
 async fn sftp_upload(
+    app: AppHandle,
     state: State<'_, SftpMap>,
+    cancels: State<'_, sftp::TransferCancel>,
     id: String,
     local_path: String,
     remote_path: String,
+    transfer_id: String,
 ) -> Result<(), String> {
-    sftp::upload(&state, &id, local_path, remote_path).await
+    sftp::upload(app, &state, &cancels, &id, local_path, remote_path, transfer_id).await
+}
+
+#[tauri::command]
+fn sftp_cancel(cancels: State<'_, sftp::TransferCancel>, transfer_id: String) {
+    sftp::cancel(&cancels, &transfer_id);
+}
+
+#[tauri::command]
+async fn sftp_canonicalize(
+    state: State<'_, SftpMap>,
+    id: String,
+    path: String,
+) -> Result<String, String> {
+    sftp::canonicalize(&state, &id, path).await
+}
+
+// ── 로컬 파일시스템(SFTP 좌측 패널) ──────────────────────────────────────────
+
+#[tauri::command]
+fn local_default_dir() -> String {
+    localfs::default_dir()
+}
+
+#[tauri::command]
+fn local_list(path: String) -> Result<Vec<localfs::LocalEntry>, String> {
+    localfs::list(&path)
+}
+
+#[tauri::command]
+fn local_parent(path: String) -> String {
+    localfs::parent(&path)
+}
+
+#[tauri::command]
+fn local_mkdir(path: String) -> Result<(), String> {
+    localfs::mkdir(&path)
+}
+
+#[tauri::command]
+fn local_remove(path: String, is_dir: bool) -> Result<(), String> {
+    localfs::remove(&path, is_dir)
+}
+
+#[tauri::command]
+fn local_rename(from: String, to: String) -> Result<(), String> {
+    localfs::rename(&from, &to)
+}
+
+#[tauri::command]
+fn local_exists(path: String) -> bool {
+    localfs::exists(&path)
 }
 
 #[tauri::command]
@@ -209,6 +288,7 @@ fn main() {
         .manage(SessionMap::default())
         .manage(VaultState::default())
         .manage(SftpMap::default())
+        .manage(sftp::TransferCancel::default())
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_write,
@@ -225,6 +305,8 @@ fn main() {
             vault_status,
             vault_init,
             vault_unlock,
+            vault_unlock_recovery,
+            vault_change_master,
             vault_lock,
             vault_set_password,
             vault_get_password,
@@ -236,7 +318,16 @@ fn main() {
             sftp_mkdir,
             sftp_remove,
             sftp_rename,
-            sftp_disconnect
+            sftp_disconnect,
+            sftp_cancel,
+            sftp_canonicalize,
+            local_default_dir,
+            local_list,
+            local_parent,
+            local_mkdir,
+            local_remove,
+            local_rename,
+            local_exists
         ])
         .run(tauri::generate_context!())
         .expect("error while running SSHTool2");

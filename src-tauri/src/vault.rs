@@ -1,7 +1,14 @@
-//! 자격증명 볼트. 마스터 비밀번호 → PBKDF2-HMAC-SHA512(300k)로 32바이트 키 유도 →
-//! 각 세션 비밀번호를 AES-256-GCM(세션별 랜덤 nonce)으로 암호화해 vault.json 에 보관.
-//! 유도 키는 unlock 후 메모리(VaultState)에만 존재하고 디스크엔 절대 저장하지 않는다.
-//! 마스터 검증은 고정 평문(verifier)을 복호화해 GCM 인증 태그가 통과하는지로 판단.
+//! 자격증명 볼트 (형식 v2).
+//!
+//! 구조: 실제 비밀은 랜덤 **DEK**(데이터 암호화 키)로 암호화하고, DEK 자체를
+//! ① 마스터 비밀번호에서 유도한 키와 ② 복구 키에서 유도한 키로 각각 감싸(wrap) 보관한다.
+//! - 마스터 비밀번호 변경 = DEK 재포장만 하면 되므로 **전체 재암호화가 불필요**
+//! - 마스터를 잊어도 복구 키로 DEK 를 풀어 새 마스터를 설정할 수 있음
+//!
+//! KDF: PBKDF2-HMAC-SHA512 300k (WPF SSHTool 스킴), 암호화: AES-256-GCM(항목별 랜덤 nonce).
+//! DEK 는 unlock 후 메모리(VaultState)에만 존재하고 디스크엔 절대 평문으로 남지 않는다.
+//!
+//! v1(마스터 유도 키로 항목을 직접 암호화) 파일은 unlock 시 자동으로 v2 로 이관한다.
 
 use std::collections::HashMap;
 use std::fs;
@@ -16,25 +23,38 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha512;
 use tauri::{AppHandle, Manager};
 
-// WPF SSHTool 스킴과 동일: PBKDF2-HMAC-SHA512, 300k 반복.
 const ROUNDS: u32 = 300_000;
 const VERIFIER_PLAINTEXT: &[u8] = b"sshtool2-vault-v1";
+const VERSION_V2: u32 = 2;
 
 #[derive(Serialize, Deserialize, Default)]
 struct VaultFile {
-    /// base64(salt 16B)
+    /// 2 = DEK 방식. 없거나 0/1 이면 v1(구형).
+    #[serde(default)]
+    version: u32,
+    /// 마스터 KDF salt (base64)
     salt: String,
-    /// base64(nonce 12B || ciphertext) — VERIFIER_PLAINTEXT 암호문
+    /// v1 호환 필드 — 마스터 유도 키로 암호화한 고정 평문
+    #[serde(default)]
     verifier: String,
-    /// sessionId -> base64(nonce 12B || ciphertext)
+    /// v2: 마스터 유도 키로 감싼 DEK
+    #[serde(default)]
+    wrapped_dek: String,
+    /// v2: 복구 키 KDF salt
+    #[serde(default)]
+    recovery_salt: String,
+    /// v2: 복구 키 유도 키로 감싼 DEK
+    #[serde(default)]
+    recovery_wrapped_dek: String,
+    /// sessionId -> base64(nonce 12B || ciphertext), DEK 로 암호화
     #[serde(default)]
     entries: HashMap<String, String>,
 }
 
-/// unlock 후 메모리에만 유지되는 유도 키.
+/// unlock 후 메모리에만 유지되는 DEK.
 #[derive(Default)]
 pub struct VaultState {
-    key: Mutex<Option<[u8; 32]>>,
+    dek: Mutex<Option<[u8; 32]>>,
 }
 
 #[derive(Serialize)]
@@ -43,11 +63,11 @@ pub struct VaultStatus {
     pub unlocked: bool,
 }
 
-// ── 크립토 (독립 크레이트 cargo run 으로 검증됨) ───────────────────────────────
+// ── 크립토 ────────────────────────────────────────────────────────────────────
 
-fn derive_key(master: &str, salt: &[u8]) -> [u8; 32] {
+fn derive_key(secret: &str, salt: &[u8]) -> [u8; 32] {
     let mut key = [0u8; 32];
-    pbkdf2_hmac::<Sha512>(master.as_bytes(), salt, ROUNDS, &mut key);
+    pbkdf2_hmac::<Sha512>(secret.as_bytes(), salt, ROUNDS, &mut key);
     key
 }
 
@@ -72,6 +92,50 @@ fn decrypt(key: &[u8; 32], blob_b64: &str) -> Result<Vec<u8>, String> {
     cipher
         .decrypt(Nonce::from_slice(nonce_bytes), ct)
         .map_err(|_| "복호화 실패(잘못된 키 또는 손상)".to_string())
+}
+
+fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut b = [0u8; N];
+    OsRng.fill_bytes(&mut b);
+    b
+}
+
+fn to_key(bytes: Vec<u8>) -> Result<[u8; 32], String> {
+    <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| "DEK 길이가 올바르지 않습니다".to_string())
+}
+
+// ── 복구 키 (RFC4648 base32, 160비트) ──────────────────────────────────────────
+
+const B32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+/// 20바이트(160비트) → "XXXX-XXXX-…" 8그룹 32자.
+fn make_recovery_key() -> String {
+    let raw = random_bytes::<20>();
+    let mut chars = String::with_capacity(32);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for b in raw {
+        acc = (acc << 8) | b as u32;
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            chars.push(B32[((acc >> bits) & 0x1f) as usize] as char);
+        }
+    }
+    chars
+        .as_bytes()
+        .chunks(4)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// 사용자가 입력한 복구 키 정규화(하이픈·공백 제거, 대문자화).
+fn normalize_recovery(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
 // ── 파일 I/O ──────────────────────────────────────────────────────────────────
@@ -101,12 +165,28 @@ fn write_file(app: &AppHandle, vf: &VaultFile) -> Result<(), String> {
     fs::write(&path, data).map_err(|e| format!("볼트 쓰기 실패: {e}"))
 }
 
-fn current_key(state: &VaultState) -> Result<[u8; 32], String> {
+fn current_dek(state: &VaultState) -> Result<[u8; 32], String> {
     state
-        .key
+        .dek
         .lock()
         .unwrap()
         .ok_or_else(|| "볼트가 잠겨 있습니다".to_string())
+}
+
+/// DEK 를 마스터/복구 키로 각각 감싸 파일 필드를 채운다.
+fn wrap_dek(vf: &mut VaultFile, dek: &[u8; 32], master: &str) -> Result<String, String> {
+    let salt = random_bytes::<16>();
+    vf.salt = B64.encode(salt);
+    vf.wrapped_dek = encrypt(&derive_key(master, &salt), dek)?;
+
+    let recovery = make_recovery_key();
+    let rsalt = random_bytes::<16>();
+    vf.recovery_salt = B64.encode(rsalt);
+    vf.recovery_wrapped_dek = encrypt(&derive_key(&normalize_recovery(&recovery), &rsalt), dek)?;
+
+    vf.version = VERSION_V2;
+    vf.verifier = String::new(); // v2 에서는 사용하지 않음
+    Ok(recovery)
 }
 
 // ── 커맨드 구현 ────────────────────────────────────────────────────────────────
@@ -114,49 +194,102 @@ fn current_key(state: &VaultState) -> Result<[u8; 32], String> {
 pub fn status(app: &AppHandle, state: &VaultState) -> Result<VaultStatus, String> {
     Ok(VaultStatus {
         exists: read_file(app)?.is_some(),
-        unlocked: state.key.lock().unwrap().is_some(),
+        unlocked: state.dek.lock().unwrap().is_some(),
     })
 }
 
-/// 볼트 최초 생성(마스터 설정). 이미 있으면 오류.
-pub fn init(app: &AppHandle, state: &VaultState, master: String) -> Result<(), String> {
+/// 볼트 최초 생성. 반환값 = 1회성 복구 키(사용자에게 보여주고 보관시킬 것).
+pub fn init(app: &AppHandle, state: &VaultState, master: String) -> Result<String, String> {
     if read_file(app)?.is_some() {
         return Err("볼트가 이미 존재합니다".into());
     }
-    let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
-    let key = derive_key(&master, &salt);
-    let verifier = encrypt(&key, VERIFIER_PLAINTEXT)?;
-    let vf = VaultFile {
-        salt: B64.encode(salt),
-        verifier,
-        entries: HashMap::new(),
-    };
+    let dek = random_bytes::<32>();
+    let mut vf = VaultFile::default();
+    let recovery = wrap_dek(&mut vf, &dek, &master)?;
     write_file(app, &vf)?;
-    *state.key.lock().unwrap() = Some(key);
-    Ok(())
+    *state.dek.lock().unwrap() = Some(dek);
+    Ok(recovery)
 }
 
-/// 마스터로 잠금 해제. 성공 시 메모리에 키 보관하고 true.
+/// 마스터로 잠금 해제. v1 파일은 이 시점에 v2 로 이관한다.
 pub fn unlock(app: &AppHandle, state: &VaultState, master: String) -> Result<bool, String> {
-    let Some(vf) = read_file(app)? else {
+    let Some(mut vf) = read_file(app)? else {
         return Err("볼트가 아직 없습니다".into());
     };
     let salt = B64
         .decode(&vf.salt)
         .map_err(|e| format!("볼트 salt 손상: {e}"))?;
-    let key = derive_key(&master, &salt);
-    match decrypt(&key, &vf.verifier) {
-        Ok(pt) if pt == VERIFIER_PLAINTEXT => {
-            *state.key.lock().unwrap() = Some(key);
-            Ok(true)
-        }
-        _ => Ok(false),
+    let mk = derive_key(&master, &salt);
+
+    if vf.version >= VERSION_V2 {
+        let Ok(raw) = decrypt(&mk, &vf.wrapped_dek) else {
+            return Ok(false);
+        };
+        *state.dek.lock().unwrap() = Some(to_key(raw)?);
+        return Ok(true);
     }
+
+    // ── v1 → v2 이관: 기존 항목은 마스터 유도 키로 암호화돼 있다 ──
+    match decrypt(&mk, &vf.verifier) {
+        Ok(pt) if pt == VERIFIER_PLAINTEXT => {}
+        _ => return Ok(false),
+    }
+    let mut plain: HashMap<String, String> = HashMap::new();
+    for (k, blob) in &vf.entries {
+        if let Ok(bytes) = decrypt(&mk, blob) {
+            plain.insert(k.clone(), String::from_utf8_lossy(&bytes).into_owned());
+        }
+    }
+    let dek = random_bytes::<32>();
+    let _ = wrap_dek(&mut vf, &dek, &master)?; // 이관 시 복구 키도 새로 발급됨
+    vf.entries = plain
+        .into_iter()
+        .map(|(k, v)| encrypt(&dek, v.as_bytes()).map(|blob| (k, blob)))
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    write_file(app, &vf)?;
+    *state.dek.lock().unwrap() = Some(dek);
+    Ok(true)
+}
+
+/// 복구 키로 잠금 해제(마스터를 잊었을 때). 이후 change_master 로 새 비밀번호를 설정해야 한다.
+pub fn unlock_with_recovery(
+    app: &AppHandle,
+    state: &VaultState,
+    recovery: String,
+) -> Result<bool, String> {
+    let Some(vf) = read_file(app)? else {
+        return Err("볼트가 아직 없습니다".into());
+    };
+    if vf.recovery_wrapped_dek.is_empty() {
+        return Err("이 볼트에는 복구 키가 없습니다(구형 볼트).".into());
+    }
+    let rsalt = B64
+        .decode(&vf.recovery_salt)
+        .map_err(|e| format!("복구 salt 손상: {e}"))?;
+    let rk = derive_key(&normalize_recovery(&recovery), &rsalt);
+    let Ok(raw) = decrypt(&rk, &vf.recovery_wrapped_dek) else {
+        return Ok(false);
+    };
+    *state.dek.lock().unwrap() = Some(to_key(raw)?);
+    Ok(true)
+}
+
+/// 마스터 비밀번호 변경(잠금 해제 상태에서). 항목 재암호화 없이 DEK 만 다시 감싼다.
+/// 반환값 = 새로 발급된 복구 키(기존 복구 키는 무효가 된다).
+pub fn change_master(
+    app: &AppHandle,
+    state: &VaultState,
+    new_master: String,
+) -> Result<String, String> {
+    let dek = current_dek(state)?;
+    let mut vf = read_file(app)?.ok_or("볼트가 아직 없습니다")?;
+    let recovery = wrap_dek(&mut vf, &dek, &new_master)?;
+    write_file(app, &vf)?;
+    Ok(recovery)
 }
 
 pub fn lock(state: &VaultState) {
-    *state.key.lock().unwrap() = None;
+    *state.dek.lock().unwrap() = None;
 }
 
 pub fn set_password(
@@ -165,10 +298,10 @@ pub fn set_password(
     session_id: String,
     password: String,
 ) -> Result<(), String> {
-    let key = current_key(state)?;
+    let dek = current_dek(state)?;
     let mut vf = read_file(app)?.ok_or("볼트가 아직 없습니다")?;
     vf.entries
-        .insert(session_id, encrypt(&key, password.as_bytes())?);
+        .insert(session_id, encrypt(&dek, password.as_bytes())?);
     write_file(app, &vf)
 }
 
@@ -177,14 +310,14 @@ pub fn get_password(
     state: &VaultState,
     session_id: &str,
 ) -> Result<Option<String>, String> {
-    let key = current_key(state)?;
+    let dek = current_dek(state)?;
     let Some(vf) = read_file(app)? else {
         return Ok(None);
     };
     let Some(blob) = vf.entries.get(session_id) else {
         return Ok(None);
     };
-    let bytes = decrypt(&key, blob)?;
+    let bytes = decrypt(&dek, blob)?;
     Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
 }
 

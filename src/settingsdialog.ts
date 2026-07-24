@@ -9,6 +9,7 @@ import { knownHostsDialog } from "./knownhosts";
 export function settingsDialog(
   current: Settings,
   onLive: (s: Settings) => void,
+  onChangeMaster: () => void,
 ): Promise<Settings> {
   return new Promise((resolve) => {
     let working: Settings = { ...current };
@@ -177,6 +178,32 @@ export function settingsDialog(
 
     // ── 보안 ──
     card.appendChild(sectionLabel("보안"));
+
+    const lockRow = controlRow("무활동 자동 잠금 (분, 0=사용 안 함)");
+    const lockInput = document.createElement("input");
+    lockInput.type = "number";
+    lockInput.min = "0";
+    lockInput.max = "720";
+    lockInput.value = String(working.autoLockMinutes);
+    lockInput.className = "num-input";
+    lockInput.addEventListener("change", () => {
+      const v = Math.min(720, Math.max(0, Number(lockInput.value) || 0));
+      lockInput.value = String(v);
+      working = { ...working, autoLockMinutes: v };
+      apply();
+    });
+    lockRow.appendChild(lockInput);
+    card.appendChild(lockRow);
+
+    const masterRow = controlRow("마스터 비밀번호");
+    const masterBtn = document.createElement("button");
+    masterBtn.type = "button";
+    masterBtn.className = "sftp-btn";
+    masterBtn.textContent = "변경…";
+    masterBtn.addEventListener("click", () => onChangeMaster());
+    masterRow.appendChild(masterBtn);
+    card.appendChild(masterRow);
+
     const hostRow = controlRow("알려진 호스트(서버 지문)");
     const hostBtn = document.createElement("button");
     hostBtn.type = "button";

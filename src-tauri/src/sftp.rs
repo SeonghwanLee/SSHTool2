@@ -3,6 +3,7 @@
 //! API 경로는 독립 크레이트 cargo build 로 검증됨.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,7 +11,7 @@ use russh::client::{self, Config, Handle};
 use russh::keys::ssh_key;
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// SFTP 연결 하나. Handle 을 함께 보관해 연결이 조기 종료되지 않게 유지.
@@ -153,45 +154,225 @@ pub async fn list(state: &SftpMap, id: &str, path: &str) -> Result<Vec<SftpEntry
     Ok(out)
 }
 
+/// 진행 중인 전송의 취소 플래그. transferId -> flag.
+pub type TransferCancel = Mutex<HashMap<String, Arc<AtomicBool>>>;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProgressPayload {
+    transfer_id: String,
+    name: String,
+    done: u64,
+    total: u64,
+}
+
+const CHUNK: usize = 64 * 1024;
+/// 진행률 이벤트를 너무 자주 보내지 않도록 하는 간격.
+const EMIT_STEP: u64 = 256 * 1024;
+
+fn base_name(path: &str) -> String {
+    path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
+}
+
+/// 이미 등록된 플래그가 있으면 그것을 쓴다 — 커맨드 진입 직전에 취소가 눌린 경우
+/// (프론트가 transferId 를 먼저 잡고 invoke 하므로 발생 가능) 그 취소를 존중해야 한다.
+fn register_cancel(cancels: &TransferCancel, transfer_id: &str) -> Arc<AtomicBool> {
+    cancels
+        .lock()
+        .unwrap()
+        .entry(transfer_id.to_string())
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
+
+/// 진행 중인 전송을 취소한다(대용량 전송 도중에도 즉시 중단).
+/// 아직 시작 전이면 플래그를 미리 심어 두어 시작하자마자 중단되게 한다.
+pub fn cancel(cancels: &TransferCancel, transfer_id: &str) {
+    cancels
+        .lock()
+        .unwrap()
+        .entry(transfer_id.to_string())
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+        .store(true, Ordering::SeqCst);
+}
+
 pub async fn download(
+    app: AppHandle,
     state: &SftpMap,
+    cancels: &TransferCancel,
     id: &str,
     remote_path: String,
     local_path: String,
+    transfer_id: String,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
-    let mut file = conn
-        .sftp
-        .open(&remote_path)
-        .await
-        .map_err(|e| format!("원격 파일 열기 실패: {e}"))?;
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf)
-        .await
-        .map_err(|e| format!("원격 읽기 실패: {e}"))?;
-    std::fs::write(&local_path, &buf).map_err(|e| format!("로컬 저장 실패: {e}"))
+    let flag = register_cancel(cancels, &transfer_id);
+    let name = base_name(&remote_path);
+
+    // 받는 동안에는 .part 로 쓰고 성공했을 때만 대상 자리로 옮긴다.
+    // (곧바로 대상에 쓰면 실패·취소 시 기존 파일이 잘리거나 지워진다)
+    let part_path = format!("{local_path}.part");
+
+    let result = async {
+        let total = conn
+            .sftp
+            .metadata(remote_path.clone())
+            .await
+            .ok()
+            .and_then(|m| m.size)
+            .unwrap_or(0);
+
+        let mut remote = conn
+            .sftp
+            .open(&remote_path)
+            .await
+            .map_err(|e| format!("원격 파일 열기 실패: {e}"))?;
+        let mut local = tokio::fs::File::create(&part_path)
+            .await
+            .map_err(|e| format!("로컬 파일 생성 실패: {e}"))?;
+
+        let mut buf = vec![0u8; CHUNK];
+        let (mut done, mut marked) = (0u64, 0u64);
+        loop {
+            if flag.load(Ordering::SeqCst) {
+                return Err("전송이 취소되었습니다".to_string());
+            }
+            let n = remote
+                .read(&mut buf)
+                .await
+                .map_err(|e| format!("원격 읽기 실패: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            local
+                .write_all(&buf[..n])
+                .await
+                .map_err(|e| format!("로컬 쓰기 실패: {e}"))?;
+            done += n as u64;
+            if done - marked >= EMIT_STEP {
+                marked = done;
+                let _ = app.emit(
+                    "sftp://progress",
+                    ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total },
+                );
+            }
+        }
+        local
+            .flush()
+            .await
+            .map_err(|e| format!("로컬 flush 실패: {e}"))?;
+        drop(local); // 파일 핸들을 닫아야 Windows 에서 rename 이 가능하다
+        // 완전히 받은 뒤에만 대상 자리로 옮긴다(덮어쓰기 대상이 있으면 그때 교체).
+        let _ = tokio::fs::remove_file(&local_path).await;
+        tokio::fs::rename(&part_path, &local_path)
+            .await
+            .map_err(|e| format!("파일 교체 실패: {e}"))?;
+        let _ = app.emit(
+            "sftp://progress",
+            ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total: total.max(done) },
+        );
+        Ok(())
+    }
+    .await;
+
+    cancels.lock().unwrap().remove(&transfer_id);
+    if result.is_err() {
+        // 부분 파일만 지운다 — 기존 대상 파일은 건드리지 않는다.
+        let _ = tokio::fs::remove_file(&part_path).await;
+    }
+    result
 }
 
 pub async fn upload(
+    app: AppHandle,
     state: &SftpMap,
+    cancels: &TransferCancel,
     id: &str,
     local_path: String,
     remote_path: String,
+    transfer_id: String,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
-    let data = std::fs::read(&local_path).map_err(|e| format!("로컬 읽기 실패: {e}"))?;
-    let mut file = conn
-        .sftp
-        .create(&remote_path)
+    let flag = register_cancel(cancels, &transfer_id);
+    let name = base_name(&local_path);
+    // 다운로드와 같은 이유로 .part 에 올린 뒤 성공 시에만 대상 이름으로 옮긴다.
+    let part_path = format!("{remote_path}.part");
+
+    let result = async {
+        let total = tokio::fs::metadata(&local_path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let mut local = tokio::fs::File::open(&local_path)
+            .await
+            .map_err(|e| format!("로컬 읽기 실패: {e}"))?;
+        let mut remote = conn
+            .sftp
+            .create(&part_path)
+            .await
+            .map_err(|e| format!("원격 파일 생성 실패: {e}"))?;
+
+        let mut buf = vec![0u8; CHUNK];
+        let (mut done, mut marked) = (0u64, 0u64);
+        loop {
+            if flag.load(Ordering::SeqCst) {
+                return Err("전송이 취소되었습니다".to_string());
+            }
+            let n = local
+                .read(&mut buf)
+                .await
+                .map_err(|e| format!("로컬 읽기 실패: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            remote
+                .write_all(&buf[..n])
+                .await
+                .map_err(|e| format!("원격 쓰기 실패: {e}"))?;
+            done += n as u64;
+            if done - marked >= EMIT_STEP {
+                marked = done;
+                let _ = app.emit(
+                    "sftp://progress",
+                    ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total },
+                );
+            }
+        }
+        remote.flush().await.map_err(|e| format!("flush 실패: {e}"))?;
+        remote
+            .shutdown()
+            .await
+            .map_err(|e| format!("close 실패: {e}"))?;
+        // SFTP rename 은 대상이 있으면 실패하므로 먼저 치운다(덮어쓰기를 택한 경우).
+        let _ = conn.sftp.remove_file(&remote_path).await;
+        conn.sftp
+            .rename(&part_path, &remote_path)
+            .await
+            .map_err(|e| format!("원격 파일 교체 실패: {e}"))?;
+        let _ = app.emit(
+            "sftp://progress",
+            ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total: total.max(done) },
+        );
+        Ok(())
+    }
+    .await;
+
+    cancels.lock().unwrap().remove(&transfer_id);
+    if result.is_err() {
+        // 부분 파일만 지운다 — 기존 원격 파일은 건드리지 않는다.
+        let _ = conn.sftp.remove_file(&part_path).await;
+    }
+    result
+}
+
+/// 원격 경로를 절대경로로 정규화(초기 "." → 실제 홈 경로). 상위 폴더 이동에 필요.
+pub async fn canonicalize(state: &SftpMap, id: &str, path: String) -> Result<String, String> {
+    let conn = get_conn(state, id)?;
+    conn.sftp
+        .canonicalize(path)
         .await
-        .map_err(|e| format!("원격 파일 생성 실패: {e}"))?;
-    file.write_all(&data)
-        .await
-        .map_err(|e| format!("원격 쓰기 실패: {e}"))?;
-    file.flush().await.map_err(|e| format!("flush 실패: {e}"))?;
-    file.shutdown()
-        .await
-        .map_err(|e| format!("close 실패: {e}"))
+        .map_err(|e| format!("경로 확인 실패: {e}"))
 }
 
 pub async fn mkdir(state: &SftpMap, id: &str, path: String) -> Result<(), String> {
