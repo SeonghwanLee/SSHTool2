@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.23.2",
+    date: "2026-07-24",
+    notes: [
+      "우클릭 메뉴 단축키 표시 개선 — 흐릿한 맨 글자였던 단축키를 키캡(테두리 박스)으로 또렷하게 표시(메뉴 열린 상태에서 그 키로 바로 실행되는 기능은 기존과 동일)",
+    ],
+  },
+  {
     version: "0.23.1",
     date: "2026-07-24",
     notes: [
