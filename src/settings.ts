@@ -27,6 +27,10 @@ export interface Settings {
   sortByRecent: boolean;
   /** 세션 행에 user@host:port 한 줄을 함께 표시. */
   showSessionDetail: boolean;
+  /** 사이드바 폭(px). */
+  sidebarWidth: number;
+  /** 사이드바 접힘 여부. */
+  sidebarCollapsed: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -43,6 +47,8 @@ export const DEFAULT_SETTINGS: Settings = {
   checkUpdateOnStartup: true,
   sortByRecent: false,
   showSessionDetail: true,
+  sidebarWidth: 240,
+  sidebarCollapsed: false,
 };
 
 export interface FontChoice {

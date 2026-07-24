@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use russh::client::{self, Config, Handle};
 use russh::keys::ssh_key::{self, HashAlg};
+use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -154,8 +155,10 @@ pub async fn connect(
     rows: u32,
     charset: String,
     log_name: Option<String>,
-    // 포트 포워딩 규칙(줄 단위). L:로컬:대상호스트:대상포트 / R:...
     port_forwards: String,
+    // 인증: "password" | "key". key 면 private_key_path 사용, password 는 자격증명(빈 문자열 가능).
+    auth_type: String,
+    private_key_path: String,
 ) -> Result<String, String> {
     // 대화형 셸은 오래 유휴 상태일 수 있으므로 inactivity 타임아웃으로 끊지 않는다.
     // 대신 keepalive로 죽은 연결(피어 무응답)을 감지해 정리한다.
@@ -201,12 +204,34 @@ pub async fn connect(
         }
     };
 
-    let auth = handle
-        .authenticate_password(user, password)
-        .await
-        .map_err(|e| format!("인증 오류: {e}"))?;
-    if !auth.success() {
-        return Err("인증 실패: 아이디 또는 비밀번호를 확인하세요".into());
+    let ok = if auth_type == "key" {
+        // 개인키 인증 — password 필드는 키 암호(passphrase)로 사용한다.
+        let passphrase = if password.is_empty() { None } else { Some(password.as_str()) };
+        let key = load_secret_key(&private_key_path, passphrase)
+            .map_err(|e| format!("개인키 로드 실패({private_key_path}): {e}"))?;
+        let hash = handle
+            .best_supported_rsa_hash()
+            .await
+            .map_err(|e| format!("인증 협상 오류: {e}"))?
+            .flatten();
+        handle
+            .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash))
+            .await
+            .map_err(|e| format!("인증 오류: {e}"))?
+            .success()
+    } else {
+        handle
+            .authenticate_password(user, password)
+            .await
+            .map_err(|e| format!("인증 오류: {e}"))?
+            .success()
+    };
+    if !ok {
+        return Err(if auth_type == "key" {
+            "인증 실패: 개인키 또는 키 암호를 확인하세요".into()
+        } else {
+            "인증 실패: 아이디 또는 비밀번호를 확인하세요".to_string()
+        });
     }
 
     let mut channel = handle

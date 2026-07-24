@@ -51,6 +51,8 @@ let redraw: () => void = () => {};
 let applyDisplayOptions: (s: Settings) => void = () => {};
 /** 세션 가져오기 — main() 에서 실제 구현 주입. */
 let runImport: () => Promise<void> = async () => {};
+/** 새 폴더 — main() 에서 실제 구현 주입. */
+let newFolderFlow: (parent: string) => Promise<void> = async () => {};
 
 /**
  * 세션 파일을 정상적으로 읽었을 때만 true. 읽기에 실패한 상태에서 저장하면
@@ -375,16 +377,7 @@ async function main(): Promise<void> {
         await persist();
         redraw();
       },
-      onNewFolder: async (parent) => {
-        const name = await textPrompt("새 폴더 이름 ('A/B' 로 중첩 가능)", "", "만들기");
-        if (!name) return;
-        const path = parent ? `${parent}/${name}` : name;
-        if (!settings.folders.includes(path)) {
-          settings = { ...settings, folders: [...settings.folders, path] };
-          await saveSettings(settings);
-        }
-        redraw();
-      },
+      onNewFolder: (parent) => void newFolderFlow(parent),
       onRenameFolder: async (path) => {
         const last = path.split("/").pop() ?? path;
         const next = await textPrompt("폴더 이름 변경", last, "변경");
@@ -437,6 +430,17 @@ async function main(): Promise<void> {
   };
   $("open-import").addEventListener("click", () => void runImport());
 
+  newFolderFlow = async (parent) => {
+    const name = await textPrompt("새 폴더 이름 ('A/B' 로 중첩 가능)", "", "만들기");
+    if (!name) return;
+    const path = parent ? `${parent}/${name}` : name;
+    if (!settings.folders.includes(path)) {
+      settings = { ...settings, folders: [...settings.folders, path] };
+      await saveSettings(settings);
+    }
+    redraw();
+  };
+
   // 사이드바 재그리기(세션 + 빈 폴더).
   redraw = () => sidebar.render(sessions, settings.folders);
   applyDisplayOptions = (s) => sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail);
@@ -448,6 +452,12 @@ async function main(): Promise<void> {
   wireSidebarSearch(sidebar);
   wireAutoLock();
   wireLockKeys();
+  wireSidebarResize();
+  $("vault-lock").addEventListener("click", async () => {
+    await vaultLock();
+    await alertDialog("볼트를 잠갔습니다. 저장된 비밀번호를 쓰려면 다시 마스터 비밀번호가 필요합니다.");
+  });
+  $("new-folder").addEventListener("click", () => void newFolderFlow(""));
   $("open-about").addEventListener("click", () => void aboutDialog());
 
   // Ctrl+Shift+T = 빠른 접속(WPF 0.31.0)
@@ -611,6 +621,44 @@ async function changeMasterFlow(): Promise<void> {
   } catch (e) {
     await alertDialog(`마스터 변경 실패: ${String(e)}`);
   }
+}
+
+/** 사이드바 폭 조절(드래그) + 접기(더블클릭). 폭·접힘은 설정에 저장. */
+function wireSidebarResize(): void {
+  const app = document.getElementById("app")!;
+  const resizer = $("sidebar-resizer");
+  // 시작 시 복원.
+  app.style.setProperty("--sidebar-w", `${settings.sidebarWidth}px`);
+  app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
+
+  resizer.addEventListener("dblclick", async () => {
+    settings = { ...settings, sidebarCollapsed: !settings.sidebarCollapsed };
+    app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
+    try {
+      await saveSettings(settings);
+    } catch {
+      /* 무시 */
+    }
+  });
+  resizer.addEventListener("mousedown", (down) => {
+    if (settings.sidebarCollapsed) return;
+    down.preventDefault();
+    const startX = down.clientX;
+    const startW = settings.sidebarWidth;
+    const onMove = (m: MouseEvent) => {
+      if (m.buttons === 0) return onUp();
+      const w = Math.max(160, Math.min(560, startW + (m.clientX - startX)));
+      app.style.setProperty("--sidebar-w", `${w}px`);
+      settings.sidebarWidth = w;
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      void saveSettings(settings).catch(() => undefined);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
 }
 
 /** 무활동 자동 잠금 — 설정된 시간 동안 입력이 없으면 볼트를 잠근다. */

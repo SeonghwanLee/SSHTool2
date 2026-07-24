@@ -658,6 +658,8 @@ export class TabManager {
         charset: tab.session.charset,
         logName: tab.session.enableLog ? tab.session.name || tab.session.host : null,
             portForwards: tab.session.portForwards,
+            authType: tab.session.authType,
+            privateKeyPath: tab.session.privateKeyPath,
           });
       if (tab.disposed) {
         // 접속이 완료되기 전에 탭을 닫은 경우 — 세션이 새지 않도록 즉시 정리.

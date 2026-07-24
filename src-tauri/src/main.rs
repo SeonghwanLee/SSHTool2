@@ -31,8 +31,14 @@ async fn ssh_connect(
     charset: String,
     log_name: Option<String>,
     port_forwards: String,
+    auth_type: String,
+    private_key_path: String,
 ) -> Result<String, String> {
-    ssh::connect(app, host, port, user, password, cols, rows, charset, log_name, port_forwards).await
+    ssh::connect(
+        app, host, port, user, password, cols, rows, charset, log_name, port_forwards, auth_type,
+        private_key_path,
+    )
+    .await
 }
 
 #[tauri::command]

@@ -2,7 +2,8 @@
 // 필수값은 이름·호스트·포트만(사용자 이름은 비워도 저장 가능 — 접속 시 입력받음).
 
 import { openModal, field } from "./dialogs";
-import type { SessionInfo, TriggerRule, Charset, SessionKind } from "./types";
+import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType } from "./types";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 const CHARSETS: Charset[] = ["UTF-8", "EUC-KR", "CP949"];
 
@@ -40,13 +41,40 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         port.inputMode = "numeric";
         const user = textInput(initial.user, "사용자 (비워두면 접속 시 입력)");
 
+        // ── 인증 방식 ──
+        const auth = document.createElement("select");
+        auth.className = "sel-input";
+        for (const [val, label] of [
+          ["password", "비밀번호"],
+          ["key", "개인키"],
+        ] as [AuthType, string][]) {
+          const o = document.createElement("option");
+          o.value = val;
+          o.textContent = label;
+          if (val === initial.authType) o.selected = true;
+          auth.appendChild(o);
+        }
+        const keyPath = textInput(initial.privateKeyPath, "개인키 파일 경로");
+        const keyBrowse = document.createElement("button");
+        keyBrowse.type = "button";
+        keyBrowse.className = "sftp-btn";
+        keyBrowse.textContent = "찾기…";
+        keyBrowse.addEventListener("click", async () => {
+          const picked = await openFileDialog({ multiple: false });
+          const path = Array.isArray(picked) ? picked[0] : picked;
+          if (path) keyPath.value = path;
+        });
+        const keyRow = document.createElement("div");
+        keyRow.className = "key-row";
+        keyRow.append(keyPath, keyBrowse);
+
         const savePw = document.createElement("input");
         savePw.type = "checkbox";
         savePw.checked = initial.savePassword;
         const saveRow = document.createElement("label");
         saveRow.className = "check-row";
         const saveText = document.createElement("span");
-        saveText.textContent = "접속 성공 시 비밀번호 저장 (볼트에 암호화)";
+        saveText.textContent = "접속 성공 시 비밀번호/키 암호 저장 (볼트에 암호화)";
         saveRow.append(savePw, saveText);
 
         // ── 분류 ──
@@ -110,14 +138,18 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         const hostField = field("호스트", host);
         const portField = field("포트", port);
         const userField = field("사용자", user);
+        const authField = field("인증", auth);
+        const keyField = field("개인키", keyRow);
         const shellField = field("실행 파일", shellExe);
         const dirField = field("시작 폴더", workingDir);
 
         // 종류에 따라 필요한 입력만 보인다.
         const syncKind = () => {
           const local = kind.value === "local";
-          for (const el of [hostField, portField, userField, saveRow])
+          const key = auth.value === "key";
+          for (const el of [hostField, portField, userField, saveRow, authField])
             (el as HTMLElement).style.display = local ? "none" : "";
+          keyField.style.display = local || !key ? "none" : "";
           for (const el of [shellField, dirField])
             (el as HTMLElement).style.display = local ? "" : "none";
           // 문자셋 변환은 SSH 전용 — 로컬 셸에서는 적용되지 않으므로 숨긴다.
@@ -125,6 +157,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           forwardsField.style.display = local ? "none" : "";
         };
         kind.addEventListener("change", syncKind);
+        auth.addEventListener("change", syncKind);
 
         card.append(
           title,
@@ -135,6 +168,8 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           portField,
           // 사용자 이름과 비밀번호 저장을 연달아 배치(WPF 0.43.2 피드백).
           userField,
+          authField,
+          keyField,
           saveRow,
           shellField,
           dirField,
@@ -174,6 +209,8 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
             host: h,
             port: p,
             user: user.value.trim(),
+            authType: auth.value as AuthType,
+            privateKeyPath: keyPath.value.trim(),
             folder: folder.value.trim(),
             savePassword: savePw.checked,
             charset: charset.value as Charset,

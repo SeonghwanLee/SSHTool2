@@ -13,6 +13,8 @@ export interface TriggerRule {
 export type Charset = "UTF-8" | "EUC-KR" | "CP949";
 /** 세션 종류 — SSH 원격 접속 또는 로컬 셸(서버 없이 cmd/PowerShell 실행). */
 export type SessionKind = "ssh" | "local";
+/** 인증 방식 — 비밀번호 또는 개인키. */
+export type AuthType = "password" | "key";
 
 /** 저장되는 세션 정의(백엔드 store::SessionInfo 와 camelCase 1:1). */
 export interface SessionInfo {
@@ -28,6 +30,10 @@ export interface SessionInfo {
   host: string;
   port: number;
   user: string;
+  /** 인증 방식(SSH 세션). */
+  authType: AuthType;
+  /** 개인키 파일 경로(authType="key"). */
+  privateKeyPath: string;
   /** 사이드바 트리 폴더 경로. "" = 루트, "a/b" = 중첩. */
   folder: string;
   /** true 면 접속 성공 시 비밀번호를 볼트에 저장. */
@@ -59,6 +65,8 @@ export function blankSession(): SessionInfo {
     host: "",
     port: 22,
     user: "",
+    authType: "password",
+    privateKeyPath: "",
     folder: "",
     savePassword: false,
     sortOrder: 0,

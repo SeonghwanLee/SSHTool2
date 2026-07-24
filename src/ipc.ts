@@ -19,6 +19,10 @@ export interface ConnectArgs {
   logName: string | null;
   /** 포트 포워딩 규칙(줄 단위). */
   portForwards: string;
+  /** 인증 방식. */
+  authType: string;
+  /** 개인키 경로(authType="key"). */
+  privateKeyPath: string;
 }
 
 export const sshConnect = (a: ConnectArgs): Promise<string> =>

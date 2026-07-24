@@ -75,9 +75,11 @@ export function passwordPrompt(session: SessionInfo): Promise<string | null> {
       sub.className = "modal-sub";
       sub.textContent = `${session.user || "?"}@${session.host}:${session.port}`;
 
+      const isKey = session.authType === "key";
       const pass = document.createElement("input");
       pass.type = "password";
-      pass.placeholder = "비밀번호 (없으면 비워두고 확인)";
+      pass.placeholder = isKey ? "키 암호 (없으면 비워두고 확인)" : "비밀번호 (없으면 비워두고 확인)";
+      if (isKey) title.textContent = "개인키 암호";
 
       const buttons = document.createElement("div");
       buttons.className = "modal-buttons";
@@ -94,7 +96,7 @@ export function passwordPrompt(session: SessionInfo): Promise<string | null> {
       ok.textContent = "접속";
       buttons.append(cancel, ok);
 
-      card.append(title, sub, field("비밀번호", pass), buttons);
+      card.append(title, sub, field(isKey ? "키 암호" : "비밀번호", pass), buttons);
       card.addEventListener("submit", (e) => {
         e.preventDefault();
         const v = pass.value;

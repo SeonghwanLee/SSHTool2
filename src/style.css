@@ -87,8 +87,21 @@ button {
 /* ── 앱 레이아웃: 사이드바 | 작업영역 ─────────────────────────────────────── */
 #app {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: var(--sidebar-w, 240px) 4px 1fr;
   height: 100vh;
+}
+#app.sidebar-collapsed {
+  grid-template-columns: 0 4px 1fr;
+}
+#app.sidebar-collapsed #sidebar {
+  display: none;
+}
+#sidebar-resizer {
+  cursor: col-resize;
+  background: var(--border);
+}
+#sidebar-resizer:hover {
+  background: var(--accent);
 }
 
 /* ── 사이드바 ─────────────────────────────────────────────────────────────── */
@@ -944,6 +957,21 @@ button {
   width: 480px;
   max-height: 86vh;
   overflow-y: auto;
+}
+.key-row {
+  display: flex;
+  gap: 6px;
+}
+.key-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #00000022;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 9px;
+  font-size: 13px;
+  outline: none;
 }
 .area-input {
   background: #00000022;

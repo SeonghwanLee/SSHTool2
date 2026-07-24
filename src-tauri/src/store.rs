@@ -37,6 +37,12 @@ pub struct SessionInfo {
     pub host: String,
     pub port: u16,
     pub user: String,
+    /// 인증 방식 "password" | "key".
+    #[serde(default = "default_auth")]
+    pub auth_type: String,
+    /// 개인키 경로(auth_type="key").
+    #[serde(default)]
+    pub private_key_path: String,
     /// 사이드바 트리 폴더 경로. "" = 루트, "a/b" = 중첩.
     #[serde(default)]
     pub folder: String,
@@ -68,6 +74,10 @@ pub struct SessionInfo {
 
 fn default_kind() -> String {
     "ssh".to_string()
+}
+
+fn default_auth() -> String {
+    "password".to_string()
 }
 
 fn default_charset() -> String {
