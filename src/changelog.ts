@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.21.0",
+    date: "2026-07-24",
+    notes: [
+      "종료 경고 — 접속 중인 세션이 있는 상태에서 프로그램을 닫으면(창 닫기·Alt+F4·작업표시줄) 확인창을 띄움",
+      "세션 탭 닫기 경고는 기존과 동일(연결된 탭 닫을 때 확인)",
+    ],
+  },
+  {
     version: "0.20.1",
     date: "2026-07-24",
     notes: [

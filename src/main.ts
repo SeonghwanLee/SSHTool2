@@ -483,7 +483,7 @@ async function main(): Promise<void> {
   };
   $("open-import").addEventListener("click", () => void runImport());
   // 테마는 환경설정(⚙) 다이얼로그 안에 통합됨 — 별도 테마 버튼 없음.
-  wireWindowControls();
+  wireWindowControls(tabs);
 
   newFolderFlow = async (parent) => {
     const name = await textPrompt("새 폴더 이름 ('A/B' 로 중첩 가능)", "", "만들기");
@@ -793,12 +793,25 @@ function wireSidebarSearch(sidebar: Sidebar): void {
   });
 }
 
-/** 커스텀 타이틀바 창 버튼(최소화/최대화/닫기) 배선. */
-function wireWindowControls(): void {
+/** 커스텀 타이틀바 창 버튼(최소화/최대화/닫기) 배선 + 종료 경고. */
+function wireWindowControls(tabs: TabManager): void {
   const win = getCurrentWindow();
   $("win-min").addEventListener("click", () => void win.minimize());
   $("win-max").addEventListener("click", () => void win.toggleMaximize());
   $("win-close").addEventListener("click", () => void win.close());
+  // 접속 중인 세션이 있으면 종료 전 확인 — 커스텀 버튼·Alt+F4·작업표시줄 닫기 모두 커버.
+  // win.close() 는 이 이벤트를 거치고, win.destroy() 는 우회하므로 확인 후 destroy 로 강제 종료.
+  let closing = false;
+  void win.onCloseRequested(async (event) => {
+    const n = tabs.connectedCount();
+    if (n === 0) return; // 접속 세션 없음 → 그대로 종료
+    event.preventDefault(); // 확인 전엔 항상 닫힘 차단
+    if (closing) return; // 이미 확인창이 떠 있으면 중복 생성 방지
+    closing = true;
+    const ok = await confirmDialog(`접속 중인 세션이 ${n}개 있습니다. 프로그램을 종료할까요?`);
+    closing = false;
+    if (ok) await win.destroy();
+  });
 }
 
 /** 한/CapsLock/NumLock 표시 — 키·IME 상태를 상태바에 반영. */
