@@ -5,7 +5,15 @@ import { openModal, field } from "./dialogs";
 import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType } from "./types";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
-const CHARSETS: Charset[] = ["UTF-8", "EUC-KR", "CP949"];
+const CHARSETS: Charset[] = [
+  "UTF-8",
+  "EUC-KR",
+  "CP949",
+  "ISO-8859-1",
+  "Shift_JIS",
+  "GBK",
+  "US-ASCII",
+];
 
 export function sessionDialog(initial: SessionInfo, titleText: string): Promise<SessionInfo | null> {
   return new Promise((resolve) => {
@@ -104,6 +112,15 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           "포트 포워딩 (한 줄에 하나)\n예: L:8080:127.0.0.1:80  (로컬→서버 경유→대상)\n예: R:9000:127.0.0.1:3000  (서버 포트→내 쪽 대상)";
         forwards.value = initial.portForwards;
 
+        const sftpRow = document.createElement("label");
+        sftpRow.className = "check-row";
+        const sftpBox = document.createElement("input");
+        sftpBox.type = "checkbox";
+        sftpBox.checked = initial.enableSftp;
+        const sftpText = document.createElement("span");
+        sftpText.textContent = "SFTP 사용 (끄면 터미널 전용)";
+        sftpRow.append(sftpBox, sftpText);
+
         const logRow = document.createElement("label");
         logRow.className = "check-row";
         const logBox = document.createElement("input");
@@ -155,6 +172,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           // 문자셋 변환은 SSH 전용 — 로컬 셸에서는 적용되지 않으므로 숨긴다.
           charsetField.style.display = local ? "none" : "";
           forwardsField.style.display = local ? "none" : "";
+          sftpRow.style.display = local ? "none" : "";
         };
         kind.addEventListener("change", syncKind);
         auth.addEventListener("change", syncKind);
@@ -217,6 +235,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
             startupCommands: startup.value,
             portForwards: forwards.value,
             enableLog: logBox.checked,
+            enableSftp: sftpBox.checked,
             triggers: triggers.value(),
           };
           close();

@@ -10,7 +10,14 @@ export interface TriggerRule {
   regex: boolean;
 }
 
-export type Charset = "UTF-8" | "EUC-KR" | "CP949";
+export type Charset =
+  | "UTF-8"
+  | "EUC-KR"
+  | "CP949"
+  | "ISO-8859-1"
+  | "Shift_JIS"
+  | "GBK"
+  | "US-ASCII";
 /** 세션 종류 — SSH 원격 접속 또는 로컬 셸(서버 없이 cmd/PowerShell 실행). */
 export type SessionKind = "ssh" | "local";
 /** 인증 방식 — 비밀번호 또는 개인키. */
@@ -48,6 +55,8 @@ export interface SessionInfo {
   triggers: TriggerRule[];
   /** true 면 터미널 수신 내용을 logs/ 에 파일로 기록. */
   enableLog: boolean;
+  /** false 면 이 세션은 SFTP 를 열지 않는다(터미널 전용). */
+  enableSftp: boolean;
   /** 마지막 접속 시각(unix 초, 0=없음). '최근 접속순 정렬'에 사용. */
   lastConnectedUtc: number;
   /** 포트 포워딩 규칙(줄 단위). L:로컬포트:대상호스트:대상포트 / R:... */
@@ -74,6 +83,7 @@ export function blankSession(): SessionInfo {
     startupCommands: "",
     triggers: [],
     enableLog: false,
+    enableSftp: true,
     lastConnectedUtc: 0,
     portForwards: "",
   };

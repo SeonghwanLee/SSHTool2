@@ -36,6 +36,7 @@ import {
   type ViewModeSetting,
 } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
+import { themePicker } from "./themepicker";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -239,6 +240,7 @@ const credentials: CredentialProvider = {
     return passwordPrompt(session);
   },
   async onConnected(session, password) {
+    reflectLock(false); // 접속 성공 = 볼트가 열려 있음
     if (!session.savePassword) return;
     try {
       if (await ensureVaultUnlocked()) await vaultSetPassword(session.id, password);
@@ -429,6 +431,17 @@ async function main(): Promise<void> {
     redraw();
   };
   $("open-import").addEventListener("click", () => void runImport());
+  $("open-theme").addEventListener("click", () => {
+    void themePicker(settings.theme, async (id) => {
+      settings = { ...settings, theme: id };
+      applyAppTheme(themeById(id));
+      try {
+        await saveSettings(settings);
+      } catch (e) {
+        console.error("테마 저장 실패", e);
+      }
+    });
+  });
 
   newFolderFlow = async (parent) => {
     const name = await textPrompt("새 폴더 이름 ('A/B' 로 중첩 가능)", "", "만들기");
@@ -455,6 +468,7 @@ async function main(): Promise<void> {
   wireSidebarResize();
   $("vault-lock").addEventListener("click", async () => {
     await vaultLock();
+    reflectLock(true);
     await alertDialog("볼트를 잠갔습니다. 저장된 비밀번호를 쓰려면 다시 마스터 비밀번호가 필요합니다.");
   });
   $("new-folder").addEventListener("click", () => void newFolderFlow(""));
@@ -483,6 +497,8 @@ async function main(): Promise<void> {
   }
   redraw();
 
+  // OS 키체인에 저장된 마스터가 있으면 볼트를 자동 해제(프롬프트 없이). — 배선 누락이었음
+  await tryAutoUnlock();
   void checkForUpdates();
 }
 
@@ -661,6 +677,13 @@ function wireSidebarResize(): void {
   });
 }
 
+/** 잠금 상태를 사이드바 오버레이에 반영(잠김 시 세션명 숨김). */
+function reflectLock(locked: boolean): void {
+  const sidebar = document.getElementById("sidebar")!;
+  sidebar.classList.toggle("locked", locked);
+  $("lock-overlay").classList.toggle("hidden", !locked);
+}
+
 /** 무활동 자동 잠금 — 설정된 시간 동안 입력이 없으면 볼트를 잠근다. */
 let autoLockTimer = 0;
 function restartAutoLock(): void {
@@ -670,6 +693,7 @@ function restartAutoLock(): void {
   autoLockTimer = window.setTimeout(
     () => {
       void vaultLock();
+      reflectLock(true);
     },
     minutes * 60 * 1000,
   );
@@ -731,12 +755,26 @@ function wireCommandBar(tabs: TabManager): void {
   toggle.addEventListener("click", () => {
     bar.classList.toggle("hidden");
     toggle.classList.toggle("active", !bar.classList.contains("hidden"));
-    if (!bar.classList.contains("hidden")) input.focus();
+    if (!bar.classList.contains("hidden")) {
+      updateCount();
+      input.focus();
+    }
   });
+
+  const history: string[] = [];
+  let histIdx = -1;
+
+  const updateCount = () => {
+    const n = tabs.connectedCount();
+    status.textContent = all.checked ? `대상 ${n}개 세션` : "활성 세션";
+  };
+  all.addEventListener("change", updateCount);
 
   const run = () => {
     const line = input.value;
     if (!line) return;
+    history.push(line);
+    histIdx = history.length;
     const bytes = new TextEncoder().encode(line + "\n");
     if (all.checked) {
       const n = tabs.broadcast(bytes);
@@ -754,6 +792,20 @@ function wireCommandBar(tabs: TabManager): void {
     if (e.key === "Enter") {
       e.preventDefault();
       run();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (histIdx > 0) input.value = history[--histIdx];
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (histIdx < history.length - 1) input.value = history[++histIdx];
+      else {
+        histIdx = history.length;
+        input.value = "";
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      bar.classList.add("hidden");
+      toggle.classList.remove("active");
     }
   });
 }

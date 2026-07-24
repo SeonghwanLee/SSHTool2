@@ -230,6 +230,28 @@ async fn sftp_canonicalize(
     sftp::canonicalize(&state, &id, path).await
 }
 
+/// 설정 폴더를 OS 파일 탐색기로 연다(로그·known_hosts 등 확인용).
+#[tauri::command]
+fn open_config_dir(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("설정 경로 확인 실패: {e}"))?;
+    std::fs::create_dir_all(&dir).ok();
+    #[cfg(windows)]
+    let program = "explorer";
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    let program = "xdg-open";
+    std::process::Command::new(program)
+        .arg(dir)
+        .spawn()
+        .map_err(|e| format!("폴더 열기 실패: {e}"))?;
+    Ok(())
+}
+
 // ── OS 키체인 자동 잠금해제 ───────────────────────────────────────────────────
 
 /// 마스터를 OS 키체인에 저장(이 PC 자동 해제 활성화).
@@ -419,6 +441,7 @@ fn main() {
             sftp_disconnect,
             sftp_cancel,
             sftp_canonicalize,
+            open_config_dir,
             keystore_store,
             keystore_get,
             keystore_has,

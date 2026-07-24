@@ -64,6 +64,9 @@ pub struct SessionInfo {
     /// true 면 터미널 수신 내용을 logs/ 에 기록.
     #[serde(default)]
     pub enable_log: bool,
+    /// false 면 SFTP 미사용(터미널 전용).
+    #[serde(default = "default_true")]
+    pub enable_sftp: bool,
     /// 마지막 접속 시각(unix 초, 0=없음).
     #[serde(default)]
     pub last_connected_utc: i64,
@@ -78,6 +81,10 @@ fn default_kind() -> String {
 
 fn default_auth() -> String {
     "password".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_charset() -> String {

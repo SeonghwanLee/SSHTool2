@@ -271,7 +271,7 @@ export class Sidebar {
     // 로컬 셸 세션에는 SFTP 가 없다(로컬 파일은 탐색기로 접근).
     const sftp = document.createElement("button");
     sftp.className = "tree-act";
-    sftp.style.display = s.kind === "local" ? "none" : "";
+    sftp.style.display = s.kind === "local" || !s.enableSftp ? "none" : "";
     sftp.title = "SFTP 파일 전송";
     sftp.textContent = "📁";
     sftp.addEventListener("click", (e) => {
@@ -335,7 +335,7 @@ export class Sidebar {
       this.select(row);
       showContextMenu(e.clientX, e.clientY, [
         { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
-        ...(s.kind === "local"
+        ...(s.kind === "local" || !s.enableSftp
           ? []
           : [
               { label: "SFTP 파일 전송", accel: "f", action: () => this.cb.onSftp(s) } as const,

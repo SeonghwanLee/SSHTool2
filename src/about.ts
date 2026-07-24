@@ -6,6 +6,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openModal } from "./dialogs";
 import { CHANGELOG } from "./changelog";
+import { openConfigDir } from "./ipc";
 
 const RECENT = 5;
 
@@ -133,7 +134,18 @@ export function aboutDialog(): Promise<void> {
           resolve();
         });
 
-        actions.append(updateBtn, diagBtn, okBtn);
+        const folderBtn = document.createElement("button");
+        folderBtn.type = "button";
+        folderBtn.textContent = "설정 폴더 열기";
+        folderBtn.addEventListener("click", async () => {
+          try {
+            await openConfigDir();
+          } catch (e) {
+            status.textContent = `폴더 열기 실패: ${String(e)}`;
+          }
+        });
+
+        actions.append(updateBtn, diagBtn, folderBtn, okBtn);
 
         const credit = document.createElement("div");
         credit.className = "about-credit";
