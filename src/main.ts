@@ -634,7 +634,8 @@ async function main(): Promise<void> {
 
   // 사이드바 재그리기(세션 + 빈 폴더).
   redraw = () => sidebar.render(sessions, settings.folders);
-  applyDisplayOptions = (s) => sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail);
+  applyDisplayOptions = (s) =>
+    sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail, s.recentLimit);
   applyDisplayOptions(settings);
 
   wireCommandBar(tabs);

@@ -27,6 +27,8 @@ export interface Settings {
   sortByRecent: boolean;
   /** 세션 행에 user@host:port 한 줄을 함께 표시. */
   showSessionDetail: boolean;
+  /** 사이드바 "최근 접속" 표시 개수(0=숨김, 최대 50). */
+  recentLimit: number;
   /** 사이드바 폭(px). */
   sidebarWidth: number;
   /** 사이드바 접힘 여부. */
@@ -47,6 +49,7 @@ export const DEFAULT_SETTINGS: Settings = {
   checkUpdateOnStartup: true,
   sortByRecent: false,
   showSessionDetail: true,
+  recentLimit: 10,
   sidebarWidth: 240,
   sidebarCollapsed: false,
 };
@@ -88,6 +91,10 @@ export async function loadSettings(): Promise<Settings> {
     if (firstRun) merged.sidebarCollapsed = false;
     // 제거된 테마 id(구버전)를 저장해 둔 경우 기본 테마로 정규화한다.
     if (!THEMES.some((t) => t.id === merged.theme)) merged.theme = DEFAULT_THEME_ID;
+    // 최근 접속 개수는 0~50 범위(구버전 파일 방어).
+    if (!Number.isFinite(merged.recentLimit))
+      merged.recentLimit = DEFAULT_SETTINGS.recentLimit;
+    merged.recentLimit = Math.max(0, Math.min(50, Math.round(merged.recentLimit)));
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };

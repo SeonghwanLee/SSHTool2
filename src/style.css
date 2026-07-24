@@ -221,6 +221,9 @@ button {
 #app-body {
   display: grid;
   grid-template-columns: var(--sidebar-w, 240px) 4px 1fr;
+  /* 행을 minmax(0,1fr) 로 명시 — 미지정 시 암시적 auto 행이 내용만큼 늘어나
+     사이드바가 커지고 #session-tree 의 세로 스크롤이 동작하지 않는다. */
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
 #app.sidebar-collapsed #app-body {
@@ -824,6 +827,17 @@ button {
 .term-host .xterm-viewport {
   overflow-x: hidden;
 }
+/* 한글(IME) 조합 시, 숨은 helper textarea 의 native caret 이 커서 위에 얇은 선으로
+   깜빡이며 비쳐 보이는 아티팩트 제거. 조합 문자는 composition-view 가 표시하므로 caret 불필요. */
+.term-host .xterm-helper-textarea {
+  caret-color: transparent;
+}
+/* IME 조합 미리보기(합성 중 글자)를 테마색으로 — 기본 검정 박스가 튀지 않게. */
+.term-host .xterm .composition-view,
+.term-host .xterm-composition-view {
+  background: var(--panel-2);
+  color: var(--fg);
+}
 
 .term-overlay {
   position: absolute;
@@ -1012,9 +1026,11 @@ button {
 
 /* ── 설정 다이얼로그 ───────────────────────────────────────────────────────── */
 .settings-card {
-  width: 460px;
+  width: 720px;
+  max-width: 92vw;
   max-height: 84vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .settings-section {
   font-size: 12px;
@@ -1024,11 +1040,29 @@ button {
   padding-bottom: 2px;
   border-bottom: 1px solid var(--border);
 }
+/* 설정 본문: 좌측 세로 탭 | 우측 넓은 본문 */
+.settings-main {
+  display: flex;
+  gap: 16px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
 .settings-tabs {
   display: flex;
   gap: 2px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 10px;
+}
+/* 세로(측면) 탭 변형 — 표준: 카테고리 5개↑ 또는 넓은 폭이 유리할 때 */
+.settings-tabs.vertical {
+  flex-direction: column;
+  gap: 3px;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+  margin-bottom: 0;
+  padding-right: 12px;
+  min-width: 118px;
+  flex: 0 0 auto;
 }
 .settings-tab {
   background: transparent;
@@ -1046,8 +1080,26 @@ button {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+/* 세로 탭 active: 좌측 바 + 옅은 배경(표준) */
+.settings-tabs.vertical .settings-tab {
+  text-align: left;
+  border-bottom: none;
+  border-left: 2px solid transparent;
+  border-radius: 0 4px 4px 0;
+}
+.settings-tabs.vertical .settings-tab:hover {
+  background: var(--panel-2);
+}
+.settings-tabs.vertical .settings-tab.active {
+  border-left-color: var(--accent);
+  background: var(--panel-2);
+}
 .settings-body {
-  min-height: 300px;
+  min-height: 320px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .settings-panel {
   display: flex;
@@ -1734,9 +1786,50 @@ button {
   flex: 1 1 auto;
   overflow-y: auto;
 }
+.sftp-pane {
+  --c-type: 84px;
+  --c-size: 78px;
+  --c-time: 128px;
+}
+.sftp-colhead {
+  display: grid;
+  grid-template-columns: 22px minmax(100px, 1fr) var(--c-type) var(--c-size) var(--c-time);
+  gap: 8px;
+  padding: 4px 14px;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  user-select: none;
+}
+.sftp-colcell {
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sftp-colhandle {
+  position: absolute;
+  left: -8px;
+  top: -4px;
+  bottom: -4px;
+  width: 8px;
+  cursor: col-resize;
+}
+.sftp-colhandle:hover {
+  background: var(--accent);
+  opacity: 0.5;
+}
+.sftp-updir {
+  cursor: pointer;
+  color: var(--muted);
+}
+.sftp-updir .sftp-name {
+  font-weight: 700;
+}
 .sftp-row {
   display: grid;
-  grid-template-columns: 22px 1fr 84px 78px 128px;
+  grid-template-columns: 22px minmax(100px, 1fr) var(--c-type) var(--c-size) var(--c-time);
   align-items: center;
   gap: 8px;
   padding: 6px 14px;

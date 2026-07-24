@@ -64,6 +64,7 @@ export class Sidebar {
   /** 표시 옵션(설정에서 주입). */
   private sortByRecent = false;
   private showDetail = true;
+  private recentLimit = 10;
 
   constructor(
     private readonly tree: HTMLElement,
@@ -137,9 +138,10 @@ export class Sidebar {
   }
 
   /** 설정 변경 시 표시 옵션을 반영한다. */
-  setDisplayOptions(sortByRecent: boolean, showDetail: boolean): void {
+  setDisplayOptions(sortByRecent: boolean, showDetail: boolean, recentLimit = 10): void {
     this.sortByRecent = sortByRecent;
     this.showDetail = showDetail;
+    this.recentLimit = recentLimit;
     this.render(this.sessions);
   }
 
@@ -195,10 +197,11 @@ export class Sidebar {
 
   /** 상단 '최근 접속' 섹션 — 접속 이력이 있는 세션 최근 10개, 클릭 시 바로 접속. */
   private renderRecent(): void {
+    if (this.recentLimit <= 0) return; // 0 = 최근 접속 섹션 숨김
     const recent = this.sessions
       .filter((s) => s.lastConnectedUtc > 0)
       .sort((a, b) => b.lastConnectedUtc - a.lastConnectedUtc)
-      .slice(0, 10);
+      .slice(0, this.recentLimit);
     if (recent.length === 0) return;
 
     const head = document.createElement("div");

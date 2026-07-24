@@ -23,10 +23,12 @@ import {
   localRemove,
   localRename,
   localExists,
+  openPath,
+  localTempDir,
 } from "./ipc";
 import { confirmDialog, textPrompt } from "./dialogs";
 import { applyIcon, fileIcon } from "./icons";
-import { showContextMenu } from "./contextmenu";
+import { showContextMenu, type MenuItem } from "./contextmenu";
 import {
   conflictDialog,
   uniqueName,
@@ -340,6 +342,7 @@ export async function openSftpBrowser(
     readonly tree: DirTree;
     private readonly listEl = document.createElement("div");
     private readonly pathInput = document.createElement("input");
+    private anchor = -1; // Shift 범위 선택 기준 인덱스(visible 기준)
     other!: Pane;
 
     constructor(readonly side: Side) {
@@ -423,7 +426,66 @@ export async function openSftpBrowser(
         window.addEventListener("mouseup", onUp);
       });
 
-      this.root.append(head, this.tree.el, hsplit, this.listEl);
+      this.root.append(head, this.tree.el, hsplit, this.buildColHead(), this.listEl);
+    }
+
+    /** 컬럼 헤더(파일명/유형/크기/수정일자) + 구분선 드래그로 너비 조절(탐색기 방식). */
+    private buildColHead(): HTMLElement {
+      const head = document.createElement("div");
+      head.className = "sftp-colhead";
+      const spacer = document.createElement("span"); // 아이콘 칸 자리
+      head.append(spacer, this.colCell("파일명"), this.colCell("유형", "--c-type"),
+        this.colCell("크기", "--c-size"), this.colCell("수정일자", "--c-time"));
+      return head;
+    }
+
+    private colCell(label: string, cssVar?: string): HTMLElement {
+      const cell = document.createElement("span");
+      cell.className = "sftp-colcell";
+      cell.textContent = label;
+      if (cssVar) {
+        const handle = document.createElement("span");
+        handle.className = "sftp-colhandle";
+        handle.title = "드래그하여 너비 조절";
+        handle.addEventListener("mousedown", (down) => {
+          down.preventDefault();
+          down.stopPropagation();
+          const startX = down.clientX;
+          const cur = parseFloat(getComputedStyle(this.root).getPropertyValue(cssVar)) || 84;
+          const onMove = (m: MouseEvent) => {
+            if (m.buttons === 0) {
+              onUp();
+              return;
+            }
+            // 왼쪽 경계를 끌어 이 컬럼 너비를 조절(파일명 컬럼이 남는 폭을 흡수).
+            const w = Math.max(48, Math.min(360, cur - (m.clientX - startX)));
+            this.root.style.setProperty(cssVar, `${w}px`);
+          };
+          const onUp = () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+          };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+        });
+        cell.appendChild(handle);
+      }
+      return cell;
+    }
+
+    /** '..' 상위 폴더 이동 행(탐색기/FTP 방식) — 루트가 아니면 목록 맨 위에 표시. */
+    private upRow(): HTMLElement {
+      const el = document.createElement("div");
+      el.className = "sftp-row sftp-updir";
+      const icon = document.createElement("span");
+      icon.className = "sftp-icon mdl2";
+      applyIcon(icon, "up");
+      const name = document.createElement("span");
+      name.className = "sftp-name";
+      name.textContent = "..";
+      el.append(icon, name, span(), span(), span());
+      el.addEventListener("dblclick", () => void this.up());
+      return el;
     }
 
     async go(path: string, force = false): Promise<void> {
@@ -434,6 +496,7 @@ export async function openSftpBrowser(
         this.pathInput.value = path;
         this.entries = entries as Entry[];
         this.selected.clear();
+        this.anchor = -1; // 폴더 이동 시 Shift 범위 선택 기준 초기화(엉뚱한 범위 방지)
         this.draw();
         void this.tree.reveal(path, force); // 트리 강조·펼침 동기화(reload 는 캐시 갱신)
       } catch (e) {
@@ -469,6 +532,13 @@ export async function openSftpBrowser(
     }
 
     private onKey(e: KeyboardEvent): void {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        this.selected.clear();
+        for (const v of this.visible()) this.selected.add(v.path);
+        this.markSelection();
+        return;
+      }
       if (e.key === "F5") {
         e.preventDefault();
         void this.reload();
@@ -520,8 +590,62 @@ export async function openSftpBrowser(
       return this.entries.some((x) => x.name === name);
     }
 
+    /** 화면에 보이는 항목만("."/".." 제외) — 범위 선택·전체 선택 기준. */
+    private visible(): Entry[] {
+      return this.entries.filter((x) => x.name !== "." && x.name !== "..");
+    }
+
+    /** 파일을 기본 연결 프로그램으로 연다(원격은 임시폴더로 내려받아 사본을 연다). */
+    private async open(entry: Entry): Promise<void> {
+      if (entry.isDir) {
+        await this.go(entry.path);
+        return;
+      }
+      if (this.side === "local") {
+        try {
+          await openPath(entry.path);
+        } catch (e) {
+          setStatus(`열기 실패: ${String(e)}`);
+        }
+        return;
+      }
+      if (!sftpId) {
+        setStatus("원격에 접속되지 않았습니다.");
+        return;
+      }
+      if (transferring) {
+        setStatus("전송 중입니다. 끝난 뒤 다시 시도하세요.");
+        return;
+      }
+      // 원격 파일명은 서버가 준 값 — 경로 구분자/상위(..)를 걸러 임시폴더 밖으로 새지 않게 한다.
+      const rawName = baseName(entry.name).replace(/[\\/]/g, "_");
+      const safeName = rawName === "" || rawName === "." || rawName === ".." ? "download" : rawName;
+      transferring = true; // 동시 전송/열기 방지 — currentTransfer 가 뒤섞이지 않게
+      cancelled = false;
+      try {
+        setStatus(`여는 중… ${entry.name}`);
+        const dir = await localTempDir();
+        const localPath = joinPath(dir.replace(/\\+$/, ""), safeName);
+        const transferId = crypto.randomUUID();
+        currentTransfer = transferId;
+        showProgress(entry.name, 0, entry.size);
+        await sftpDownload(sftpId, entry.path, localPath, transferId);
+        currentTransfer = null;
+        hideProgress();
+        await openPath(localPath);
+        setStatus("연결됨");
+      } catch (e) {
+        currentTransfer = null;
+        hideProgress();
+        setStatus(`열기 실패: ${String(e)}`);
+      } finally {
+        transferring = false;
+      }
+    }
+
     draw(): void {
       this.listEl.innerHTML = "";
+      if (this.path) this.listEl.appendChild(this.upRow()); // '..' 상위 이동
       for (const entry of this.entries) {
         if (entry.name === "." || entry.name === "..") continue;
         this.listEl.appendChild(this.row(entry));
@@ -568,14 +692,36 @@ export async function openSftpBrowser(
       el.append(icon, name, type, size, time);
 
       el.addEventListener("click", (e) => {
-        if (!e.ctrlKey && !e.metaKey) this.selected.clear();
-        if (this.selected.has(entry.path)) this.selected.delete(entry.path);
-        else this.selected.add(entry.path);
+        const vis = this.visible();
+        const idx = vis.findIndex((x) => x.path === entry.path);
+        if (e.shiftKey && this.anchor >= 0 && this.anchor < vis.length) {
+          // Shift: 기준 항목부터 현재 항목까지 범위 선택(Ctrl 동반 시 기존 선택 유지).
+          if (!e.ctrlKey && !e.metaKey) this.selected.clear();
+          const [a, b] = this.anchor <= idx ? [this.anchor, idx] : [idx, this.anchor];
+          for (let k = a; k <= b; k++) this.selected.add(vis[k].path);
+        } else if (e.ctrlKey || e.metaKey) {
+          if (this.selected.has(entry.path)) this.selected.delete(entry.path);
+          else this.selected.add(entry.path);
+          this.anchor = idx;
+        } else {
+          this.selected.clear();
+          this.selected.add(entry.path);
+          this.anchor = idx;
+        }
         this.markSelection();
         this.listEl.focus();
       });
       el.addEventListener("dblclick", () => {
-        if (entry.isDir) void this.go(entry.path);
+        // 폴더는 진입, 파일은 반대편으로 전송(선택에 포함돼 있으면 선택 전체를 전송).
+        if (entry.isDir) {
+          void this.go(entry.path);
+          return;
+        }
+        const paths =
+          this.selected.has(entry.path) && this.selected.size > 1
+            ? [...this.selected]
+            : [entry.path];
+        void transferInto(this.other, paths);
       });
       el.addEventListener("dragstart", (e) => {
         // 드래그 시작 시 현재 선택에 포함돼 있지 않으면 이 항목만 선택.
@@ -598,9 +744,21 @@ export async function openSftpBrowser(
           this.selected.add(entry.path);
           this.markSelection();
         }
-        showContextMenu(e.clientX, e.clientY, [
+        const count = this.selected.size;
+        const items: MenuItem[] = [];
+        // 단일 파일 선택 시 "열기"(기본 연결 프로그램) — xls→엑셀 등 탐색기와 동일.
+        if (count === 1 && !entry.isDir) {
+          items.push({
+            label: "열기",
+            accel: "o",
+            action: () => void this.open(entry),
+          });
+        }
+        items.push(
           {
-            label: this.side === "local" ? "업로드 →" : "← 다운로드",
+            label:
+              (this.side === "local" ? "업로드 →" : "← 다운로드") +
+              (count > 1 ? ` (${count}개)` : ""),
             accel: "t",
             action: () => void transferInto(this.other, [...this.selected]),
           },
@@ -609,12 +767,13 @@ export async function openSftpBrowser(
           { label: "새로고침 (F5)", accel: "f", action: () => void this.reload() },
           { separator: true },
           {
-            label: "삭제 (Del)",
+            label: "삭제 (Del)" + (count > 1 ? ` (${count}개)` : ""),
             accel: "d",
             danger: true,
             action: () => void this.removeSelected(),
           },
-        ]);
+        );
+        showContextMenu(e.clientX, e.clientY, items);
       });
       return el;
     }
@@ -795,6 +954,10 @@ export async function openSftpBrowser(
 
   // 로컬 존재 검사는 목록 기반이지만, 방금 만든 파일 등 최신 상태 확인이 필요할 때 사용.
   void localExists;
+}
+
+function span(): HTMLElement {
+  return document.createElement("span");
 }
 
 function mkBtn(iconName: string, title: string): HTMLButtonElement {

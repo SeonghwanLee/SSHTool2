@@ -168,15 +168,28 @@ class TerminalTab {
   private wireInput(onInput: (bytes: Uint8Array) => void): void {
     this.term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
-      // IME(한글 등) 조합 중에는 어떤 키도 가로채지 않는다. 특히 Ctrl+Enter 를 조합 중에
-      // 가로채 LF 를 먼저 보내면, 아직 확정되지 않은 마지막 글자가 개행 뒤(다음 줄)로 밀린다.
-      // 조합이 끝난 뒤 다시 눌러야 정상 동작(모든 터미널 공통).
-      if (e.isComposing || e.keyCode === 229) return true;
       const ctrl = e.ctrlKey;
       const stop = () => {
         e.preventDefault(); // false 반환만으론 webview 확대 등 기본동작이 남음
         return false;
       };
+
+      // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
+      // 한글 조합 중이면: xterm 은 조합 중 Enter 로 CR 을 보내지 않으므로(IME 가드),
+      // 기본 동작을 막지 않고(=IME 확정 유지) LF 만 다음 틱으로 미룬다.
+      // 그러면 확정 문자(compositionend→onData)가 먼저 전송되고 LF 가 뒤따라,
+      // 마지막 글자가 개행 뒤로 밀리던 문제가 사라진다.
+      if (ctrl && e.key === "Enter") {
+        if (e.isComposing || e.keyCode === 229) {
+          setTimeout(() => onInput(LF), 0);
+          return true;
+        }
+        onInput(LF);
+        return stop();
+      }
+
+      // 그 밖의 키는 IME(한글 등) 조합 중에는 가로채지 않는다.
+      if (e.isComposing || e.keyCode === 229) return true;
       if (ctrl && e.shiftKey && (e.key === "F" || e.key === "f")) {
         this.openSearch();
         return stop();
@@ -201,10 +214,6 @@ class TerminalTab {
         // 스크롤백 페이지 이동(전체화면 앱에 전달하지 않고 로컬 처리).
         if (e.key === "PageUp") this.term.scrollPages(-1);
         else this.term.scrollPages(1);
-        return stop();
-      }
-      if (ctrl && e.key === "Enter") {
-        onInput(LF); // claude CLI 등 다중행 입력(제출 없이 줄바꿈)
         return stop();
       }
       if (ctrl && e.key === "0") {

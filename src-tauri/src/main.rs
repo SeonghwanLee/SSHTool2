@@ -376,6 +376,36 @@ fn local_exists(path: String) -> bool {
     localfs::exists(&path)
 }
 
+/// 파일/폴더를 OS 기본 연결 프로그램으로 연다(탐색기 더블클릭과 동일).
+/// SFTP 파일 열기 — 로컬은 원본을, 원격은 임시폴더로 내려받은 사본을 연다.
+#[tauri::command]
+fn open_path(path: String) -> Result<(), String> {
+    // cmd 파서(& ^ % 등 메타문자)를 거치지 않도록 explorer.exe 로 연다.
+    // explorer 는 인자를 파일 경로로만 취급해 파일명에 의한 명령 인젝션이 불가능하다.
+    #[cfg(windows)]
+    std::process::Command::new("explorer")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("열기 실패: {e}"))?;
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("열기 실패: {e}"))?;
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("열기 실패: {e}"))?;
+    Ok(())
+}
+
+/// 원격 파일 임시 열람용 폴더(OS 임시 경로).
+#[tauri::command]
+fn local_temp_dir() -> String {
+    std::env::temp_dir().to_string_lossy().to_string()
+}
+
 #[tauri::command]
 async fn sftp_mkdir(state: State<'_, SftpMap>, id: String, path: String) -> Result<(), String> {
     sftp::mkdir(&state, &id, path).await
@@ -467,7 +497,9 @@ fn main() {
             local_mkdir,
             local_remove,
             local_rename,
-            local_exists
+            local_exists,
+            open_path,
+            local_temp_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running SSHTool2");

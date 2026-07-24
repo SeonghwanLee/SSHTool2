@@ -178,31 +178,68 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         kind.addEventListener("change", syncKind);
         auth.addEventListener("change", syncKind);
 
-        card.append(
-          title,
-          section("연결"),
+        // ── 표준 가로 탭(연결/인증/자동화/트리거) ──
+        const tabbar = document.createElement("div");
+        tabbar.className = "settings-tabs";
+        const body = document.createElement("div");
+        body.className = "settings-body";
+        const panels = new Map<string, HTMLElement>();
+        const tabButtons = new Map<string, HTMLElement>();
+        const selectTab = (id: string) => {
+          for (const [k, el] of panels) el.style.display = k === id ? "" : "none";
+          for (const [k, el] of tabButtons) el.classList.toggle("active", k === id);
+        };
+        const addTab = (id: string, label: string, ...children: HTMLElement[]): void => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "settings-tab";
+          btn.textContent = label;
+          btn.addEventListener("click", () => selectTab(id));
+          tabbar.appendChild(btn);
+          tabButtons.set(id, btn);
+          const panel = document.createElement("div");
+          panel.className = "settings-panel";
+          panel.append(...children);
+          body.appendChild(panel);
+          panels.set(id, panel);
+        };
+
+        addTab(
+          "conn",
+          "연결",
           field("종류", kind),
           field("이름", name),
           hostField,
           portField,
-          // 사용자 이름과 비밀번호 저장을 연달아 배치(WPF 0.43.2 피드백).
           userField,
-          authField,
-          keyField,
-          saveRow,
           shellField,
           dirField,
-          section("분류"),
           field("폴더", folder),
-          section("자동화"),
+        );
+        addTab("auth", "인증", authField, keyField, saveRow);
+        addTab(
+          "auto",
+          "자동화",
           charsetField,
           field("접속 시 자동 실행", startup),
           forwardsField,
+          sftpRow,
           logRow,
-          triggers.render(),
-          err,
-          buttons,
         );
+        addTab("trig", "트리거", triggers.render());
+
+        card.append(title, tabbar, body, err, buttons);
+        selectTab("conn");
+
+        // 로컬 셸은 인증 개념이 없어 "인증" 탭을 숨긴다(빈 탭 방지).
+        const syncAuthTab = () => {
+          const local = kind.value === "local";
+          const btn = tabButtons.get("auth")!;
+          btn.style.display = local ? "none" : "";
+          if (local && btn.classList.contains("active")) selectTab("conn");
+        };
+        kind.addEventListener("change", syncAuthTab);
+        syncAuthTab();
 
         card.addEventListener("submit", (e) => {
           e.preventDefault();

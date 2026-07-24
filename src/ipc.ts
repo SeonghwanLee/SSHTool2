@@ -219,6 +219,8 @@ export const localRename = (from: string, to: string): Promise<void> =>
   invoke("local_rename", { from, to });
 export const localExists = (path: string): Promise<boolean> =>
   invoke<boolean>("local_exists", { path });
+export const openPath = (path: string): Promise<void> => invoke("open_path", { path });
+export const localTempDir = (): Promise<string> => invoke<string>("local_temp_dir");
 
 export const sftpMkdir = (id: string, path: string): Promise<void> =>
   invoke("sftp_mkdir", { id, path });

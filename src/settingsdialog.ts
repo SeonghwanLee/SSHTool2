@@ -63,12 +63,15 @@ export function settingsDialog(
     title.textContent = "설정";
     card.appendChild(title);
 
-    // ── 탭 골격 ──
+    // ── 탭 골격(세로 측면 탭 — 카테고리 다수라 본문을 넓게) ──
+    const main = document.createElement("div");
+    main.className = "settings-main";
     const tabbar = document.createElement("div");
-    tabbar.className = "settings-tabs";
+    tabbar.className = "settings-tabs vertical";
     const body = document.createElement("div");
     body.className = "settings-body";
-    card.append(tabbar, body);
+    main.append(tabbar, body);
+    card.appendChild(main);
 
     const panels = new Map<string, HTMLElement>();
     const tabButtons = new Map<string, HTMLElement>();
@@ -236,6 +239,16 @@ export function settingsDialog(
         apply();
       }),
     );
+
+    const recentRow = controlRow("최근 접속 표시 개수 (0=숨김)");
+    const recent = numInput(String(working.recentLimit), 0, 50, 1);
+    recent.addEventListener("change", () => {
+      const v = clampNum(recent, 0, 50, 10);
+      working = { ...working, recentLimit: v };
+      apply();
+    });
+    recentRow.appendChild(recent);
+    term.appendChild(recentRow);
 
     // ══════════ 탭: 보안 ══════════
     const sec = addTab("sec", "보안");
