@@ -26,6 +26,11 @@ tauri 2 · @tauri-apps/api ^2 · @tauri-apps/cli ^2 · russh 0.62 · tokio 1(ful
 - SFTP: `sftp_connect/list/download/upload/mkdir/remove/rename/disconnect`
 - 임포트: `import_scan()` (async, spawn_blocking)
 - 호스트키(TOFU): `hostkeys_list`, `hostkey_remove`, `hostkeys_clear`
+- 로컬 셸: `local_open({shell,cwd,cols,rows,logName}) -> id`, `local_write`(async), `local_resize`, `local_close`
+  · SSH 와 **동일한 이벤트**(`ssh://data`/`ssh://closed`)를 보내 프론트 터미널 경로를 공유한다.
+    전송 분기는 `SessionInfo.kind`("ssh"|"local")로만 결정할 것.
+- 로컬 FS(SFTP 좌측): `local_default_dir/list/parent/mkdir/remove/rename/exists`
+- 백업: `backup_export({target})`, `backup_import({source})`, `factory_reset()`
 - **신규 커맨드는 `generate_handler!` 목록에도 반드시 등록** — 누락 시 컴파일은 되지만
   런타임에 "Command not found" 로 조용히 실패한다(v0.6.0 설정 영속화 사고 원인).
 

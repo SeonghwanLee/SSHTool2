@@ -30,6 +30,32 @@ export const sshResize = (id: string, cols: number, rows: number): Promise<void>
 
 export const sshClose = (id: string): Promise<void> => invoke("ssh_close", { id });
 
+// ── 설정 백업/복원/초기화 ─────────────────────────────────────────────────────
+
+export const backupExport = (target: string): Promise<number> =>
+  invoke<number>("backup_export", { target });
+export const backupImport = (source: string): Promise<number> =>
+  invoke<number>("backup_import", { source });
+export const factoryReset = (): Promise<void> => invoke("factory_reset");
+
+// ── 로컬 셸(서버 없이 cmd/PowerShell 실행) — 이벤트는 SSH 와 동일 ─────────────
+
+export const localOpen = (
+  shell: string,
+  cwd: string,
+  cols: number,
+  rows: number,
+  logName: string | null,
+): Promise<string> => invoke<string>("local_open", { shell, cwd, cols, rows, logName });
+
+export const localWrite = (id: string, data: Uint8Array): Promise<void> =>
+  invoke("local_write", { id, data: Array.from(data) });
+
+export const localResize = (id: string, cols: number, rows: number): Promise<void> =>
+  invoke("local_resize", { id, cols, rows });
+
+export const localClose = (id: string): Promise<void> => invoke("local_close", { id });
+
 // ── 세션 저장소 ───────────────────────────────────────────────────────────────
 
 export const sessionsLoad = (): Promise<SessionInfo[]> =>

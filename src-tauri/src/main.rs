@@ -1,14 +1,17 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backup;
 mod hostkey;
 mod import;
 mod localfs;
+mod localshell;
 mod sftp;
 mod ssh;
 mod store;
 mod vault;
 
+use localshell::LocalMap;
 use sftp::SftpMap;
 use ssh::SessionMap;
 use tauri::{AppHandle, State};
@@ -218,6 +221,59 @@ async fn sftp_canonicalize(
     sftp::canonicalize(&state, &id, path).await
 }
 
+// ── 설정 백업/복원/초기화 ────────────────────────────────────────────────────
+
+/// 설정 폴더를 JSON 번들로 내보낸다(비밀번호는 암호화된 상태 그대로).
+#[tauri::command]
+fn backup_export(app: AppHandle, target: String) -> Result<usize, String> {
+    backup::export(&app, &target)
+}
+
+/// 번들을 복원한다. 기존 설정은 import_backup/ 에 보관된다.
+#[tauri::command]
+fn backup_import(app: AppHandle, source: String) -> Result<usize, String> {
+    backup::import(&app, &source)
+}
+
+/// 설정 폴더 전체 삭제(첫 설치 상태로).
+#[tauri::command]
+fn factory_reset(app: AppHandle) -> Result<(), String> {
+    backup::factory_reset(&app)
+}
+
+// ── 로컬 셸 세션(서버 없이 cmd/PowerShell 실행) ──────────────────────────────
+
+#[tauri::command]
+fn local_open(
+    app: AppHandle,
+    shell: String,
+    cwd: String,
+    cols: u16,
+    rows: u16,
+    log_name: Option<String>,
+) -> Result<String, String> {
+    localshell::open(app, shell, cwd, cols, rows, log_name)
+}
+
+/// PTY 쓰기는 입력 파이프가 차면 블로킹된다 — 메인 스레드에서 하면 창이 멈추므로
+/// 전용 블로킹 스레드로 넘긴다(SSH 쪽은 채널이라 애초에 블로킹되지 않음).
+#[tauri::command]
+async fn local_write(app: AppHandle, id: String, data: Vec<u8>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || localshell::write(&app, &id, data))
+        .await
+        .map_err(|e| format!("쓰기 태스크 실패: {e}"))?
+}
+
+#[tauri::command]
+fn local_resize(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
+    localshell::resize(&app, &id, cols, rows)
+}
+
+#[tauri::command]
+fn local_close(app: AppHandle, id: String) -> Result<(), String> {
+    localshell::close(&app, &id)
+}
+
 // ── 로컬 파일시스템(SFTP 좌측 패널) ──────────────────────────────────────────
 
 #[tauri::command]
@@ -294,6 +350,7 @@ fn main() {
         .manage(VaultState::default())
         .manage(SftpMap::default())
         .manage(sftp::TransferCancel::default())
+        .manage(LocalMap::default())
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_write,
@@ -326,6 +383,13 @@ fn main() {
             sftp_disconnect,
             sftp_cancel,
             sftp_canonicalize,
+            backup_export,
+            backup_import,
+            factory_reset,
+            local_open,
+            local_write,
+            local_resize,
+            local_close,
             local_default_dir,
             local_list,
             local_parent,

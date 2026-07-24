@@ -24,6 +24,7 @@ import { settingsDialog } from "./settingsdialog";
 import { bulkDeleteDialog } from "./bulkdelete";
 import { importDialog } from "./importdialog";
 import { openSftpBrowser } from "./sftpui";
+import { aboutDialog } from "./about";
 import {
   loadSettings,
   saveSettings,
@@ -376,6 +377,15 @@ async function main(): Promise<void> {
   wireSettings(tabs);
   wireSidebarSearch(sidebar);
   wireAutoLock();
+  $("open-about").addEventListener("click", () => void aboutDialog());
+
+  // Ctrl+Shift+T = 빠른 접속(WPF 0.31.0)
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
+      e.preventDefault();
+      $("quick-connect").click();
+    }
+  });
 
   try {
     // 옛 sessions.json(신규 필드 없음)도 안전하게 읽도록 정규화.

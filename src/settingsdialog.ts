@@ -5,6 +5,10 @@ import type { Settings, CursorStyle } from "./settings";
 import { FONTS } from "./settings";
 import { THEMES } from "./themes";
 import { knownHostsDialog } from "./knownhosts";
+import { save as saveDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { backupExport, backupImport, factoryReset } from "./ipc";
+import { alertDialog, confirmDialog } from "./dialogs";
 
 export function settingsDialog(
   current: Settings,
@@ -213,6 +217,63 @@ export function settingsDialog(
     hostRow.appendChild(hostBtn);
     card.appendChild(hostRow);
 
+    // ── 데이터(백업·복원·초기화) ──
+    card.appendChild(sectionLabel("데이터"));
+
+    const exportRow = controlRow("설정 내보내기 (PC 이전용)");
+    const exportBtn = mkSmallButton("내보내기…", async () => {
+      const target = await saveDialog({ defaultPath: "sshtool2-backup.json" });
+      if (!target) return;
+      try {
+        const n = await backupExport(target);
+        await alertDialog(`${n}개 파일을 내보냈습니다.\n비밀번호는 암호화된 상태로 담겼습니다.`);
+      } catch (e) {
+        await alertDialog(`내보내기 실패: ${String(e)}`);
+      }
+    });
+    exportRow.appendChild(exportBtn);
+    card.appendChild(exportRow);
+
+    const importRow = controlRow("설정 가져오기");
+    const importBtn = mkSmallButton("가져오기…", async () => {
+      const picked = await openFileDialog({ multiple: false });
+      const source = Array.isArray(picked) ? picked[0] : picked;
+      if (!source) return;
+      const ok = await confirmDialog(
+        "현재 설정을 덮어씁니다. 기존 설정은 import_backup 폴더에 보관됩니다. 계속할까요?",
+      );
+      if (!ok) return;
+      try {
+        const n = await backupImport(source);
+        await alertDialog(`${n}개 파일을 복원했습니다. 앱을 다시 시작합니다.`);
+        await relaunch();
+      } catch (e) {
+        await alertDialog(`가져오기 실패: ${String(e)}`);
+      }
+    });
+    importRow.appendChild(importBtn);
+    card.appendChild(importRow);
+
+    const resetRow = controlRow("완전 초기화");
+    const resetBtn = mkSmallButton("초기화…", async () => {
+      const first = await confirmDialog(
+        "세션·볼트·설정·로그를 모두 삭제하고 첫 설치 상태로 되돌립니다. 계속할까요?",
+      );
+      if (!first) return;
+      const second = await confirmDialog("되돌릴 수 없습니다. 정말 삭제할까요?");
+      if (!second) return;
+      try {
+        await factoryReset();
+        await alertDialog("초기화했습니다. 앱을 다시 시작합니다.");
+        await relaunch();
+      } catch (e) {
+        await alertDialog(`초기화 실패: ${String(e)}`);
+      }
+    });
+    resetBtn.classList.add("danger-btn");
+    resetRow.appendChild(resetBtn);
+    card.appendChild(resetRow);
+
     // ── 닫기 ──
     const buttons = document.createElement("div");
     buttons.className = "modal-buttons";
@@ -254,6 +315,15 @@ function checkRow(label: string, checked: boolean, onChange: (v: boolean) => voi
   span.textContent = label;
   row.append(span, cb);
   return row;
+}
+
+function mkSmallButton(label: string, onClick: () => void | Promise<void>): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "sftp-btn";
+  b.textContent = label;
+  b.addEventListener("click", () => void onClick());
+  return b;
 }
 
 function badge(text: string, cls: string): HTMLElement {

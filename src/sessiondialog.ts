@@ -2,7 +2,7 @@
 // 필수값은 이름·호스트·포트만(사용자 이름은 비워도 저장 가능 — 접속 시 입력받음).
 
 import { openModal, field } from "./dialogs";
-import type { SessionInfo, TriggerRule, Charset } from "./types";
+import type { SessionInfo, TriggerRule, Charset, SessionKind } from "./types";
 
 const CHARSETS: Charset[] = ["UTF-8", "EUC-KR", "CP949"];
 
@@ -15,6 +15,23 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
 
         const title = document.createElement("h3");
         title.textContent = titleText;
+
+        // ── 종류(SSH 원격 / 로컬 셸) ──
+        const kind = document.createElement("select");
+        kind.className = "sel-input";
+        for (const [val, label] of [
+          ["ssh", "SSH 원격 접속"],
+          ["local", "로컬 셸 (서버 없이 실행)"],
+        ] as [SessionKind, string][]) {
+          const o = document.createElement("option");
+          o.value = val;
+          o.textContent = label;
+          if (val === initial.kind) o.selected = true;
+          kind.appendChild(o);
+        }
+
+        const shellExe = textInput(initial.shellExe, "실행 파일 (비우면 기본 셸: cmd/pwsh)");
+        const workingDir = textInput(initial.workingDir, "시작 폴더 (선택)");
 
         // ── 연결 ──
         const name = textInput(initial.name, "표시 이름");
@@ -81,19 +98,41 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         ok.textContent = "저장";
         buttons.append(cancel, ok);
 
+        const charsetField = field("문자셋", charset);
+        const hostField = field("호스트", host);
+        const portField = field("포트", port);
+        const userField = field("사용자", user);
+        const shellField = field("실행 파일", shellExe);
+        const dirField = field("시작 폴더", workingDir);
+
+        // 종류에 따라 필요한 입력만 보인다.
+        const syncKind = () => {
+          const local = kind.value === "local";
+          for (const el of [hostField, portField, userField, saveRow])
+            (el as HTMLElement).style.display = local ? "none" : "";
+          for (const el of [shellField, dirField])
+            (el as HTMLElement).style.display = local ? "" : "none";
+          // 문자셋 변환은 SSH 전용 — 로컬 셸에서는 적용되지 않으므로 숨긴다.
+          charsetField.style.display = local ? "none" : "";
+        };
+        kind.addEventListener("change", syncKind);
+
         card.append(
           title,
           section("연결"),
+          field("종류", kind),
           field("이름", name),
-          field("호스트", host),
-          field("포트", port),
+          hostField,
+          portField,
           // 사용자 이름과 비밀번호 저장을 연달아 배치(WPF 0.43.2 피드백).
-          field("사용자", user),
+          userField,
           saveRow,
+          shellField,
+          dirField,
           section("분류"),
           field("폴더", folder),
           section("자동화"),
-          field("문자셋", charset),
+          charsetField,
           field("접속 시 자동 실행", startup),
           logRow,
           triggers.render(),
@@ -103,20 +142,25 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
 
         card.addEventListener("submit", (e) => {
           e.preventDefault();
+          const local = kind.value === "local";
           const h = host.value.trim();
-          if (!h) {
+          if (!local && !h) {
             err.textContent = "호스트를 입력하세요.";
             return;
           }
           // 포트는 u16 범위여야 한다 — 벗어나면 저장(직렬화)이 조용히 실패한다.
-          const p = Number(port.value);
-          if (!Number.isInteger(p) || p < 1 || p > 65535) {
+          const p = local ? 22 : Number(port.value);
+          if (!local && (!Number.isInteger(p) || p < 1 || p > 65535)) {
             err.textContent = "포트는 1~65535 사이의 정수여야 합니다.";
             return;
           }
+          const fallbackName = local ? shellExe.value.trim() || "로컬 셸" : h;
           const result: SessionInfo = {
             ...initial,
-            name: name.value.trim() || h,
+            kind: kind.value as SessionKind,
+            shellExe: shellExe.value.trim(),
+            workingDir: workingDir.value.trim(),
+            name: name.value.trim() || fallbackName,
             host: h,
             port: p,
             user: user.value.trim(),
@@ -131,6 +175,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           resolve(result);
         });
 
+        syncKind();
         setTimeout(() => name.focus(), 0);
         return card;
       },

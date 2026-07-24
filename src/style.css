@@ -778,6 +778,50 @@ button {
   border-color: var(--accent);
 }
 
+/* ── 버전 정보(About) ─────────────────────────────────────────────────────── */
+.about-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.about-glyph {
+  font-family: Consolas, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.about-name {
+  font-size: 17px;
+  font-weight: 700;
+}
+.about-tagline {
+  font-size: 11px;
+  color: var(--muted);
+}
+.about-version {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 3px 9px;
+}
+.about-note {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg);
+  padding: 2px 8px 4px;
+}
+.about-actions {
+  flex-wrap: wrap;
+}
+.about-credit {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* ── 컨텍스트 메뉴 ─────────────────────────────────────────────────────────── */
 .ctx-menu {
   position: fixed;
@@ -1099,6 +1143,12 @@ button {
 }
 .sftp-btn:hover {
   border-color: var(--accent);
+}
+.sftp-btn.danger-btn {
+  color: var(--error);
+}
+.sftp-btn.danger-btn:hover {
+  border-color: var(--error);
 }
 .sftp-path {
   flex: 1 1 auto;

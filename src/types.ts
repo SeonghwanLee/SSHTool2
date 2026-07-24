@@ -11,12 +11,20 @@ export interface TriggerRule {
 }
 
 export type Charset = "UTF-8" | "EUC-KR" | "CP949";
+/** 세션 종류 — SSH 원격 접속 또는 로컬 셸(서버 없이 cmd/PowerShell 실행). */
+export type SessionKind = "ssh" | "local";
 
 /** 저장되는 세션 정의(백엔드 store::SessionInfo 와 camelCase 1:1). */
 export interface SessionInfo {
   /** 저장 세션의 안정적 id(접속마다 바뀌는 live id 와 다름). */
   id: string;
   name: string;
+  /** "ssh" = 원격 접속, "local" = 로컬 셸. */
+  kind: SessionKind;
+  /** 로컬 셸 실행 파일(비우면 OS 기본 셸). kind="local" 일 때만 사용. */
+  shellExe: string;
+  /** 로컬 셸 시작 디렉터리. kind="local" 일 때만 사용. */
+  workingDir: string;
   host: string;
   port: number;
   user: string;
@@ -41,6 +49,9 @@ export function blankSession(): SessionInfo {
   return {
     id: crypto.randomUUID(),
     name: "",
+    kind: "ssh",
+    shellExe: "",
+    workingDir: "",
     host: "",
     port: 22,
     user: "",

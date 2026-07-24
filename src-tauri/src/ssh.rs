@@ -87,7 +87,7 @@ fn resolve_encoding(charset: &str) -> Option<&'static encoding_rs::Encoding> {
 }
 
 /// 세션 로그 파일을 연다(설정 폴더의 logs/). 실패해도 접속은 계속되어야 하므로 Option.
-fn open_session_log(app: &AppHandle, name: &str, session_id: &str) -> Option<std::fs::File> {
+pub(crate) fn open_session_log(app: &AppHandle, name: &str, session_id: &str) -> Option<std::fs::File> {
     let dir = app.path().app_config_dir().ok()?.join("logs");
     std::fs::create_dir_all(&dir).ok()?;
     let stamp = std::time::SystemTime::now()

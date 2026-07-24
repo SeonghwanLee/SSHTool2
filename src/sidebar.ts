@@ -97,7 +97,8 @@ export class Sidebar {
     return (
       s.name.toLowerCase().includes(q) ||
       s.host.toLowerCase().includes(q) ||
-      s.user.toLowerCase().includes(q)
+      s.user.toLowerCase().includes(q) ||
+      s.shellExe.toLowerCase().includes(q)
     );
   }
 
@@ -185,7 +186,7 @@ export class Sidebar {
 
     const icon = document.createElement("span");
     icon.className = "tree-icon";
-    icon.textContent = "»";
+    icon.textContent = s.kind === "local" ? "▣" : "»";
 
     const main = document.createElement("div");
     main.className = "tree-session-main";
@@ -194,13 +195,20 @@ export class Sidebar {
     name.textContent = s.name || s.host;
     const detail = document.createElement("div");
     detail.className = "tree-session-detail";
-    detail.textContent = s.user ? `${s.user}@${s.host}:${s.port}` : `${s.host}:${s.port}`;
+    detail.textContent =
+      s.kind === "local"
+        ? `로컬 셸${s.shellExe ? ` · ${s.shellExe}` : ""}`
+        : s.user
+          ? `${s.user}@${s.host}:${s.port}`
+          : `${s.host}:${s.port}`;
     main.append(name, detail);
 
     const actions = document.createElement("div");
     actions.className = "tree-actions";
+    // 로컬 셸 세션에는 SFTP 가 없다(로컬 파일은 탐색기로 접근).
     const sftp = document.createElement("button");
     sftp.className = "tree-act";
+    sftp.style.display = s.kind === "local" ? "none" : "";
     sftp.title = "SFTP 파일 전송";
     sftp.textContent = "📁";
     sftp.addEventListener("click", (e) => {
@@ -234,7 +242,11 @@ export class Sidebar {
       this.select(row);
       showContextMenu(e.clientX, e.clientY, [
         { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
-        { label: "SFTP 파일 전송", accel: "f", action: () => this.cb.onSftp(s) },
+        ...(s.kind === "local"
+          ? []
+          : [
+              { label: "SFTP 파일 전송", accel: "f", action: () => this.cb.onSftp(s) } as const,
+            ]),
         { separator: true },
         { label: "편집", accel: "e", action: () => this.cb.onEdit(s) },
         { label: "복제", accel: "u", action: () => this.cb.onDuplicate(s) },

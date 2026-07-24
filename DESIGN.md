@@ -12,18 +12,28 @@ WPF의 최대 비용(OLE 마우스 캡처 도난, 커스텀 ScrollBar/ControlTem
 
 ---
 
+## 개발기 제약 (중요)
+
+이 개발기(Linux)에서는 `cargo check` 가 불가능하다 — tauri 가 webkit2gtk/gio 를 요구하고
+설치할 수 없으며, Windows 타깃 크로스체크도 C 의존 크레이트가 MSVC `lib.exe` 를 요구한다.
+그래서 **`bash scripts/typecheck-rust.sh`** 로 검증한다 — tauri 를 최소 스텁으로 대체하고
+프로젝트의 실제 소스를 `#[path]` 로 참조해 타입체크한다(main.rs 만 매크로 때문에 제외).
+**Rust 를 수정했으면 push 전에 반드시 이 스크립트를 돌릴 것.**
+(v0.9.0 이 파라미터 doc 주석 하나로 CI 빌드가 깨진 뒤 도입)
+
 ## 아키텍처 (재설계)
 
 ### 백엔드 (Rust, `src-tauri/src/`)
 | 모듈 | 책임 | 상태 |
 |---|---|---|
 | `ssh.rs` | SSH 셸 세션(PTY) — russh 0.62, 다중 세션, keepalive | ✅ 있음 |
-| `sftp.rs` | SFTP — 목록/전송(재귀·진행이벤트)/조작 | 🟡 기본 |
-| `vault.rs` | 마스터키·자격증명 암호화 — **PBKDF2-HMAC-SHA512 300k → AES-256-GCM** (WPF 스킴에 맞춤), 복구키, 마스터 변경 재암호화 | 🟡 SHA256 200k → 교체 |
-| `store.rs` | 세션·폴더·설정 영속화(JSON) | 🟡 확장 |
-| `import.rs` | PuTTY(registry/CP949)·SecureCRT(ini)·MobaXterm(ini) 파서 | ❌ |
-| `hostkey.rs` | known_hosts TOFU, SHA-256 지문 검증 | ❌ |
-| `localshell.rs` | 로컬 셸(portable-pty) — cmd/pwsh, claude CLI 등 | ❌ |
+| `sftp.rs` | SFTP — 목록/스트리밍 전송(진행·취소)/조작 | ✅ |
+| `vault.rs` | v2 DEK 구조 — PBKDF2-HMAC-SHA512 300k → AES-256-GCM, 복구키·마스터 변경 | ✅ |
+| `store.rs` | 세션·폴더·설정 영속화(JSON) | ✅ |
+| `import.rs` | PuTTY(registry/CP949)·SecureCRT(ini)·MobaXterm(ini) 파서 | ✅ |
+| `hostkey.rs` | known_hosts TOFU, SHA-256 지문 검증 | ✅ |
+| `localfs.rs` | SFTP 좌측 패널용 로컬 파일시스템 | ✅ |
+| `localshell.rs` | 로컬 셸(portable-pty) — cmd/pwsh, claude CLI 등 | ✅ |
 | `portfwd.rs` | 포트 포워딩 L:/R: | ❌ |
 
 ### 프론트 (TypeScript, `src/`)
@@ -77,12 +87,14 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 - [ ] OS 키체인 자동해제(이 PC에서 자동 잠금 해제)
 - [ ] **포트 포워딩** L:/R: 자동시작
 - [x] **뷰 모드** 탭/세로타일/가로타일(2×2, 포커스 테두리, 타일별 닫기, Ctrl+1–9) — v0.9.0
-- [ ] **로컬 셸 세션**(portable-pty) — 서버 없이 claude CLI 등
+- [x] **로컬 셸 세션**(portable-pty) — 서버 없이 cmd/PowerShell·claude CLI 실행 — v0.10.0
+      · SSH 와 동일 이벤트를 써서 터미널 표시 경로 공유, 인증·SFTP 없음
 - [x] **세션 로그** 원문 파일 기록(stdout+stderr, 문자셋 변환 후) — v0.9.0
 
 ### Phase 5 — 마감 폴리시 (v1.0)
 - [ ] **인앱 한글 오토마타**(두벌식, 플로팅 IME 제거 — HangulComposer 로직 이식)
-- [ ] About/체인지로그, 설정 export/import(zip), 오프라인 모드, 공장초기화, 세션상세 토글
+- [x] **About/체인지로그** — 배너·버전 배지·이력(최근 5 + 더보기)·업데이트 확인·진단 정보 복사 — v0.10.0
+- [ ] 설정 export/import(zip), 오프라인 모드, 공장초기화, 세션상세 토글
 
 ---
 

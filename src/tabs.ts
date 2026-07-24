@@ -17,9 +17,22 @@ import {
   sshWrite,
   sshResize,
   sshClose,
+  localOpen,
+  localWrite,
+  localResize,
+  localClose,
   onSshData,
   onSshClosed,
 } from "./ipc";
+
+/** 세션 종류에 따라 전송 경로를 고른다(로컬 셸도 이벤트는 SSH 와 동일). */
+const isLocal = (s: SessionInfo): boolean => s.kind === "local";
+const writeTo = (s: SessionInfo, id: string, bytes: Uint8Array): Promise<void> =>
+  isLocal(s) ? localWrite(id, bytes) : sshWrite(id, bytes);
+const resizeTo = (s: SessionInfo, id: string, cols: number, rows: number): Promise<void> =>
+  isLocal(s) ? localResize(id, cols, rows) : sshResize(id, cols, rows);
+const closeOf = (s: SessionInfo, id: string): Promise<void> =>
+  isLocal(s) ? localClose(id) : sshClose(id);
 
 /** 자격증명 해결·저장 정책. 볼트 연동은 main.ts 가 구현(탭은 UI-비종속). */
 export interface CredentialProvider {
@@ -163,6 +176,12 @@ class TerminalTab {
       }
       if (e.shiftKey && e.key === "Insert") {
         void this.pasteClipboard();
+        return stop();
+      }
+      if (e.shiftKey && !ctrl && (e.key === "PageUp" || e.key === "PageDown")) {
+        // 스크롤백 페이지 이동(전체화면 앱에 전달하지 않고 로컬 처리).
+        if (e.key === "PageUp") this.term.scrollPages(-1);
+        else this.term.scrollPages(1);
         return stop();
       }
       if (ctrl && e.key === "Enter") {
@@ -417,6 +436,8 @@ class TerminalTab {
 export class TabManager {
   private readonly tabs: TerminalTab[] = [];
   private readonly byLiveId = new Map<string, TerminalTab>();
+  /** 아직 탭에 연결되기 전에 도착한 종료 이벤트(liveId → 사유). */
+  private readonly pendingClosed = new Map<string, string>();
   private active: TerminalTab | null = null;
   private settings: Settings;
   private viewMode: ViewMode = "tabs";
@@ -444,7 +465,13 @@ export class TabManager {
     });
     void onSshClosed((e) => {
       const tab = this.byLiveId.get(e.id);
-      if (!tab) return;
+      if (!tab) {
+        // 접속 응답(invoke)이 프론트에 도달하기 전에 세션이 죽은 경우 — 로컬 셸은
+        // 즉시 종료될 수 있다. 나중에 등록될 때 처리하도록 잠시 보관한다.
+        this.pendingClosed.set(e.id, e.message);
+        window.setTimeout(() => this.pendingClosed.delete(e.id), 10_000);
+        return;
+      }
       this.byLiveId.delete(e.id);
       tab.setDisconnected(e.message, () => void this.reconnect(tab));
       this.renderTabbar();
@@ -514,7 +541,7 @@ export class TabManager {
       for (const t of this.tabs) {
         if (!tiled && t !== this.active) continue;
         t.fitNow();
-        if (t.liveId) void sshResize(t.liveId, t.cols, t.rows);
+        if (t.liveId) void resizeTo(t.session, t.liveId, t.cols, t.rows);
       }
       // 리사이즈로 인한 재배치에서는 포커스를 뺏지 않는다(검색창·명령창 입력 중 튐 방지).
       if (focusActive) this.active?.focus();
@@ -530,17 +557,18 @@ export class TabManager {
   }
 
   async openSession(session: SessionInfo): Promise<void> {
-    const pw = await this.credentials.resolve(session);
+    // 로컬 셸은 인증이 없다.
+    const pw = isLocal(session) ? "" : await this.credentials.resolve(session);
     if (pw === null) return;
 
     const tab = new TerminalTab(
       session,
       this.settings,
       (bytes) => {
-        if (tab.liveId) void sshWrite(tab.liveId, bytes);
+        if (tab.liveId) void writeTo(tab.session, tab.liveId, bytes);
       },
       () => {
-        if (tab.liveId) void sshResize(tab.liveId, tab.cols, tab.rows);
+        if (tab.liveId) void resizeTo(tab.session, tab.liveId, tab.cols, tab.rows);
         if (tab === this.active) this.emitStatus();
       },
       () => {
@@ -566,7 +594,7 @@ export class TabManager {
     let n = 0;
     for (const t of this.tabs) {
       if (t.liveId) {
-        void sshWrite(t.liveId, data);
+        void writeTo(t.session, t.liveId, data);
         n++;
       }
     }
@@ -574,7 +602,7 @@ export class TabManager {
   }
   sendActive(data: Uint8Array): boolean {
     if (this.active?.liveId) {
-      void sshWrite(this.active.liveId, data);
+      void writeTo(this.active.session, this.active.liveId, data);
       return true;
     }
     return false;
@@ -591,7 +619,7 @@ export class TabManager {
   }
 
   private async reconnect(tab: TerminalTab): Promise<void> {
-    const pw = await this.credentials.resolve(tab.session);
+    const pw = isLocal(tab.session) ? "" : await this.credentials.resolve(tab.session);
     if (pw === null) return;
     this.activate(tab);
     await this.doConnect(tab, pw);
@@ -603,7 +631,15 @@ export class TabManager {
     this.emitStatus();
     tab.fitNow();
     try {
-      const liveId = await sshConnect({
+      const liveId = isLocal(tab.session)
+        ? await localOpen(
+            tab.session.shellExe,
+            tab.session.workingDir,
+            tab.cols,
+            tab.rows,
+            tab.session.enableLog ? tab.session.name || "local" : null,
+          )
+        : await sshConnect({
         host: tab.session.host,
         port: tab.session.port,
         user: tab.session.user,
@@ -612,22 +648,32 @@ export class TabManager {
         rows: tab.rows,
         charset: tab.session.charset,
         logName: tab.session.enableLog ? tab.session.name || tab.session.host : null,
-      });
+          });
       if (tab.disposed) {
-        // 접속이 완료되기 전에 탭을 닫은 경우 — 서버 세션이 새지 않도록 즉시 정리.
-        void sshClose(liveId);
+        // 접속이 완료되기 전에 탭을 닫은 경우 — 세션이 새지 않도록 즉시 정리.
+        void closeOf(tab.session, liveId);
         return;
       }
       tab.setConnected(liveId);
       this.byLiveId.set(liveId, tab);
+      // 접속 응답보다 먼저 도착했던 종료 이벤트가 있으면 지금 반영한다.
+      const early = this.pendingClosed.get(liveId);
+      if (early !== undefined) {
+        this.pendingClosed.delete(liveId);
+        this.byLiveId.delete(liveId);
+        tab.setDisconnected(early, () => void this.reconnect(tab));
+        this.renderTabbar();
+        if (tab === this.active) this.emitStatus();
+        return;
+      }
       tab.focus();
-      void this.credentials.onConnected(tab.session, password);
+      if (!isLocal(tab.session)) void this.credentials.onConnected(tab.session, password);
       // 셸 프롬프트가 나온 뒤 자동 실행 명령 전송.
       if (tab.session.startupCommands.trim()) {
         window.setTimeout(() => tab.sendStartupCommands(), 500);
       }
     } catch (e) {
-      void this.credentials.onError(tab.session, String(e));
+      if (!isLocal(tab.session)) void this.credentials.onError(tab.session, String(e));
       tab.setDisconnected(`접속 실패: ${String(e)}`, () => void this.reconnect(tab));
     }
     this.renderTabbar();
@@ -652,7 +698,7 @@ export class TabManager {
       if (!ok) return;
     }
     if (tab.liveId) {
-      void sshClose(tab.liveId);
+      void closeOf(tab.session, tab.liveId);
       this.byLiveId.delete(tab.liveId);
     }
     const idx = this.tabs.indexOf(tab);
@@ -678,7 +724,11 @@ export class TabManager {
       return;
     }
     const s = tab.session;
-    const who = s.user ? `${s.user}@${s.host}:${s.port}` : `${s.host}:${s.port}`;
+    const who = isLocal(s)
+      ? `로컬 셸${s.shellExe ? ` · ${s.shellExe}` : ""}`
+      : s.user
+        ? `${s.user}@${s.host}:${s.port}`
+        : `${s.host}:${s.port}`;
     this.onStatus({
       label: `${s.name || s.host} · ${who}`,
       state: tab.status,

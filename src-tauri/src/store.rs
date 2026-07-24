@@ -25,6 +25,15 @@ pub struct SessionInfo {
     /// 저장 세션의 안정적 식별자(접속 때마다 바뀌는 live id 와 다름).
     pub id: String,
     pub name: String,
+    /// "ssh" = 원격 접속, "local" = 로컬 셸.
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    /// 로컬 셸 실행 파일(비우면 OS 기본 셸).
+    #[serde(default)]
+    pub shell_exe: String,
+    /// 로컬 셸 시작 디렉터리.
+    #[serde(default)]
+    pub working_dir: String,
     pub host: String,
     pub port: u16,
     pub user: String,
@@ -49,6 +58,10 @@ pub struct SessionInfo {
     /// true 면 터미널 수신 내용을 logs/ 에 기록.
     #[serde(default)]
     pub enable_log: bool,
+}
+
+fn default_kind() -> String {
+    "ssh".to_string()
 }
 
 fn default_charset() -> String {
