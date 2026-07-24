@@ -69,6 +69,41 @@ function fmtTime(unixSec: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+const ARCHIVE = ["zip", "gz", "tar", "7z", "rar", "xz", "bz2", "tgz"];
+const IMAGE = ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"];
+const DOC = ["doc", "docx", "hwp", "pdf", "txt", "md", "rtf", "odt"];
+const SHEET = ["xls", "xlsx", "csv", "ods"];
+const CODE = ["c", "h", "cpp", "rs", "ts", "js", "py", "java", "go", "sh", "json", "xml", "yaml", "yml"];
+const EXE = ["exe", "bat", "cmd", "run", "bin", "msi", "app"];
+const MEDIA = ["mp3", "mp4", "avi", "mkv", "wav", "flac", "mov"];
+
+const ext = (name: string): string => {
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(i + 1).toLowerCase() : "";
+};
+
+/** 확장자 카테고리 아이콘(WPF 0.29.0 대응). */
+function entryIcon(e: Entry): string {
+  if (e.isDir) return "📁";
+  const x = ext(e.name);
+  if (ARCHIVE.includes(x)) return "🗜";
+  if (IMAGE.includes(x)) return "🖼";
+  if (SHEET.includes(x)) return "📊";
+  if (x === "pdf") return "📕";
+  if (DOC.includes(x)) return "📄";
+  if (CODE.includes(x)) return "🧩";
+  if (EXE.includes(x)) return "⚙";
+  if (MEDIA.includes(x)) return "🎬";
+  return "📄";
+}
+
+/** 파일유형 열 텍스트. */
+function entryType(e: Entry): string {
+  if (e.isDir) return "폴더";
+  const x = ext(e.name);
+  return x ? `${x.toUpperCase()} 파일` : "파일";
+}
+
 /** 확장자에 따른 색(터미널 ls 색상 관례 + 확장자 구분). */
 function entryColor(e: Entry): string {
   if (e.isDir) return "#7db8ff";
@@ -82,7 +117,12 @@ function entryColor(e: Entry): string {
   return "";
 }
 
-export async function openSftpBrowser(session: SessionInfo, password: string): Promise<void> {
+export async function openSftpBrowser(
+  session: SessionInfo,
+  password: string,
+  /** SFTP 인증이 실제로 성공한 뒤에만 호출(자격증명 저장 제안 등). */
+  onAuthenticated?: () => void | Promise<void>,
+): Promise<void> {
   const overlay = document.createElement("div");
   overlay.className = "sftp-overlay";
   const panel = document.createElement("div");
@@ -379,13 +419,17 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
 
       const icon = document.createElement("span");
       icon.className = "sftp-icon";
-      icon.textContent = entry.isDir ? "📁" : "📄";
+      icon.textContent = entryIcon(entry);
 
       const name = document.createElement("span");
       name.className = "sftp-name";
       name.textContent = entry.name;
       const color = entryColor(entry);
       if (color) name.style.color = color;
+
+      const type = document.createElement("span");
+      type.className = "sftp-type";
+      type.textContent = entryType(entry);
 
       const size = document.createElement("span");
       size.className = "sftp-size";
@@ -395,7 +439,7 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
       time.className = "sftp-time";
       time.textContent = fmtTime(entry.modified);
 
-      el.append(icon, name, size, time);
+      el.append(icon, name, type, size, time);
 
       el.addEventListener("click", (e) => {
         if (!e.ctrlKey && !e.metaKey) this.selected.clear();
@@ -608,6 +652,8 @@ export async function openSftpBrowser(session: SessionInfo, password: string): P
     }
     await remote.go(start);
     setStatus("연결됨");
+    // 인증이 확인된 뒤에만 저장 제안 등을 수행한다(틀린 비번을 볼트에 넣지 않도록).
+    void onAuthenticated?.();
   } catch (e) {
     setStatus(`SFTP 접속 실패: ${String(e)}`);
   }

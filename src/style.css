@@ -1252,7 +1252,7 @@ button {
 }
 .sftp-row {
   display: grid;
-  grid-template-columns: 24px 1fr 90px 140px auto;
+  grid-template-columns: 22px 1fr 84px 78px 128px;
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
@@ -1276,6 +1276,13 @@ button {
   font-size: 11px;
   color: var(--muted);
   text-align: right;
+}
+.sftp-type {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sftp-actions {
   display: flex;

@@ -297,8 +297,9 @@ const credentials: CredentialProvider = {
   },
 
   async onError(session, error) {
-    // 저장된 비밀번호가 틀렸을 수 있으니 인증 실패면 폐기 → 다음엔 다시 물어봄.
-    if (session.savePassword && /인증/.test(error)) {
+    // 저장된 비밀번호가 틀렸을 수 있으니 '인증 실패' 면 폐기 → 다음엔 다시 물어봄.
+    // (백엔드는 자격증명 오류에 항상 '인증 실패' 를 쓴다 — '인증서' 등 오탐 회피)
+    if (session.savePassword && error.includes("인증 실패")) {
       try {
         await vaultDeletePassword(session.id);
       } catch {
@@ -358,10 +359,9 @@ async function main(): Promise<void> {
         // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
         const creds = await credentials.resolve(s);
         if (creds === null) return;
-        // 계정을 새로 입력했으면 그 계정으로 접속하도록 임시 세션에 반영.
         const target = creds.user !== s.user ? { ...s, user: creds.user } : s;
-        await credentials.onConnected(s, creds);
-        await openSftpBrowser(target, creds.password);
+        // 저장은 SFTP 인증이 '성공한 뒤에만' — 틀린 비번을 볼트에 넣지 않는다.
+        await openSftpBrowser(target, creds.password, () => credentials.onConnected(s, creds));
       },
       onNew: async () => {
         const created = await sessionDialog(blankSession(), "새 세션");
