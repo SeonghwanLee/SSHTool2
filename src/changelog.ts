@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.22.0",
+    date: "2026-07-24",
+    notes: [
+      "세션 목록 상단에 '최근 접속' 5개 표시 — 클릭하면 바로 접속. 접속 이력(lastConnectedUtc) 기준 최신순, 검색 중에는 숨김",
+    ],
+  },
+  {
     version: "0.21.0",
     date: "2026-07-24",
     notes: [

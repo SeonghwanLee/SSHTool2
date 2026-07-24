@@ -44,6 +44,14 @@ const newFolder = (name: string, path: string): FolderNode => ({
   sessions: [],
 });
 
+/** 세션 상세(계정@호스트:포트 또는 로컬 셸) — 세션 행·최근 접속 공용. */
+const detailText = (s: SessionInfo): string =>
+  s.kind === "local"
+    ? `로컬 셸${s.shellExe ? ` · ${s.shellExe}` : ""}`
+    : s.user
+      ? `${s.user}@${s.host}:${s.port}`
+      : `${s.host}:${s.port}`;
+
 export class Sidebar {
   private sessions: SessionInfo[] = [];
   private folders: string[] = [];
@@ -158,6 +166,8 @@ export class Sidebar {
     }
 
     this.tree.innerHTML = "";
+    // 검색 중이 아니면 상단에 최근 접속 5개(바로 접속 가능).
+    if (!this.filter) this.renderRecent();
     // 빈 폴더만 있어도 그려야 하므로 폴더 유무까지 본다.
     const visible = [...rootNode.folders.values()].length > 0 || rootNode.sessions.length > 0;
     if (!visible) {
@@ -170,6 +180,46 @@ export class Sidebar {
       return;
     }
     this.renderNode(rootNode, this.tree, 0);
+  }
+
+  /** 상단 '최근 접속' 섹션 — 접속 이력이 있는 세션 최근 5개, 클릭 시 바로 접속. */
+  private renderRecent(): void {
+    const recent = this.sessions
+      .filter((s) => s.lastConnectedUtc > 0)
+      .sort((a, b) => b.lastConnectedUtc - a.lastConnectedUtc)
+      .slice(0, 5);
+    if (recent.length === 0) return;
+
+    const head = document.createElement("div");
+    head.className = "recent-head";
+    head.textContent = "최근 접속";
+    this.tree.appendChild(head);
+
+    for (const s of recent) {
+      const row = document.createElement("div");
+      row.className = "recent-row";
+      row.title = `${detailText(s)} · 클릭하여 접속`;
+
+      const icon = document.createElement("span");
+      icon.className = "tree-icon";
+      icon.textContent = s.kind === "local" ? "▣" : "»";
+
+      const name = document.createElement("span");
+      name.className = "recent-name";
+      name.textContent = s.name || s.host;
+
+      const detail = document.createElement("span");
+      detail.className = "recent-detail";
+      detail.textContent = detailText(s);
+
+      row.append(icon, name, detail);
+      row.addEventListener("click", () => this.cb.onOpen(s));
+      this.tree.appendChild(row);
+    }
+
+    const divider = document.createElement("div");
+    divider.className = "recent-divider";
+    this.tree.appendChild(divider);
   }
 
   private renderNode(node: FolderNode, parent: HTMLElement, depth: number): void {
@@ -256,12 +306,7 @@ export class Sidebar {
     name.textContent = s.name || s.host;
     const detail = document.createElement("div");
     detail.className = "tree-session-detail";
-    detail.textContent =
-      s.kind === "local"
-        ? `로컬 셸${s.shellExe ? ` · ${s.shellExe}` : ""}`
-        : s.user
-          ? `${s.user}@${s.host}:${s.port}`
-          : `${s.host}:${s.port}`;
+    detail.textContent = detailText(s);
     main.append(name);
     if (this.showDetail) main.append(detail);
 

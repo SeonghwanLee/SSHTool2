@@ -285,6 +285,52 @@ button {
   line-height: 1.6;
 }
 
+/* ── 최근 접속 섹션(사이드바 상단) ─────────────────────────────────────────── */
+.recent-head {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.recent-row:hover {
+  background: var(--panel-2);
+}
+.recent-row .tree-icon {
+  flex: 0 0 auto;
+  color: var(--accent);
+  opacity: 0.8;
+}
+.recent-name {
+  flex: 0 1 auto;
+  font-size: 12.5px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-detail {
+  flex: 1 1 auto;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-divider {
+  height: 1px;
+  margin: 6px 10px 4px;
+  background: var(--border);
+}
+
 .tree-folder {
   display: flex;
   align-items: center;
