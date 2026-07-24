@@ -1,6 +1,8 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod hostkey;
+mod import;
 mod sftp;
 mod ssh;
 mod store;
@@ -20,8 +22,9 @@ async fn ssh_connect(
     password: String,
     cols: u32,
     rows: u32,
+    charset: String,
 ) -> Result<String, String> {
-    ssh::connect(app, host, port, user, password, cols, rows).await
+    ssh::connect(app, host, port, user, password, cols, rows, charset).await
 }
 
 #[tauri::command]
@@ -47,6 +50,31 @@ fn sessions_load(app: AppHandle) -> Result<Vec<store::SessionInfo>, String> {
 #[tauri::command]
 fn sessions_save(app: AppHandle, sessions: Vec<store::SessionInfo>) -> Result<(), String> {
     store::save(&app, sessions)
+}
+
+/// PuTTY/SecureCRT/MobaXterm 세션 스캔(레지스트리·ini). 소스 하나가 없어도 나머지는 계속.
+/// 레지스트리 열거 + 디렉터리 재귀 워크라 블로킹 — 전용 스레드로 넘겨 UI 를 막지 않는다.
+#[tauri::command]
+async fn import_scan() -> Result<Vec<import::ImportedSession>, String> {
+    tokio::task::spawn_blocking(import::scan)
+        .await
+        .map_err(|e| format!("세션 스캔 실패: {e}"))
+}
+
+#[tauri::command]
+fn hostkeys_list(app: AppHandle) -> Vec<hostkey::KnownHostEntry> {
+    hostkey::list(&app)
+}
+
+/// 호스트키가 정당하게 바뀐 경우(서버 재설치 등) 항목을 지워 재등록되게 한다.
+#[tauri::command]
+fn hostkey_remove(app: AppHandle, target: String) {
+    hostkey::remove(&app, &target);
+}
+
+#[tauri::command]
+fn hostkeys_clear(app: AppHandle) {
+    hostkey::clear(&app);
 }
 
 #[tauri::command]
@@ -188,6 +216,12 @@ fn main() {
             ssh_close,
             sessions_load,
             sessions_save,
+            settings_load,
+            settings_save,
+            import_scan,
+            hostkeys_list,
+            hostkey_remove,
+            hostkeys_clear,
             vault_status,
             vault_init,
             vault_unlock,

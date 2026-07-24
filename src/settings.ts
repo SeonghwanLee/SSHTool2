@@ -13,6 +13,8 @@ export interface Settings {
   cursorStyle: CursorStyle;
   copyOnSelect: boolean;
   scrollback: number;
+  /** 명시적으로 만든 폴더 경로 — 세션이 하나도 없어도 트리에 유지된다(빈 폴더). */
+  folders: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cursorStyle: "block",
   copyOnSelect: true,
   scrollback: 5000,
+  folders: [],
 };
 
 export interface FontChoice {
@@ -50,7 +53,10 @@ export function fontStack(family: string): string {
 export async function loadSettings(): Promise<Settings> {
   try {
     const raw = await settingsLoad();
-    return { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
+    const merged = { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
+    // 옛 설정 파일에 folders 가 없거나 형식이 깨진 경우 방어.
+    if (!Array.isArray(merged.folders)) merged.folders = [];
+    return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

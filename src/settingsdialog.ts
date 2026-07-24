@@ -4,6 +4,7 @@
 import type { Settings, CursorStyle } from "./settings";
 import { FONTS } from "./settings";
 import { THEMES } from "./themes";
+import { knownHostsDialog } from "./knownhosts";
 
 export function settingsDialog(
   current: Settings,
@@ -173,6 +174,17 @@ export function settingsDialog(
     });
     scrollRow.appendChild(scroll);
     card.appendChild(scrollRow);
+
+    // ── 보안 ──
+    card.appendChild(sectionLabel("보안"));
+    const hostRow = controlRow("알려진 호스트(서버 지문)");
+    const hostBtn = document.createElement("button");
+    hostBtn.type = "button";
+    hostBtn.className = "sftp-btn";
+    hostBtn.textContent = "관리…";
+    hostBtn.addEventListener("click", () => void knownHostsDialog());
+    hostRow.appendChild(hostBtn);
+    card.appendChild(hostRow);
 
     // ── 닫기 ──
     const buttons = document.createElement("div");

@@ -1,6 +1,6 @@
 [package]
 name = "sshtool2"
-version = "0.6.0"
+version = "0.7.0"
 description = "SSHTool2"
 authors = ["Seonghwan Lee"]
 edition = "2021"
@@ -23,6 +23,10 @@ aes-gcm = "0.10"
 pbkdf2 = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
+encoding_rs = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
 
 [profile.release]
 panic = "abort"

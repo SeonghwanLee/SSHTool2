@@ -700,6 +700,157 @@ button {
   border-color: var(--accent);
 }
 
+/* ── 컨텍스트 메뉴 ─────────────────────────────────────────────────────────── */
+.ctx-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 210px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.ctx-menu hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 2px;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ctx-item:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.ctx-item.danger {
+  color: var(--error);
+}
+.ctx-item.danger:hover {
+  background: var(--error);
+  color: #ffffff;
+}
+.ctx-accel {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+/* ── 일괄 삭제 / 가져오기 목록 ─────────────────────────────────────────────── */
+.bulk-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+}
+.bulk-group {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 6px 6px 3px;
+}
+.bulk-group-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.bulk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.bulk-row:hover {
+  background: var(--panel-2);
+}
+.bulk-label {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bulk-detail {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── 세션 편집기(자동화 섹션) ───────────────────────────────────────────────── */
+.session-card {
+  width: 480px;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+.area-input {
+  background: #00000022;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-family: Consolas, D2Coding, monospace;
+  outline: none;
+  resize: vertical;
+  width: 100%;
+}
+.area-input:focus {
+  border-color: var(--accent);
+}
+.trigger-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trigger-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.trigger-warn {
+  font-size: 11px;
+  color: #d0a63f;
+}
+.trigger-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.trigger-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+}
+.trigger-row input[type="text"],
+.trigger-row input:not([type]) {
+  background: #00000022;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  outline: none;
+  min-width: 0;
+}
+
 /* ── SFTP 브라우저 ─────────────────────────────────────────────────────────── */
 .sftp-overlay {
   position: fixed;

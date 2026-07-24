@@ -2,7 +2,7 @@
 
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { blankSession, type SessionInfo } from "./types";
+import { blankSession, normalizeSession, type SessionInfo } from "./types";
 import {
   sessionsLoad,
   sessionsSave,
@@ -15,8 +15,11 @@ import {
 } from "./ipc";
 import { TabManager, type CredentialProvider, type StatusInfo } from "./tabs";
 import { Sidebar } from "./sidebar";
-import { sessionDialog, passwordPrompt, masterPrompt, confirmDialog } from "./dialogs";
+import { passwordPrompt, masterPrompt, confirmDialog, textPrompt, alertDialog } from "./dialogs";
+import { sessionDialog } from "./sessiondialog";
 import { settingsDialog } from "./settingsdialog";
+import { bulkDeleteDialog } from "./bulkdelete";
+import { importDialog } from "./importdialog";
 import { openSftpBrowser } from "./sftpui";
 import { loadSettings, saveSettings, type Settings } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
@@ -29,9 +32,43 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 let sessions: SessionInfo[] = [];
 let settings: Settings;
+/** 사이드바 재그리기 — main() 에서 Sidebar 생성 후 실제 구현이 주입된다. */
+let redraw: () => void = () => {};
+
+/**
+ * 세션 파일을 정상적으로 읽었을 때만 true. 읽기에 실패한 상태에서 저장하면
+ * 빈 목록으로 기존 파일을 덮어써 데이터가 유실되므로 저장을 잠근다.
+ */
+let sessionsLoaded = false;
 
 async function persist(): Promise<void> {
+  if (!sessionsLoaded) {
+    console.error("세션 로드 실패 상태 — 데이터 보호를 위해 저장을 건너뜁니다.");
+    return;
+  }
   await sessionsSave(sessions);
+}
+
+/**
+ * 같은 폴더 형제들 사이에서 위/아래로 한 칸 이동.
+ * sortOrder 가 모두 같아(초기값 0) 순서가 이름순인 경우도 있으므로,
+ * 현재 표시 순서대로 0..n-1 을 다시 매긴 뒤 이웃과 교환한다.
+ */
+function reorderSession(all: SessionInfo[], target: SessionInfo, dir: -1 | 1): SessionInfo[] {
+  const siblings = all
+    .filter((s) => s.folder === target.folder)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ko"));
+
+  const idx = siblings.findIndex((s) => s.id === target.id);
+  const swapWith = idx + dir;
+  if (idx < 0 || swapWith < 0 || swapWith >= siblings.length) return all;
+
+  const order = new Map<string, number>();
+  siblings.forEach((s, i) => order.set(s.id, i));
+  order.set(siblings[idx].id, swapWith);
+  order.set(siblings[swapWith].id, idx);
+
+  return all.map((s) => (order.has(s.id) ? { ...s, sortOrder: order.get(s.id)! } : s));
 }
 
 /** 볼트가 잠겨 있으면 마스터 입력을 받아 해제(없으면 최초 생성). 준비되면 true. */
@@ -119,7 +156,7 @@ async function main(): Promise<void> {
         if (!edited) return;
         sessions = sessions.map((x) => (x.id === edited.id ? edited : x));
         await persist();
-        sidebar.render(sessions);
+        redraw();
       },
       onDelete: async (s) => {
         const ok = await confirmDialog(`'${s.name || s.host}' 세션을 삭제할까요?`);
@@ -131,7 +168,7 @@ async function main(): Promise<void> {
         } catch {
           /* 무시 */
         }
-        sidebar.render(sessions);
+        redraw();
       },
       onSftp: async (s) => {
         // SFTP 는 셸과 별개의 연결이라 비밀번호가 필요 — 저장분 우선, 없으면 프롬프트.
@@ -144,7 +181,7 @@ async function main(): Promise<void> {
         if (!created) return;
         sessions = [...sessions, created];
         await persist();
-        sidebar.render(sessions);
+        redraw();
       },
       onQuick: async () => {
         // 저장하지 않는 1회성 접속.
@@ -152,22 +189,134 @@ async function main(): Promise<void> {
         if (!temp) return;
         void tabs.openSession(temp);
       },
+      onDuplicate: async (s) => {
+        const copy: SessionInfo = {
+          ...s,
+          id: crypto.randomUUID(),
+          name: `${s.name || s.host} (복사)`,
+          sortOrder: s.sortOrder + 1,
+        };
+        sessions = [...sessions, copy];
+        await persist();
+        redraw();
+      },
+      onMove: async (s) => {
+        const next = await textPrompt("폴더 이동 (빈 값 = 루트)", s.folder, "이동");
+        if (next === null) return; // 취소 — 빈 값 확인(루트 이동)과 구분됨
+        const folder = next.trim();
+        if (folder === s.folder) return;
+        sessions = sessions.map((x) => (x.id === s.id ? { ...x, folder } : x));
+        await persist();
+        redraw();
+      },
+      onRename: async (s) => {
+        const next = await textPrompt("이름 변경", s.name, "변경");
+        if (!next) return;
+        sessions = sessions.map((x) => (x.id === s.id ? { ...x, name: next } : x));
+        await persist();
+        redraw();
+      },
+      onReorder: async (s, dir) => {
+        sessions = reorderSession(sessions, s, dir);
+        await persist();
+        redraw();
+      },
+      onBulkDelete: async () => {
+        const ids = await bulkDeleteDialog(sessions);
+        if (!ids || ids.length === 0) return;
+        const ok = await confirmDialog(`${ids.length}개 세션을 삭제할까요? 되돌릴 수 없습니다.`);
+        if (!ok) return;
+        sessions = sessions.filter((x) => !ids.includes(x.id));
+        await persist();
+        for (const id of ids) {
+          try {
+            await vaultDeletePassword(id);
+          } catch {
+            /* 무시 */
+          }
+        }
+        redraw();
+      },
+      onImport: async () => {
+        const imported = await importDialog(sessions);
+        if (imported.length === 0) return;
+        sessions = [...sessions, ...imported];
+        await persist();
+        redraw();
+      },
+      onNewFolder: async (parent) => {
+        const name = await textPrompt("새 폴더 이름 ('A/B' 로 중첩 가능)", "", "만들기");
+        if (!name) return;
+        const path = parent ? `${parent}/${name}` : name;
+        if (!settings.folders.includes(path)) {
+          settings = { ...settings, folders: [...settings.folders, path] };
+          await saveSettings(settings);
+        }
+        redraw();
+      },
+      onRenameFolder: async (path) => {
+        const last = path.split("/").pop() ?? path;
+        const next = await textPrompt("폴더 이름 변경", last, "변경");
+        if (!next || next === last) return;
+        const parent = path.split("/").slice(0, -1).join("/");
+        const newPath = parent ? `${parent}/${next}` : next;
+        sessions = sessions.map((x) =>
+          x.folder === path || x.folder.startsWith(`${path}/`)
+            ? { ...x, folder: newPath + x.folder.slice(path.length) }
+            : x,
+        );
+        settings = {
+          ...settings,
+          folders: settings.folders.map((f) =>
+            f === path || f.startsWith(`${path}/`) ? newPath + f.slice(path.length) : f,
+          ),
+        };
+        await persist();
+        await saveSettings(settings);
+        redraw();
+      },
+      onDeleteFolder: async (path) => {
+        const ok = await confirmDialog(
+          `'${path}' 폴더를 삭제할까요? 안의 세션은 삭제되지 않고 루트로 이동합니다.`,
+        );
+        if (!ok) return;
+        sessions = sessions.map((x) =>
+          x.folder === path || x.folder.startsWith(`${path}/`) ? { ...x, folder: "" } : x,
+        );
+        settings = {
+          ...settings,
+          folders: settings.folders.filter((f) => f !== path && !f.startsWith(`${path}/`)),
+        };
+        await persist();
+        await saveSettings(settings);
+        redraw();
+      },
     },
     $("new-session"),
     $("quick-connect"),
   );
+
+  // 사이드바 재그리기(세션 + 빈 폴더).
+  redraw = () => sidebar.render(sessions, settings.folders);
 
   wireCommandBar(tabs);
   wireSettings(tabs);
   wireSidebarSearch(sidebar);
 
   try {
-    sessions = await sessionsLoad();
+    // 옛 sessions.json(신규 필드 없음)도 안전하게 읽도록 정규화.
+    sessions = (await sessionsLoad()).map(normalizeSession);
+    sessionsLoaded = true;
   } catch (e) {
     console.error("세션 로드 실패", e);
     sessions = [];
+    void alertDialog(
+      "세션 목록을 읽지 못했습니다. 기존 파일을 덮어쓰지 않도록 저장이 비활성화됩니다.\n" +
+        "설정 폴더의 sessions.json 을 확인한 뒤 앱을 다시 시작하세요.",
+      "세션 로드 실패",
+    );
   }
-  sidebar.render(sessions);
+  redraw();
 
   void checkForUpdates();
 }

@@ -13,6 +13,8 @@ export interface ConnectArgs {
   password: string;
   cols: number;
   rows: number;
+  /** 터미널 문자셋. 비-UTF-8 이면 백엔드가 변환한다. */
+  charset: string;
 }
 
 export const sshConnect = (a: ConnectArgs): Promise<string> =>
@@ -33,6 +35,31 @@ export const sessionsLoad = (): Promise<SessionInfo[]> =>
 
 export const sessionsSave = (sessions: SessionInfo[]): Promise<void> =>
   invoke("sessions_save", { sessions });
+
+/** 다른 SSH 클라이언트에서 스캔한 세션 후보(백엔드 import::ImportedSession). */
+export interface ImportedSession {
+  source: string;
+  folder: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+}
+
+export const importScan = (): Promise<ImportedSession[]> =>
+  invoke<ImportedSession[]>("import_scan");
+
+/** 저장된 호스트키(TOFU) 항목. */
+export interface KnownHostEntry {
+  target: string;
+  fingerprint: string;
+}
+
+export const hostkeysList = (): Promise<KnownHostEntry[]> =>
+  invoke<KnownHostEntry[]>("hostkeys_list");
+export const hostkeyRemove = (target: string): Promise<void> =>
+  invoke("hostkey_remove", { target });
+export const hostkeysClear = (): Promise<void> => invoke("hostkeys_clear");
 
 export const settingsLoad = (): Promise<Record<string, unknown>> =>
   invoke<Record<string, unknown>>("settings_load");

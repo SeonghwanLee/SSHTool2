@@ -7,7 +7,18 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+/// 패턴 감지 → 자동 입력 규칙. 평문 저장이므로 비밀번호를 넣지 않도록 UI 에서 경고한다.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerRule {
+    pub pattern: String,
+    pub send: String,
+    #[serde(default)]
+    pub regex: bool,
+}
+
 /// 저장되는 세션 정의. JS(프론트)와 camelCase 로 1:1.
+/// 신규 필드는 모두 #[serde(default)] — 기존 sessions.json 을 그대로 읽을 수 있어야 한다.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -23,6 +34,22 @@ pub struct SessionInfo {
     /// true 면 접속 성공 시 비밀번호를 볼트에 저장(볼트 기능에서 사용).
     #[serde(default)]
     pub save_password: bool,
+    /// 같은 폴더 안에서의 수동 정렬 순서(작을수록 위).
+    #[serde(default)]
+    pub sort_order: i32,
+    /// 터미널 문자셋("UTF-8" | "EUC-KR" | "CP949").
+    #[serde(default = "default_charset")]
+    pub charset: String,
+    /// 접속 직후 자동 실행할 명령(줄바꿈 구분).
+    #[serde(default)]
+    pub startup_commands: String,
+    /// 패턴 감지 자동 입력 규칙.
+    #[serde(default)]
+    pub triggers: Vec<TriggerRule>,
+}
+
+fn default_charset() -> String {
+    "UTF-8".to_string()
 }
 
 fn sessions_path(app: &AppHandle) -> Result<PathBuf, String> {

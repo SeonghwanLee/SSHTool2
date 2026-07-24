@@ -1,0 +1,218 @@
+// 세션 편집기 — 연결 / 분류 / 자동화 섹션. WPF 세션 편집 창(0.4.1 구성) 대응.
+// 필수값은 이름·호스트·포트만(사용자 이름은 비워도 저장 가능 — 접속 시 입력받음).
+
+import { openModal, field } from "./dialogs";
+import type { SessionInfo, TriggerRule, Charset } from "./types";
+
+const CHARSETS: Charset[] = ["UTF-8", "EUC-KR", "CP949"];
+
+export function sessionDialog(initial: SessionInfo, titleText: string): Promise<SessionInfo | null> {
+  return new Promise((resolve) => {
+    openModal(
+      (close) => {
+        const card = document.createElement("form");
+        card.className = "session-card";
+
+        const title = document.createElement("h3");
+        title.textContent = titleText;
+
+        // ── 연결 ──
+        const name = textInput(initial.name, "표시 이름");
+        const host = textInput(initial.host, "호스트 / IP");
+        const port = textInput(String(initial.port || 22), "22");
+        port.inputMode = "numeric";
+        const user = textInput(initial.user, "사용자 (비워두면 접속 시 입력)");
+
+        const savePw = document.createElement("input");
+        savePw.type = "checkbox";
+        savePw.checked = initial.savePassword;
+        const saveRow = document.createElement("label");
+        saveRow.className = "check-row";
+        const saveText = document.createElement("span");
+        saveText.textContent = "접속 성공 시 비밀번호 저장 (볼트에 암호화)";
+        saveRow.append(savePw, saveText);
+
+        // ── 분류 ──
+        const folder = textInput(initial.folder, "폴더 (선택, 예: 운영/DB)");
+
+        // ── 자동화 ──
+        const charset = document.createElement("select");
+        charset.className = "sel-input";
+        for (const c of CHARSETS) {
+          const o = document.createElement("option");
+          o.value = c;
+          o.textContent = c;
+          if (c === initial.charset) o.selected = true;
+          charset.appendChild(o);
+        }
+
+        const startup = document.createElement("textarea");
+        startup.className = "area-input";
+        startup.rows = 3;
+        startup.placeholder = "접속 후 자동 실행 (한 줄에 하나)\n예: cd /projects\n예: claude";
+        startup.value = initial.startupCommands;
+
+        const triggers = new TriggerEditor(initial.triggers);
+
+        const err = document.createElement("div");
+        err.className = "modal-err";
+
+        const buttons = document.createElement("div");
+        buttons.className = "modal-buttons";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.textContent = "취소";
+        cancel.addEventListener("click", () => {
+          close();
+          resolve(null);
+        });
+        const ok = document.createElement("button");
+        ok.type = "submit";
+        ok.className = "btn-accent";
+        ok.textContent = "저장";
+        buttons.append(cancel, ok);
+
+        card.append(
+          title,
+          section("연결"),
+          field("이름", name),
+          field("호스트", host),
+          field("포트", port),
+          // 사용자 이름과 비밀번호 저장을 연달아 배치(WPF 0.43.2 피드백).
+          field("사용자", user),
+          saveRow,
+          section("분류"),
+          field("폴더", folder),
+          section("자동화"),
+          field("문자셋", charset),
+          field("접속 시 자동 실행", startup),
+          triggers.render(),
+          err,
+          buttons,
+        );
+
+        card.addEventListener("submit", (e) => {
+          e.preventDefault();
+          const h = host.value.trim();
+          if (!h) {
+            err.textContent = "호스트를 입력하세요.";
+            return;
+          }
+          // 포트는 u16 범위여야 한다 — 벗어나면 저장(직렬화)이 조용히 실패한다.
+          const p = Number(port.value);
+          if (!Number.isInteger(p) || p < 1 || p > 65535) {
+            err.textContent = "포트는 1~65535 사이의 정수여야 합니다.";
+            return;
+          }
+          const result: SessionInfo = {
+            ...initial,
+            name: name.value.trim() || h,
+            host: h,
+            port: p,
+            user: user.value.trim(),
+            folder: folder.value.trim(),
+            savePassword: savePw.checked,
+            charset: charset.value as Charset,
+            startupCommands: startup.value,
+            triggers: triggers.value(),
+          };
+          close();
+          resolve(result);
+        });
+
+        setTimeout(() => name.focus(), 0);
+        return card;
+      },
+      () => resolve(null),
+    );
+  });
+}
+
+/** 트리거 규칙 목록 편집기(추가/삭제). 평문 저장이라 비밀번호 금지 경고 표시. */
+class TriggerEditor {
+  private rules: TriggerRule[];
+  private readonly list = document.createElement("div");
+
+  constructor(initial: TriggerRule[]) {
+    this.rules = initial.map((r) => ({ ...r }));
+  }
+
+  render(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "trigger-wrap";
+
+    const head = document.createElement("div");
+    head.className = "trigger-head";
+    const label = document.createElement("span");
+    label.textContent = "자동 입력 규칙 (패턴 감지 → 전송)";
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "sftp-btn";
+    add.textContent = "＋ 규칙";
+    add.addEventListener("click", () => {
+      this.rules = [...this.rules, { pattern: "", send: "", regex: false }];
+      this.draw();
+    });
+    head.append(label, add);
+
+    const warn = document.createElement("div");
+    warn.className = "trigger-warn";
+    warn.textContent = "⚠ 규칙 값은 암호화되지 않습니다 — 비밀번호를 넣지 마세요.";
+
+    this.list.className = "trigger-list";
+    this.draw();
+    wrap.append(head, warn, this.list);
+    return wrap;
+  }
+
+  private draw(): void {
+    this.list.innerHTML = "";
+    this.rules.forEach((rule, i) => {
+      const row = document.createElement("div");
+      row.className = "trigger-row";
+
+      const pattern = textInput(rule.pattern, "감지할 패턴");
+      pattern.addEventListener("input", () => (this.rules[i].pattern = pattern.value));
+
+      const send = textInput(rule.send, "전송할 값 (\\n 은 개행)");
+      send.addEventListener("input", () => (this.rules[i].send = send.value));
+
+      const rx = document.createElement("input");
+      rx.type = "checkbox";
+      rx.checked = rule.regex;
+      rx.title = "정규식으로 해석";
+      rx.addEventListener("change", () => (this.rules[i].regex = rx.checked));
+
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "tree-act";
+      del.textContent = "🗑";
+      del.title = "규칙 삭제";
+      del.addEventListener("click", () => {
+        this.rules = this.rules.filter((_, k) => k !== i);
+        this.draw();
+      });
+
+      row.append(pattern, send, rx, del);
+      this.list.appendChild(row);
+    });
+  }
+
+  value(): TriggerRule[] {
+    return this.rules.filter((r) => r.pattern.trim() !== "");
+  }
+}
+
+function textInput(value: string, placeholder: string): HTMLInputElement {
+  const el = document.createElement("input");
+  el.value = value;
+  el.placeholder = placeholder;
+  return el;
+}
+
+function section(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "settings-section";
+  el.textContent = text;
+  return el;
+}

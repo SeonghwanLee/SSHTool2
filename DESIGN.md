@@ -41,23 +41,26 @@ ui/       sidebar(트리·검색·DnD), tabbar, tiles, statusbar, command-window
 ### Phase 0 — 골격 ✅ (v0.1–v0.5)
 접속·다중탭·볼트(기본)·동시명령·단일패널 SFTP·자동업데이트.
 
-### Phase 1 — 정체성 & 일상 사용 (v0.6) ← **지금**
-- [ ] **테마 10종** (Everforest/Gruvbox/Kanagawa/Monokai/EverforestLight/GruvboxLight/Midnight/Charcoal/PureWhite/StoneWhite) — 앱 크롬 + 터미널 색 동시, 재시작 유지
-- [ ] **임베디드 폰트 4종**(D2Coding·JetBrains Mono·IBM Plex Mono·Hack) + @font-face, xterm 적용
-- [ ] **폰트 피커** — 내장/시스템, 크기(9–24), D2Coding fallback 선두(한글 보장)
-- [ ] **설정 다이얼로그 + 영속화** — 테마·폰트·크기·커서·copy-on-select·스크롤백
-- [ ] **터미널 UX** — 드래그 선택→자동복사(5px 임계)·복사 토스트("Copied N chars"), 우클릭=선택시 복사·아니면 붙여넣기(PuTTY식), Ctrl+Shift+F 검색(F3/Shift+F3), Ctrl+휠/±/0 zoom, 웹링크
-- [ ] **터미널 키** — Ctrl+Enter=LF(claude CLI 다중행), Ctrl+C/Ctrl+Insert 복사·Shift+Insert 붙여넣기, Shift+PageUp/Down 스크롤백, xterm 기본(app-cursor-keys·truecolor·alt-screen·마우스트래킹·bracketed-paste는 xterm.js 제공)
-- [ ] **탭 키** — Ctrl+Tab/Ctrl+Shift+Tab 전환, Ctrl+1~9 n번째, Ctrl+F4 닫기, Ctrl+Shift+T 빠른연결
-- [ ] **탭 상태색** — 비활성 탭 출력=호박색, 끊김=적색(글자 검정), 열어보면 해제
-- [ ] **상태바** — user@host:port·상태(연결됨/중/끊김) / cursor row,col / 터미널 크기 / 인코딩 / 한영·CAP·NUM
-- [ ] **사이드바 검색**(250ms 디바운스+✕클리어) + 폴더 접힘 상태 유지 + 세션 1줄 표시(이름+흐린 user@host, 세부토글)
+### Phase 1 — 정체성 & 일상 사용 (v0.6) ✅
+- [x] **테마 10종** (Everforest/Gruvbox/Kanagawa/Monokai/EverforestLight/GruvboxLight/Midnight/Charcoal/PureWhite/StoneWhite) — 앱 크롬 + 터미널 색 동시, 재시작 유지
+- [x] **임베디드 폰트 4종**(D2Coding·JetBrains Mono·IBM Plex Mono·Hack) + @font-face, xterm 적용
+- [x] **폰트 피커** — 내장/시스템 배지, 크기, D2Coding fallback 선두(한글 보장)
+- [x] **설정 다이얼로그 + 영속화** — 테마·폰트·크기·커서·copy-on-select·스크롤백 (라이브 적용)
+- [x] **터미널 UX** — 선택→자동복사·복사 토스트, 우클릭=복사/붙여넣기(PuTTY식), Ctrl+Shift+F 검색(Enter/F3/Shift+F3), Ctrl+휠/±/0 zoom, 웹링크
+- [x] **터미널 키** — Ctrl+Enter=LF, Ctrl+C/Ctrl+Insert 복사·Shift+Insert 붙여넣기 (나머지는 xterm.js 기본)
+- [x] **탭 키** — Ctrl+Tab/Ctrl+Shift+Tab, Ctrl+1~9, Ctrl+F4
+- [x] **탭 상태색** — 비활성 탭 출력=호박색, 끊김=적색(글자 검정), 열어보면 해제
+- [x] **상태바** — 세션 상태 / 터미널 크기 / 커서 / 인코딩
+- [x] **사이드바 검색**(250ms 디바운스+✕클리어) + 폴더 접힘 유지
+- [ ] 남음: Shift+PageUp/Down 스크롤백 단축키, 한영·CAP·NUM 표시, 세션 1줄 세부토글, Ctrl+Shift+T
 
-### Phase 2 — 데이터 & 온보딩 (v0.7)
-- [ ] **세션 임포트** PuTTY/SecureCRT/MobaXterm (트리 미리보기·검색·중복제거)
-- [ ] **세션 CRUD 폴리시** — 복제("이름 (복사)")·폴더이동·순서(↑↓/DnD 삽입선)·일괄삭제(체크트리)·최근접속정렬
-- [ ] **호스트키 TOFU 검증** — 지문 저장·불일치 경고
-- [ ] **세션별 옵션** — 문자셋(UTF-8/EUC-KR/CP949)·접속시 자동실행 명령·트리거(패턴→자동입력)
+### Phase 2 — 데이터 & 온보딩 (v0.7) ✅
+- [x] **세션 임포트** PuTTY(레지스트리·CP949)/SecureCRT(ini)/MobaXterm(ini) — 프로그램/폴더 그룹 트리, 검색, host+user 중복제거, 비밀번호 제외
+- [x] **세션 CRUD 폴리시** — 복제("이름 (복사)")·폴더이동·이름변경·순서(↑↓)·일괄삭제(체크목록)·빈 폴더 생성/이름변경/삭제
+- [x] **우클릭 컨텍스트 메뉴** + 단축키(C/F/E/U/M/R/K/J/N/D/B/I)
+- [x] **호스트키 TOFU 검증** — SHA-256 지문 known_hosts.json, 불일치 시 거부 + 안내, 관리 UI(개별/전체 삭제)
+- [x] **세션별 옵션** — 문자셋(UTF-8/EUC-KR/CP949, 스트리밍 변환)·접속시 자동실행 명령·트리거(패턴→자동입력, 쿨다운·평문 경고)
+- [ ] 남음: 드래그앤드롭 순서변경(삽입선), 최근접속순 정렬
 
 ### Phase 3 — SFTP 완전판 (v0.8)
 - [ ] **4분할 FileZilla식**(로컬 트리+목록 | 원격 트리+목록) 리사이즈 스플리터

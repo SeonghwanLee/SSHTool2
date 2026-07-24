@@ -32,11 +32,21 @@ pub struct SftpEntry {
     pub modified: u32,
 }
 
-struct Client;
+/// 셸 세션과 동일한 TOFU 호스트키 검증을 적용한다.
+struct Client {
+    app: AppHandle,
+    host: String,
+    port: u16,
+}
+
 impl client::Handler for Client {
     type Error = russh::Error;
-    async fn check_server_key(&mut self, _pk: &ssh_key::PublicKey) -> Result<bool, Self::Error> {
-        Ok(true)
+    async fn check_server_key(&mut self, pk: &ssh_key::PublicKey) -> Result<bool, Self::Error> {
+        let fp = pk.fingerprint(ssh_key::HashAlg::Sha256).to_string();
+        Ok(!matches!(
+            crate::hostkey::verify(&self.app, &self.host, self.port, &fp),
+            crate::hostkey::Verdict::Mismatch
+        ))
     }
 }
 
@@ -73,9 +83,14 @@ pub async fn connect(
         ..Default::default()
     });
 
-    let mut handle: Handle<Client> = client::connect(config, (host.as_str(), port), Client)
+    let client = Client {
+        app: app.clone(),
+        host: host.clone(),
+        port,
+    };
+    let mut handle: Handle<Client> = client::connect(config, (host.as_str(), port), client)
         .await
-        .map_err(|e| format!("SFTP 연결 실패: {e}"))?;
+        .map_err(|e| format!("SFTP 연결 실패(호스트 키 변경 시에도 발생): {e}"))?;
 
     let auth = handle
         .authenticate_password(user, password)

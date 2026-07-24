@@ -39,6 +39,14 @@ export interface StatusInfo {
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const LF = new Uint8Array([0x0a]);
 
+/**
+ * 트리거 매칭용으로 ANSI 제어 시퀀스를 제거한다. 컬러 프롬프트
+ * (예: "\x1b[32mpassword:\x1b[0m")에서도 사용자가 눈으로 본 문자열로 매칭되게 한다.
+ */
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[[\]()#;?]*[0-9;]*[A-Za-z]|[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
+const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
+
 /** 탭 하나 = 터미널 뷰 + 상태. 접속/재접속 로직은 TabManager 가 구동한다. */
 class TerminalTab {
   readonly key = crypto.randomUUID();
@@ -60,11 +68,14 @@ class TerminalTab {
   private zoomDelta = 0;
   private toastTimer = 0;
   private searchOpen = false;
+  private triggerBuf = "";
+  private readonly decoder = new TextDecoder("utf-8", { fatal: false });
+  private readonly lastFired = new Map<string, number>();
 
   constructor(
     session: SessionInfo,
     settings: Settings,
-    onInput: (bytes: Uint8Array) => void,
+    private readonly onInput: (bytes: Uint8Array) => void,
     onResize: () => void,
     private readonly onActive: () => void,
   ) {
@@ -296,7 +307,56 @@ class TerminalTab {
     this.term.focus();
   }
   writeBytes(data: number[]): void {
-    this.term.write(new Uint8Array(data));
+    const bytes = new Uint8Array(data);
+    this.term.write(bytes);
+    if (this.session.triggers.length) this.checkTriggers(bytes);
+  }
+
+  /** 접속 직후 자동 실행 명령(줄 단위)을 순서대로 전송. */
+  sendStartupCommands(): void {
+    const lines = this.session.startupCommands
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    for (const line of lines) this.sendText(`${line}\n`);
+  }
+
+  private sendText(text: string): void {
+    this.onInput(new TextEncoder().encode(text));
+  }
+
+  /**
+   * 수신 텍스트에서 패턴을 감지하면 지정 값을 자동 입력.
+   * 최근 2000자만 보고, 규칙마다 1초 쿨다운을 둬 반복 폭주를 막는다.
+   */
+  private checkTriggers(bytes: Uint8Array): void {
+    const text = stripAnsi(this.decoder.decode(bytes, { stream: true }));
+    this.triggerBuf = (this.triggerBuf + text).slice(-2000);
+
+    const now = Date.now();
+    let fired = false;
+    this.session.triggers.forEach((rule, i) => {
+      if (!rule.pattern) return;
+      // 쿨다운 키는 인덱스 — 패턴이 같은 두 규칙이 서로의 쿨다운을 먹지 않게 한다.
+      const cooldownKey = `${i}:${rule.pattern}`;
+      if (now - (this.lastFired.get(cooldownKey) ?? 0) < 1000) return;
+      let hit = false;
+      try {
+        hit = rule.regex
+          ? new RegExp(rule.pattern).test(this.triggerBuf)
+          : this.triggerBuf.includes(rule.pattern);
+      } catch {
+        hit = false; // 잘못된 정규식은 무시
+      }
+      if (!hit) return;
+      this.lastFired.set(cooldownKey, now);
+      fired = true;
+      this.sendText(rule.send.replace(/\\n/g, "\n"));
+    });
+
+    // 버퍼 비우기는 루프가 끝난 뒤 한 번 — 루프 안에서 지우면 같은 출력에 걸린
+    // 나머지 규칙들이 빈 버퍼를 보게 되어 영영 매칭되지 않는다.
+    if (fired) this.triggerBuf = "";
   }
 
   setConnecting(): void {
@@ -471,11 +531,16 @@ export class TabManager {
         password,
         cols: tab.cols,
         rows: tab.rows,
+        charset: tab.session.charset,
       });
       tab.setConnected(liveId);
       this.byLiveId.set(liveId, tab);
       tab.focus();
       void this.credentials.onConnected(tab.session, password);
+      // 셸 프롬프트가 나온 뒤 자동 실행 명령 전송.
+      if (tab.session.startupCommands.trim()) {
+        window.setTimeout(() => tab.sendStartupCommands(), 500);
+      }
     } catch (e) {
       void this.credentials.onError(tab.session, String(e));
       tab.setDisconnected(`접속 실패: ${String(e)}`, () => void this.reconnect(tab));
@@ -544,7 +609,7 @@ export class TabManager {
       state: tab.status,
       size: `${tab.cols}×${tab.rows}`,
       cursor: tab.cursorPos(),
-      encoding: "UTF-8",
+      encoding: tab.session.charset || "UTF-8",
     });
   }
 

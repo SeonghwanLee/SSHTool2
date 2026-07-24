@@ -17,9 +17,19 @@ tauri 2 · @tauri-apps/api ^2 · @tauri-apps/cli ^2 · russh 0.62 · tokio 1(ful
 - 메인 윈도우: label `main`, title "SSHTool2", 1000x680
 - devUrl http://localhost:1420, frontendDist ../dist, beforeDevCommand `npm run dev`, beforeBuildCommand `npm run build`
 
+> 로드맵·완료기준은 **DESIGN.md** 가 기준 문서다. 이 파일은 IPC/버전 계약만 유지한다.
+
 ## IPC 계약 (프론트 ↔ 백엔드)
 ### 명령 (invoke, 프론트 → 백엔드)
-- `ssh_connect({ host: string, port: number, user: string, password: string, cols: number, rows: number }) -> string`
+- 세션/설정: `sessions_load`, `sessions_save`, `settings_load`, `settings_save`
+- 볼트: `vault_status/init/unlock/lock/set_password/get_password/delete_password`
+- SFTP: `sftp_connect/list/download/upload/mkdir/remove/rename/disconnect`
+- 임포트: `import_scan()` (async, spawn_blocking)
+- 호스트키(TOFU): `hostkeys_list`, `hostkey_remove`, `hostkeys_clear`
+- **신규 커맨드는 `generate_handler!` 목록에도 반드시 등록** — 누락 시 컴파일은 되지만
+  런타임에 "Command not found" 로 조용히 실패한다(v0.6.0 설정 영속화 사고 원인).
+
+- `ssh_connect({ host: string, port: number, user: string, password: string, cols: number, rows: number, charset: string }) -> string`
   접속 + PTY 셸 열고, 출력 읽기 루프를 spawn(→ `ssh://data` emit). 반환값 = 세션 id(문자열). 실패 시 Err(문자열).
 - `ssh_write({ id: string, data: number[] })` — 셸에 바이트 쓰기.
 - `ssh_resize({ id: string, cols: number, rows: number })` — PTY 크기 변경.

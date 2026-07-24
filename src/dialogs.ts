@@ -13,7 +13,7 @@ const root = (): HTMLElement => {
  * Esc/바깥클릭으로 닫힐 때는 onDismiss 가 호출되므로 각 다이얼로그가 취소값(null/false)을
  * resolve 해야 caller 가 무한 대기하지 않는다. keydown 리스너는 모든 경로에서 정리된다.
  */
-function openModal(build: (close: () => void) => HTMLElement, onDismiss?: () => void): void {
+export function openModal(build: (close: () => void) => HTMLElement, onDismiss?: () => void): void {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const esc = (e: KeyboardEvent) => {
@@ -37,105 +37,13 @@ function openModal(build: (close: () => void) => HTMLElement, onDismiss?: () => 
   root().appendChild(overlay);
 }
 
-function field(label: string, input: HTMLElement): HTMLElement {
+export function field(label: string, input: HTMLElement): HTMLElement {
   const wrap = document.createElement("label");
   wrap.className = "field";
   const span = document.createElement("span");
   span.textContent = label;
   wrap.append(span, input);
   return wrap;
-}
-
-/** 세션 새로 만들기/편집. 저장하면 갱신된 SessionInfo, 취소면 null. */
-export function sessionDialog(initial: SessionInfo, titleText: string): Promise<SessionInfo | null> {
-  return new Promise((resolve) => {
-    openModal((close) => {
-      const card = document.createElement("form");
-      const title = document.createElement("h3");
-      title.textContent = titleText;
-
-      const name = document.createElement("input");
-      name.value = initial.name;
-      name.placeholder = "표시 이름";
-      const host = document.createElement("input");
-      host.value = initial.host;
-      host.placeholder = "호스트 / IP";
-      const port = document.createElement("input");
-      port.value = String(initial.port || 22);
-      port.inputMode = "numeric";
-      const user = document.createElement("input");
-      user.value = initial.user;
-      user.placeholder = "사용자";
-      const folder = document.createElement("input");
-      folder.value = initial.folder;
-      folder.placeholder = "폴더 (선택, 예: 운영/DB)";
-
-      const saveRow = document.createElement("label");
-      saveRow.className = "check-row";
-      const savePw = document.createElement("input");
-      savePw.type = "checkbox";
-      savePw.checked = initial.savePassword;
-      const saveText = document.createElement("span");
-      saveText.textContent = "접속 성공 시 비밀번호 저장 (볼트에 암호화)";
-      saveRow.append(savePw, saveText);
-
-      const err = document.createElement("div");
-      err.className = "modal-err";
-
-      const buttons = document.createElement("div");
-      buttons.className = "modal-buttons";
-      const cancel = document.createElement("button");
-      cancel.type = "button";
-      cancel.textContent = "취소";
-      cancel.addEventListener("click", () => {
-        close();
-        resolve(null);
-      });
-      const ok = document.createElement("button");
-      ok.type = "submit";
-      ok.className = "btn-accent";
-      ok.textContent = "저장";
-      buttons.append(cancel, ok);
-
-      card.append(
-        title,
-        // 사용자 이름과 비밀번호(볼트) 자리를 연달아 배치(WPF 피드백) — 비번은 접속 시 입력.
-        field("이름", name),
-        field("호스트", host),
-        field("포트", port),
-        field("사용자", user),
-        field("폴더", folder),
-        saveRow,
-        err,
-        buttons,
-      );
-
-      card.addEventListener("submit", (e) => {
-        e.preventDefault();
-        const h = host.value.trim();
-        const u = user.value.trim();
-        if (!h) {
-          err.textContent = "호스트를 입력하세요.";
-          return;
-        }
-        const p = Number(port.value) || 22;
-        const result: SessionInfo = {
-          ...initial,
-          name: name.value.trim() || h,
-          host: h,
-          port: p,
-          user: u,
-          folder: folder.value.trim(),
-          savePassword: savePw.checked,
-        };
-        close();
-        resolve(result);
-      });
-
-      setTimeout(() => name.focus(), 0);
-      return card;
-    }, () => resolve(null));
-  });
 }
 
 /** 접속용 비밀번호 입력. 확인=문자열(빈 문자열 허용), 취소=null. */
@@ -225,7 +133,11 @@ export function masterPrompt(title: string, subtitle: string, okText = "확인")
   });
 }
 
-/** 한 줄 텍스트 입력(폴더 만들기·이름 변경 등). 확인=문자열, 취소/빈값=null. */
+/**
+ * 한 줄 텍스트 입력(폴더 만들기·이름 변경 등).
+ * 확인 = 입력값(빈 문자열일 수 있음), 취소/Esc/바깥클릭 = null.
+ * 빈 값과 취소를 반드시 구분해야 하는 곳(폴더를 루트로 이동 등)이 있어 분리한다.
+ */
 export function textPrompt(title: string, initial = "", okText = "확인"): Promise<string | null> {
   return new Promise((resolve) => {
     openModal((close) => {
@@ -253,9 +165,8 @@ export function textPrompt(title: string, initial = "", okText = "확인"): Prom
       card.append(h, field("", input), buttons);
       card.addEventListener("submit", (e) => {
         e.preventDefault();
-        const v = input.value.trim();
         close();
-        resolve(v || null);
+        resolve(input.value.trim()); // 빈 문자열도 '확인'으로 전달(취소는 null)
       });
       setTimeout(() => {
         input.focus();
@@ -263,6 +174,38 @@ export function textPrompt(title: string, initial = "", okText = "확인"): Prom
       }, 0);
       return card;
     }, () => resolve(null));
+  });
+}
+
+/** 알림(확인 버튼만). */
+export function alertDialog(message: string, title = "알림"): Promise<void> {
+  return new Promise((resolve) => {
+    openModal(
+      (close) => {
+        const card = document.createElement("div");
+        const h = document.createElement("h3");
+        h.textContent = title;
+        const msg = document.createElement("div");
+        msg.className = "modal-msg";
+        msg.textContent = message;
+
+        const buttons = document.createElement("div");
+        buttons.className = "modal-buttons";
+        const ok = document.createElement("button");
+        ok.className = "btn-accent";
+        ok.textContent = "확인";
+        ok.addEventListener("click", () => {
+          close();
+          resolve();
+        });
+        buttons.appendChild(ok);
+
+        card.append(h, msg, buttons);
+        setTimeout(() => ok.focus(), 0);
+        return card;
+      },
+      () => resolve(),
+    );
   });
 }
 
