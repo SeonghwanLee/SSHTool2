@@ -36,6 +36,9 @@ export interface StatusInfo {
   encoding: string;
 }
 
+/** 세션 화면 배치: 탭 / 세로 분할 / 가로 분할(WPF 0.20.0). */
+export type ViewMode = "tabs" | "vertical" | "horizontal";
+
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const LF = new Uint8Array([0x0a]);
 
@@ -56,6 +59,9 @@ class TerminalTab {
   activity = false; // 비활성 탭에 출력이 도착하면 true(호박색)
 
   readonly root: HTMLDivElement;
+  private readonly header: HTMLDivElement;
+  private readonly headerLabel: HTMLDivElement;
+  readonly headerClose: HTMLButtonElement;
   private readonly termHost: HTMLDivElement;
   private readonly overlay: HTMLDivElement;
   private readonly toast: HTMLDivElement;
@@ -83,6 +89,14 @@ class TerminalTab {
     this.settings = settings;
 
     this.root = el("div", "term-pane");
+    // 타일(분할) 모드에서만 보이는 헤더 — 세션명 + 닫기(WPF 0.45.3).
+    this.header = el("div", "pane-header");
+    this.headerLabel = el("span", "pane-header-label");
+    this.headerClose = document.createElement("button");
+    this.headerClose.className = "pane-header-close";
+    this.headerClose.textContent = "×";
+    this.headerClose.title = "닫기";
+    this.header.append(this.headerLabel, this.headerClose);
     this.termHost = el("div", "term-host");
     this.overlay = el("div", "term-overlay");
     this.toast = el("div", "term-toast");
@@ -92,7 +106,8 @@ class TerminalTab {
     this.searchInput = document.createElement("input");
     this.searchInput.placeholder = "검색 (Enter/F3, Shift+F3 역방향, Esc 닫기)";
     this.searchBar.appendChild(this.searchInput);
-    this.root.append(this.termHost, this.overlay, this.toast, this.searchBar);
+    this.root.append(this.header, this.termHost, this.overlay, this.toast, this.searchBar);
+    this.headerLabel.textContent = session.name || `${session.user}@${session.host}`;
 
     const theme = themeById(settings.theme);
     this.term = new Terminal({
@@ -387,7 +402,11 @@ class TerminalTab {
     this.overlay.appendChild(box);
   }
 
+  /** 닫힌 뒤 뒤늦게 도착한 접속 결과를 무시하기 위한 표시. */
+  disposed = false;
+
   dispose(): void {
+    this.disposed = true;
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.term.dispose();
     this.root.remove();
@@ -400,6 +419,7 @@ export class TabManager {
   private readonly byLiveId = new Map<string, TerminalTab>();
   private active: TerminalTab | null = null;
   private settings: Settings;
+  private viewMode: ViewMode = "tabs";
 
   constructor(
     private readonly tabbar: HTMLElement,
@@ -451,6 +471,57 @@ export class TabManager {
     });
   }
 
+  /** 탭 / 세로 분할 / 가로 분할 전환. 세션·연결 상태는 그대로 유지된다. */
+  setViewMode(mode: ViewMode): void {
+    this.viewMode = mode;
+    this.layout();
+  }
+
+  getViewMode(): ViewMode {
+    return this.viewMode;
+  }
+
+  /** 현재 뷰 모드에 맞춰 패널 배치를 갱신하고 모든 보이는 터미널을 다시 맞춘다. */
+  private layout(focusActive = true): void {
+    const tiled = this.viewMode !== "tabs";
+    this.panes.classList.toggle("tile", tiled);
+    this.panes.style.gridTemplateColumns = "";
+    this.panes.style.gridTemplateRows = "";
+
+    if (tiled) {
+      const n = Math.max(1, this.tabs.length);
+      // 3개까지는 한 줄, 그 이상은 2열로 접어 2×2 형태가 되게 한다.
+      // 세로 분할: 3개까지는 한 줄, 4개부터는 정사각에 가깝게 접어 2×2 형태가 되게 한다.
+      const cols =
+        this.viewMode === "vertical"
+          ? n <= 3
+            ? n
+            : Math.ceil(Math.sqrt(n))
+          : Math.ceil(n / Math.min(n, 3));
+      const rows = Math.ceil(n / cols);
+      this.panes.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      this.panes.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    }
+
+    for (const t of this.tabs) {
+      // 타일 모드에서는 전부 보이고, 탭 모드에서는 활성 탭만 보인다.
+      t.root.classList.toggle("visible", tiled || t === this.active);
+      t.root.classList.toggle("focused", tiled && t === this.active);
+    }
+    this.emptyState.style.display = this.tabs.length ? "none" : "flex";
+
+    requestAnimationFrame(() => {
+      for (const t of this.tabs) {
+        if (!tiled && t !== this.active) continue;
+        t.fitNow();
+        if (t.liveId) void sshResize(t.liveId, t.cols, t.rows);
+      }
+      // 리사이즈로 인한 재배치에서는 포커스를 뺏지 않는다(검색창·명령창 입력 중 튐 방지).
+      if (focusActive) this.active?.focus();
+      this.emitStatus();
+    });
+  }
+
   /** 설정 변경 → 모든 터미널 + 상태바에 즉시 반영. */
   applySettings(s: Settings): void {
     this.settings = s;
@@ -476,6 +547,14 @@ export class TabManager {
         if (tab === this.active) this.emitStatus();
       },
     );
+    tab.headerClose.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.closeTab(tab);
+    });
+    // 타일 모드: 타일을 클릭하면 그 타일로 포커스 이동(WPF 0.45.3).
+    tab.root.addEventListener("mousedown", () => {
+      if (this.viewMode !== "tabs" && this.active !== tab) this.activate(tab);
+    });
     this.tabs.push(tab);
     this.panes.appendChild(tab.root);
     this.activate(tab);
@@ -532,7 +611,13 @@ export class TabManager {
         cols: tab.cols,
         rows: tab.rows,
         charset: tab.session.charset,
+        logName: tab.session.enableLog ? tab.session.name || tab.session.host : null,
       });
+      if (tab.disposed) {
+        // 접속이 완료되기 전에 탭을 닫은 경우 — 서버 세션이 새지 않도록 즉시 정리.
+        void sshClose(liveId);
+        return;
+      }
       tab.setConnected(liveId);
       this.byLiveId.set(liveId, tab);
       tab.focus();
@@ -552,23 +637,13 @@ export class TabManager {
   private activate(tab: TerminalTab): void {
     this.active = tab;
     tab.activity = false;
-    for (const t of this.tabs) t.root.classList.toggle("active", t === tab);
-    this.emptyState.style.display = this.tabs.length ? "none" : "flex";
     this.renderTabbar();
-    requestAnimationFrame(() => {
-      tab.fitNow();
-      if (tab.liveId) void sshResize(tab.liveId, tab.cols, tab.rows);
-      tab.focus();
-      this.emitStatus();
-    });
+    this.layout();
   }
 
   private fitActive(): void {
-    const tab = this.active;
-    if (!tab) return;
-    tab.fitNow();
-    if (tab.liveId) void sshResize(tab.liveId, tab.cols, tab.rows);
-    this.emitStatus();
+    // 타일 모드에서는 보이는 모든 터미널을 다시 맞춰야 한다(포커스는 유지).
+    this.layout(false);
   }
 
   private async closeTab(tab: TerminalTab): Promise<void> {
@@ -589,11 +664,11 @@ export class TabManager {
       if (next) this.activate(next);
       else {
         this.active = null;
-        this.emptyState.style.display = "flex";
         this.emitStatus();
       }
     }
     this.renderTabbar();
+    this.layout();
   }
 
   private emitStatus(): void {

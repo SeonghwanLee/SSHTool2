@@ -392,12 +392,90 @@ button {
   inset: 0;
   display: none;
   padding: 4px;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
-.term-pane.active {
-  display: block;
+.term-pane.visible {
+  display: flex;
+}
+
+/* 타일(분할) 모드 — 열린 세션을 동시에 표시 */
+#panes.tile {
+  display: grid;
+  gap: 3px;
+  padding: 3px;
+}
+#panes.tile .term-pane {
+  position: relative;
+  inset: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+#panes.tile .term-pane.focused {
+  border-color: var(--accent);
+}
+#panes.tile .pane-header {
+  display: flex;
+}
+
+/* 타일 헤더(탭 모드에서는 숨김) */
+.pane-header {
+  /* 오버레이(inset:0)가 헤더를 덮어 닫기 버튼이 눌리지 않는 것을 막는다. */
+  position: relative;
+  z-index: 2;
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.term-pane.focused .pane-header {
+  color: var(--accent);
+}
+.pane-header-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-header-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 3px;
+}
+.pane-header-close:hover {
+  color: var(--fg);
 }
 .term-host {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 뷰 모드 버튼 */
+.view-btn {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  width: 34px;
+  cursor: pointer;
+}
+.view-btn:hover,
+.view-btn.active {
+  color: var(--accent);
+  background: var(--panel-2);
 }
 .term-host .xterm,
 .term-host .xterm-viewport,

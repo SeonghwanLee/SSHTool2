@@ -32,6 +32,8 @@ export interface SessionInfo {
   startupCommands: string;
   /** 패턴 감지 자동 입력 규칙. */
   triggers: TriggerRule[];
+  /** true 면 터미널 수신 내용을 logs/ 에 파일로 기록. */
+  enableLog: boolean;
 }
 
 /** 새 세션 기본값. */
@@ -48,6 +50,7 @@ export function blankSession(): SessionInfo {
     charset: "UTF-8",
     startupCommands: "",
     triggers: [],
+    enableLog: false,
   };
 }
 

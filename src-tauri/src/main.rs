@@ -24,8 +24,9 @@ async fn ssh_connect(
     cols: u32,
     rows: u32,
     charset: String,
+    log_name: Option<String>,
 ) -> Result<String, String> {
-    ssh::connect(app, host, port, user, password, cols, rows, charset).await
+    ssh::connect(app, host, port, user, password, cols, rows, charset, log_name).await
 }
 
 #[tauri::command]
@@ -120,7 +121,11 @@ fn vault_change_master(
 }
 
 #[tauri::command]
-fn vault_unlock(app: AppHandle, state: State<'_, VaultState>, master: String) -> Result<bool, String> {
+fn vault_unlock(
+    app: AppHandle,
+    state: State<'_, VaultState>,
+    master: String,
+) -> Result<vault::UnlockOutcome, String> {
     vault::unlock(&app, &state, master)
 }
 

@@ -52,6 +52,15 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         startup.placeholder = "접속 후 자동 실행 (한 줄에 하나)\n예: cd /projects\n예: claude";
         startup.value = initial.startupCommands;
 
+        const logRow = document.createElement("label");
+        logRow.className = "check-row";
+        const logBox = document.createElement("input");
+        logBox.type = "checkbox";
+        logBox.checked = initial.enableLog;
+        const logText = document.createElement("span");
+        logText.textContent = "세션 로그 기록 (설정 폴더의 logs/ 에 저장)";
+        logRow.append(logBox, logText);
+
         const triggers = new TriggerEditor(initial.triggers);
 
         const err = document.createElement("div");
@@ -86,6 +95,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           section("자동화"),
           field("문자셋", charset),
           field("접속 시 자동 실행", startup),
+          logRow,
           triggers.render(),
           err,
           buttons,
@@ -114,6 +124,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
             savePassword: savePw.checked,
             charset: charset.value as Charset,
             startupCommands: startup.value,
+            enableLog: logBox.checked,
             triggers: triggers.value(),
           };
           close();

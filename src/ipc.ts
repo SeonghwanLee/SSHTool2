@@ -15,6 +15,8 @@ export interface ConnectArgs {
   rows: number;
   /** 터미널 문자셋. 비-UTF-8 이면 백엔드가 변환한다. */
   charset: string;
+  /** 세션 로그를 남길 이름(없으면 기록하지 않음). */
+  logName: string | null;
 }
 
 export const sshConnect = (a: ConnectArgs): Promise<string> =>
@@ -78,8 +80,13 @@ export const vaultStatus = (): Promise<VaultStatus> => invoke<VaultStatus>("vaul
 /** 볼트 생성 → 1회성 복구 키를 반환한다(반드시 사용자에게 보여줄 것). */
 export const vaultInit = (master: string): Promise<string> =>
   invoke<string>("vault_init", { master });
-export const vaultUnlock = (master: string): Promise<boolean> =>
-  invoke<boolean>("vault_unlock", { master });
+/** unlock 결과. v1→v2 이관이 일어나면 새 복구 키가 함께 온다(반드시 보여줄 것). */
+export interface UnlockOutcome {
+  ok: boolean;
+  migratedRecovery: string | null;
+}
+export const vaultUnlock = (master: string): Promise<UnlockOutcome> =>
+  invoke<UnlockOutcome>("vault_unlock", { master });
 export const vaultUnlockRecovery = (recovery: string): Promise<boolean> =>
   invoke<boolean>("vault_unlock_recovery", { recovery });
 /** 마스터 변경 → 새 복구 키 반환(기존 키 무효). */

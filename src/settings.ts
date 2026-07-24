@@ -4,6 +4,8 @@ import { settingsLoad, settingsSave } from "./ipc";
 import { DEFAULT_THEME_ID } from "./themes";
 
 export type CursorStyle = "block" | "underline" | "bar";
+/** 세션 화면 배치(tabs.ts ViewMode 와 동일 — 순환 import 를 피하려 여기서 정의). */
+export type ViewModeSetting = "tabs" | "vertical" | "horizontal";
 
 export interface Settings {
   theme: string;
@@ -17,6 +19,8 @@ export interface Settings {
   folders: string[];
   /** 무활동 자동 잠금(분). 0 = 사용 안 함. */
   autoLockMinutes: number;
+  /** 세션 화면 배치(탭/세로 분할/가로 분할). */
+  viewMode: ViewModeSetting;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollback: 5000,
   folders: [],
   autoLockMinutes: 0,
+  viewMode: "tabs",
 };
 
 export interface FontChoice {

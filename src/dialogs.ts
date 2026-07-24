@@ -90,7 +90,13 @@ export function passwordPrompt(session: SessionInfo): Promise<string | null> {
 }
 
 /** 마스터 비밀번호 입력(볼트 생성/잠금해제 공용). 확인=문자열, 취소=null. */
-export function masterPrompt(title: string, subtitle: string, okText = "확인"): Promise<string | null> {
+export function masterPrompt(
+  title: string,
+  subtitle: string,
+  okText = "확인",
+  /** true 면 확인 입력란을 추가해 오타로 인한 영구 잠김을 막는다(생성/변경 시). */
+  requireConfirm = false,
+): Promise<string | null> {
   return new Promise((resolve) => {
     openModal((close) => {
       const card = document.createElement("form");
@@ -103,6 +109,13 @@ export function masterPrompt(title: string, subtitle: string, okText = "확인")
       const pass = document.createElement("input");
       pass.type = "password";
       pass.placeholder = "마스터 비밀번호";
+
+      const confirm = document.createElement("input");
+      confirm.type = "password";
+      confirm.placeholder = "한 번 더 입력";
+
+      const err = document.createElement("div");
+      err.className = "modal-err";
 
       const buttons = document.createElement("div");
       buttons.className = "modal-buttons";
@@ -119,11 +132,17 @@ export function masterPrompt(title: string, subtitle: string, okText = "확인")
       ok.textContent = okText;
       buttons.append(cancel, ok);
 
-      card.append(h, sub, field("마스터", pass), buttons);
+      card.append(h, sub, field("마스터", pass));
+      if (requireConfirm) card.append(field("확인", confirm));
+      card.append(err, buttons);
       card.addEventListener("submit", (e) => {
         e.preventDefault();
         const v = pass.value;
         if (!v) return; // 빈 마스터는 허용하지 않음
+        if (requireConfirm && v !== confirm.value) {
+          err.textContent = "두 입력이 일치하지 않습니다.";
+          return;
+        }
         close();
         resolve(v);
       });

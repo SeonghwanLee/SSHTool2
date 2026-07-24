@@ -57,6 +57,15 @@ pub struct VaultState {
     dek: Mutex<Option<[u8; 32]>>,
 }
 
+/// unlock 결과. v1→v2 이관이 일어나면 새로 발급된 복구 키를 함께 돌려준다
+/// (버리면 이관된 볼트는 복구 수단이 영영 없어진다).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockOutcome {
+    pub ok: bool,
+    pub migrated_recovery: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct VaultStatus {
     pub exists: bool,
@@ -159,10 +168,14 @@ fn read_file(app: &AppHandle) -> Result<Option<VaultFile>, String> {
     Ok(Some(vf))
 }
 
+/// 임시 파일에 쓴 뒤 교체한다. 볼트는 마스터·복구키·모든 항목이 한 파일에 있어
+/// 쓰기 도중 중단되면 전부 소실되므로 절단(truncate) 상태를 만들지 않는다.
 fn write_file(app: &AppHandle, vf: &VaultFile) -> Result<(), String> {
     let path = vault_path(app)?;
     let data = serde_json::to_string_pretty(vf).map_err(|e| format!("볼트 직렬화 실패: {e}"))?;
-    fs::write(&path, data).map_err(|e| format!("볼트 쓰기 실패: {e}"))
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, data).map_err(|e| format!("볼트 임시 쓰기 실패: {e}"))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("볼트 교체 실패: {e}"))
 }
 
 fn current_dek(state: &VaultState) -> Result<[u8; 32], String> {
@@ -212,7 +225,7 @@ pub fn init(app: &AppHandle, state: &VaultState, master: String) -> Result<Strin
 }
 
 /// 마스터로 잠금 해제. v1 파일은 이 시점에 v2 로 이관한다.
-pub fn unlock(app: &AppHandle, state: &VaultState, master: String) -> Result<bool, String> {
+pub fn unlock(app: &AppHandle, state: &VaultState, master: String) -> Result<UnlockOutcome, String> {
     let Some(mut vf) = read_file(app)? else {
         return Err("볼트가 아직 없습니다".into());
     };
@@ -223,32 +236,37 @@ pub fn unlock(app: &AppHandle, state: &VaultState, master: String) -> Result<boo
 
     if vf.version >= VERSION_V2 {
         let Ok(raw) = decrypt(&mk, &vf.wrapped_dek) else {
-            return Ok(false);
+            return Ok(UnlockOutcome { ok: false, migrated_recovery: None });
         };
         *state.dek.lock().unwrap() = Some(to_key(raw)?);
-        return Ok(true);
+        return Ok(UnlockOutcome { ok: true, migrated_recovery: None });
     }
 
     // ── v1 → v2 이관: 기존 항목은 마스터 유도 키로 암호화돼 있다 ──
     match decrypt(&mk, &vf.verifier) {
         Ok(pt) if pt == VERIFIER_PLAINTEXT => {}
-        _ => return Ok(false),
+        _ => return Ok(UnlockOutcome { ok: false, migrated_recovery: None }),
     }
+
+    // 항목 하나라도 복호화에 실패하면 이관을 중단한다 — 그대로 진행하면 그 항목이
+    // 조용히 사라진 상태로 파일이 덮어써져 되돌릴 수 없다.
     let mut plain: HashMap<String, String> = HashMap::new();
     for (k, blob) in &vf.entries {
-        if let Ok(bytes) = decrypt(&mk, blob) {
-            plain.insert(k.clone(), String::from_utf8_lossy(&bytes).into_owned());
-        }
+        let bytes = decrypt(&mk, blob).map_err(|_| {
+            format!("볼트 항목 '{k}' 을(를) 복호화할 수 없어 이관을 중단했습니다. 파일이 손상되었을 수 있으니 백업 후 문의하세요.")
+        })?;
+        plain.insert(k.clone(), String::from_utf8_lossy(&bytes).into_owned());
     }
+
     let dek = random_bytes::<32>();
-    let _ = wrap_dek(&mut vf, &dek, &master)?; // 이관 시 복구 키도 새로 발급됨
+    let recovery = wrap_dek(&mut vf, &dek, &master)?; // 이관 시 복구 키가 새로 발급된다
     vf.entries = plain
         .into_iter()
         .map(|(k, v)| encrypt(&dek, v.as_bytes()).map(|blob| (k, blob)))
         .collect::<Result<HashMap<_, _>, _>>()?;
     write_file(app, &vf)?;
     *state.dek.lock().unwrap() = Some(dek);
-    Ok(true)
+    Ok(UnlockOutcome { ok: true, migrated_recovery: Some(recovery) })
 }
 
 /// 복구 키로 잠금 해제(마스터를 잊었을 때). 이후 change_master 로 새 비밀번호를 설정해야 한다.

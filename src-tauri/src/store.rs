@@ -46,6 +46,9 @@ pub struct SessionInfo {
     /// 패턴 감지 자동 입력 규칙.
     #[serde(default)]
     pub triggers: Vec<TriggerRule>,
+    /// true 면 터미널 수신 내용을 logs/ 에 기록.
+    #[serde(default)]
+    pub enable_log: bool,
 }
 
 fn default_charset() -> String {

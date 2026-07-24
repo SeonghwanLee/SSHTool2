@@ -86,6 +86,25 @@ fn resolve_encoding(charset: &str) -> Option<&'static encoding_rs::Encoding> {
     }
 }
 
+/// 세션 로그 파일을 연다(설정 폴더의 logs/). 실패해도 접속은 계속되어야 하므로 Option.
+fn open_session_log(app: &AppHandle, name: &str, session_id: &str) -> Option<std::fs::File> {
+    let dir = app.path().app_config_dir().ok()?.join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let safe: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(format!("{safe}-{stamp}-{}.log", &session_id[..8.min(session_id.len())])))
+        .ok()
+}
+
 /// Connect, authenticate with a password, open a PTY shell, and spawn the
 /// read/drive loop. Returns the new session id on success.
 pub async fn connect(
@@ -97,6 +116,8 @@ pub async fn connect(
     cols: u32,
     rows: u32,
     charset: String,
+    /// Some(세션명) 이면 수신 내용을 logs/<이름>-<epoch>.log 에 원문 그대로 기록.
+    log_name: Option<String>,
 ) -> Result<String, String> {
     // 대화형 셸은 오래 유휴 상태일 수 있으므로 inactivity 타임아웃으로 끊지 않는다.
     // 대신 keepalive로 죽은 연결(피어 무응답)을 감지해 정리한다.
@@ -167,6 +188,10 @@ pub async fn connect(
 
     let task_id = id.clone();
     let encoding = resolve_encoding(&charset);
+    // 같은 세션을 같은 초에 두 번 열어도 파일이 섞이지 않도록 세션 id 를 붙인다.
+    let mut log_file = log_name
+        .as_deref()
+        .and_then(|n| open_session_log(&app, n, &task_id));
     tokio::spawn(async move {
         let mut reason = String::from("세션이 종료되었습니다");
         // 비-UTF-8 세션은 스트리밍 디코더로 변환한다(청크 경계에 걸친 멀티바이트 보존).
@@ -194,6 +219,10 @@ pub async fn connect(
                     match msg {
                         Some(ChannelMsg::Data { data }) => {
                             let out = to_utf8!(data.to_vec());
+                            if let Some(f) = log_file.as_mut() {
+                                use std::io::Write;
+                                let _ = f.write_all(&out);
+                            }
                             let _ = app.emit(
                                 "ssh://data",
                                 DataPayload { id: task_id.clone(), data: out },
@@ -201,6 +230,10 @@ pub async fn connect(
                         }
                         Some(ChannelMsg::ExtendedData { data, .. }) => {
                             let out = to_utf8!(data.to_vec());
+                            if let Some(f) = log_file.as_mut() {
+                                use std::io::Write;
+                                let _ = f.write_all(&out); // stderr 도 화면에 나오므로 함께 기록
+                            }
                             let _ = app.emit(
                                 "ssh://data",
                                 DataPayload { id: task_id.clone(), data: out },

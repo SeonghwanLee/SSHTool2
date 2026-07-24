@@ -24,7 +24,12 @@ import { settingsDialog } from "./settingsdialog";
 import { bulkDeleteDialog } from "./bulkdelete";
 import { importDialog } from "./importdialog";
 import { openSftpBrowser } from "./sftpui";
-import { loadSettings, saveSettings, type Settings } from "./settings";
+import {
+  loadSettings,
+  saveSettings,
+  type Settings,
+  type ViewModeSetting,
+} from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -84,6 +89,7 @@ async function ensureVaultUnlocked(): Promise<boolean> {
       "볼트 마스터 비밀번호 설정",
       "비밀번호를 저장하려면 볼트를 보호할 마스터 비밀번호를 정하세요.",
       "설정",
+      true,
     );
     if (master === null) return false;
     const recovery = await vaultInit(master);
@@ -100,7 +106,12 @@ async function ensureVaultUnlocked(): Promise<boolean> {
       "해제",
     );
     if (master === null) return false;
-    if (await vaultUnlock(master)) return true;
+    const outcome = await vaultUnlock(master);
+    if (outcome.ok) {
+      // 구형 볼트가 방금 이관됐다면 새로 발급된 복구 키를 반드시 보여준다.
+      if (outcome.migratedRecovery) await showRecoveryKey(outcome.migratedRecovery);
+      return true;
+    }
   }
 
   // 3회 실패 → 복구 키로 열 기회를 준다.
@@ -124,25 +135,36 @@ async function ensureVaultUnlocked(): Promise<boolean> {
     "새 마스터 비밀번호 설정",
     "복구 키로 열었습니다. 새 마스터 비밀번호를 설정하세요.",
     "설정",
+    true,
   );
-  if (next !== null) {
-    const newRecovery = await vaultChangeMaster(next);
-    await showRecoveryKey(newRecovery);
+  if (next === null) {
+    await alertDialog(
+      "새 마스터 비밀번호를 설정하지 않았습니다.\n" +
+        "이번 실행에서는 볼트를 쓸 수 있지만, 다시 시작하면 예전 마스터 비밀번호나 복구 키가 다시 필요합니다.",
+    );
+    return true;
   }
+  const newRecovery = await vaultChangeMaster(next);
+  await showRecoveryKey(newRecovery);
   return true;
 }
 
 /** 복구 키를 1회 표시하고 클립보드 복사를 돕는다(다시 볼 수 없음). */
 async function showRecoveryKey(recovery: string): Promise<void> {
+  let copied = false;
   try {
     await navigator.clipboard.writeText(recovery);
+    copied = true;
   } catch {
-    /* 클립보드 실패해도 화면에는 보여준다 */
+    copied = false; // 복사 실패를 숨기면 사용자가 키를 잃는다
   }
   await alertDialog(
     `복구 키: ${recovery}\n\n` +
       "마스터 비밀번호를 잊었을 때 볼트를 여는 유일한 수단입니다.\n" +
-      "클립보드에 복사해 두었습니다 — 안전한 곳에 보관하세요. 이 화면 이후에는 다시 볼 수 없습니다.",
+      (copied
+        ? "클립보드에 복사해 두었습니다 — 안전한 곳에 보관하세요."
+        : "⚠ 클립보드 복사에 실패했습니다. 위 키를 직접 옮겨 적으세요.") +
+      "\n이 화면 이후에는 다시 볼 수 없습니다.",
     "복구 키 (1회 표시)",
   );
 }
@@ -150,11 +172,15 @@ async function showRecoveryKey(recovery: string): Promise<void> {
 /** 저장(볼트) 우선, 없으면 프롬프트. 성공 시 저장, 인증 실패 시 저장분 폐기. */
 const credentials: CredentialProvider = {
   async resolve(session) {
-    if (session.savePassword) {
-      if (await ensureVaultUnlocked()) {
+    // 볼트 오류로 전체 접속이 조용히 실패하지 않도록 여기서 흡수하고 프롬프트로 폴백한다.
+    try {
+      if (session.savePassword && (await ensureVaultUnlocked())) {
         const stored = await vaultGetPassword(session.id);
         if (stored !== null) return stored;
       }
+    } catch (e) {
+      console.error("볼트 사용 실패 — 비밀번호를 직접 입력받습니다", e);
+      await alertDialog(`저장된 비밀번호를 사용할 수 없습니다: ${String(e)}`);
     }
     return passwordPrompt(session);
   },
@@ -346,6 +372,7 @@ async function main(): Promise<void> {
   redraw = () => sidebar.render(sessions, settings.folders);
 
   wireCommandBar(tabs);
+  wireViewModes(tabs);
   wireSettings(tabs);
   wireSidebarSearch(sidebar);
   wireAutoLock();
@@ -391,6 +418,33 @@ function wireSettings(tabs: TabManager): void {
       }
     }
   });
+}
+
+/** 뷰 모드(탭/세로 분할/가로 분할) 버튼. 선택은 설정에 저장된다. */
+function wireViewModes(tabs: TabManager): void {
+  const buttons: [string, ViewModeSetting][] = [
+    ["view-tabs", "tabs"],
+    ["view-vertical", "vertical"],
+    ["view-horizontal", "horizontal"],
+  ];
+  const mark = (mode: ViewModeSetting) => {
+    for (const [id, m] of buttons) $(id).classList.toggle("active", m === mode);
+  };
+  for (const [id, mode] of buttons) {
+    $(id).addEventListener("click", async () => {
+      tabs.setViewMode(mode);
+      mark(mode);
+      settings = { ...settings, viewMode: mode };
+      try {
+        await saveSettings(settings);
+      } catch (e) {
+        console.error("뷰 모드 저장 실패", e);
+      }
+    });
+  }
+  // 저장된 배치 복원.
+  tabs.setViewMode(settings.viewMode);
+  mark(settings.viewMode);
 }
 
 /** 마스터 비밀번호 변경 — 잠겨 있으면 먼저 해제한 뒤 새 비밀번호를 받는다. */
