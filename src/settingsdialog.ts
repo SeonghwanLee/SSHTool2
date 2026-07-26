@@ -265,7 +265,7 @@ export function settingsDialog(
     const lockHint = document.createElement("div");
     lockHint.className = "settings-hint";
     lockHint.textContent =
-      "1분 이상이면 그 시간 무활동 시 볼트를 잠급니다. 0이면 잠그지 않고 화면보호기(움직이는 애니메이션)를 띄웁니다.";
+      "1분 이상이면 그 시간 무활동 시 볼트를 잠급니다. 0이면 잠그지 않고, 5분 무활동 시 화면보호기(움직이는 애니메이션)를 띄웁니다.";
     sec.appendChild(lockHint);
 
     const autoRow = document.createElement("label");

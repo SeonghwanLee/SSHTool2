@@ -508,6 +508,8 @@ fn main() {
             }
             let _ = app.emit("second-instance", ());
         }))
+        // 창 위치/크기/최대화 상태를 종료 시 저장하고 다음 실행 때 복원.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())

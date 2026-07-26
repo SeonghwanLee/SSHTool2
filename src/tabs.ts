@@ -179,14 +179,14 @@ class TerminalTab {
       };
 
       // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
-      // 한글 조합 중이면: xterm 은 조합 중 Enter 로 CR 을 보내지 않으므로(IME 가드),
-      // 기본 동작을 막지 않고(=IME 확정 유지) LF 만 다음 틱으로 미룬다.
-      // 그러면 확정 문자(compositionend→onData)가 먼저 전송되고 LF 가 뒤따라,
-      // 마지막 글자가 개행 뒤로 밀리던 문제가 사라진다.
+      // 한글 조합 중이면 setTimeout 같은 시간 기반 지연은 IME 환경에 따라 순서가 뒤바뀌어
+      // 마지막 글자가 개행 뒤로 밀린다. 대신 '확정 이벤트(compositionend)에서 LF 전송'으로
+      // 순서를 확정한다 — 아래 textarea compositionend 리스너가 xterm 이 확정 문자를
+      // onData 로 보낸 '직후' LF 를 보낸다(리스너 등록 순서상 xterm 다음에 실행됨).
       if (ctrl && e.key === "Enter") {
         if (e.isComposing || e.keyCode === 229) {
-          setTimeout(() => onInput(LF), 0);
-          return true;
+          this.pendingCompositionLf = true;
+          return true; // preventDefault 안 함 — IME 확정 흐름 유지(CR 은 xterm 이 조합 중 억제)
         }
         onInput(LF);
         return stop();
@@ -233,6 +233,22 @@ class TerminalTab {
         return stop();
       }
       return true;
+    });
+
+    // Ctrl+Enter 를 한글 조합 중 눌렀을 때, 확정 문자가 먼저 나간 '직후' LF 를 보낸다.
+    // xterm 6 은 compositionend 에서 확정 문자를 setTimeout(0) 으로 '지연' 전송한다.
+    // 우리 리스너는 xterm 것보다 뒤에 등록돼 있으므로, 여기서도 setTimeout(0) 으로 예약하면
+    // xterm 이 예약한 문자 전송 '다음'에 실행돼 "확정 문자 → 개행" 순서가 보장된다.
+    this.term.textarea?.addEventListener("compositionend", () => {
+      if (this.pendingCompositionLf) {
+        this.pendingCompositionLf = false;
+        setTimeout(() => onInput(LF), 0);
+      }
+    });
+    // 조합이 새로 시작되면 예약을 무효화 — 이전 Ctrl+Enter 가 조합을 끝내지 못한 경우
+    // 다음 조합의 compositionend 에서 엉뚱한 LF 가 나가는 것을 막는다.
+    this.term.textarea?.addEventListener("compositionstart", () => {
+      this.pendingCompositionLf = false;
     });
 
     // 선택 후 놓으면 자동 복사(설정 시), xterm/PuTTY 방식.
@@ -388,6 +404,7 @@ class TerminalTab {
     }
   }
   private imeInitDone = false;
+  private pendingCompositionLf = false; // Ctrl+Enter(조합 중) → compositionend 에서 LF 전송 예약
   writeBytes(data: number[]): void {
     const bytes = new Uint8Array(data);
     this.term.write(bytes);

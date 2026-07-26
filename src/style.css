@@ -303,9 +303,46 @@ button {
 #sidebar-resizer {
   cursor: col-resize;
   background: var(--border);
+  position: relative; /* 접기/펼치기 화살표 버튼 기준 */
 }
 #sidebar-resizer:hover {
   background: var(--accent);
+}
+/* 접기/펼치기 화살표 — 폭조절바 위에 올려두고, 호버 시 표시(접힌 상태에선 항상). */
+.sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 6;
+}
+/* 펼친 상태: 폭조절바 또는 사이드바에 마우스를 올리면 나타남(발견성). */
+#sidebar-resizer:hover .sidebar-toggle,
+#app:not(.sidebar-collapsed) #sidebar:hover + #sidebar-resizer .sidebar-toggle {
+  opacity: 1;
+}
+.sidebar-toggle:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+/* 접힌 상태: 펼치기 버튼을 항상 보이게 해 발견성 확보. */
+#app.sidebar-collapsed .sidebar-toggle {
+  opacity: 0.9;
 }
 
 /* ── 사이드바 ─────────────────────────────────────────────────────────────── */

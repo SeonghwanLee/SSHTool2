@@ -695,15 +695,36 @@ async function main(): Promise<void> {
     if (await ensureVaultUnlocked()) await refreshLockIndicator();
   });
   $("new-folder").addEventListener("click", () => void newFolderFlow(""));
-  $("open-about").addEventListener("click", () => void aboutDialog(() => tabs.connectedCount()));
+  // 버전정보 열기 — 버튼과 F1 이 공유. 이미 열려 있으면 중복으로 띄우지 않는다.
+  let aboutOpen = false;
+  const openAbout = () => {
+    if (aboutOpen) return;
+    aboutOpen = true;
+    void aboutDialog(() => tabs.connectedCount()).finally(() => {
+      aboutOpen = false;
+    });
+  };
+  $("open-about").addEventListener("click", openAbout);
 
-  // Ctrl+Shift+T = 빠른 접속(WPF 0.31.0)
-  document.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
-      e.preventDefault();
-      $("quick-connect").click();
-    }
-  });
+  // 캡처 단계 — 터미널(xterm)보다 먼저 처리해 F1 이 셸로 전달되지 않게 한다.
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      // F1 = 포커스 위치와 무관하게 버전정보 창 열기(전역).
+      if (e.key === "F1") {
+        e.preventDefault();
+        e.stopPropagation();
+        openAbout();
+        return;
+      }
+      // Ctrl+Shift+T = 빠른 접속(WPF 0.31.0)
+      if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
+        e.preventDefault();
+        $("quick-connect").click();
+      }
+    },
+    true,
+  );
 
   try {
     // 옛 sessions.json(신규 필드 없음)도 안전하게 읽도록 정규화.
@@ -874,15 +895,37 @@ function wireSidebarResize(): void {
   app.style.setProperty("--sidebar-w", `${settings.sidebarWidth}px`);
   app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
 
-  resizer.addEventListener("dblclick", async () => {
+  const toggleCollapse = async () => {
     settings = { ...settings, sidebarCollapsed: !settings.sidebarCollapsed };
     app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
+    syncToggleBtn();
     try {
       await saveSettings(settings);
     } catch {
       /* 무시 */
     }
+  };
+
+  // 눈에 보이는 접기/펼치기 버튼(화살표) — 호버 시 표시, 접힌 상태에선 항상 보임.
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = "sidebar-toggle";
+  const syncToggleBtn = () => {
+    const collapsed = settings.sidebarCollapsed;
+    toggleBtn.textContent = collapsed ? "»" : "«";
+    toggleBtn.title = collapsed ? "세션 목록 펼치기" : "세션 목록 접기";
+  };
+  // 버튼 조작이 폭조절 드래그/더블클릭 접기로 이중 처리되지 않도록 전파 차단.
+  toggleBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+  toggleBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+  toggleBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    void toggleCollapse();
   });
+  resizer.appendChild(toggleBtn);
+  syncToggleBtn();
+
+  resizer.addEventListener("dblclick", () => void toggleCollapse());
   resizer.addEventListener("mousedown", (down) => {
     if (settings.sidebarCollapsed) return;
     down.preventDefault();
