@@ -21,7 +21,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use pbkdf2::pbkdf2_hmac;
 use serde::{Deserialize, Serialize};
 use sha2::Sha512;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const ROUNDS: u32 = 300_000;
 const VERIFIER_PLAINTEXT: &[u8] = b"sshtool2-vault-v1";
@@ -150,12 +150,7 @@ fn normalize_recovery(input: &str) -> String {
 // ── 파일 I/O ──────────────────────────────────────────────────────────────────
 
 fn vault_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("설정 경로 확인 실패: {e}"))?;
-    fs::create_dir_all(&dir).map_err(|e| format!("설정 폴더 생성 실패: {e}"))?;
-    Ok(dir.join("vault.json"))
+    Ok(crate::paths::config_dir(app)?.join("vault.json"))
 }
 
 fn read_file(app: &AppHandle) -> Result<Option<VaultFile>, String> {

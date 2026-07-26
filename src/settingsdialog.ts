@@ -13,8 +13,15 @@ import { THEMES } from "./themes";
 import { knownHostsDialog } from "./knownhosts";
 import { save as saveDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { backupExport, backupImport, factoryReset } from "./ipc";
-import { alertDialog, confirmDialog, pushModal, popModal, isTopModal } from "./dialogs";
+import { backupExport, backupExportZip, backupImport, factoryReset } from "./ipc";
+import {
+  alertDialog,
+  confirmDialog,
+  masterPrompt,
+  pushModal,
+  popModal,
+  isTopModal,
+} from "./dialogs";
 
 export interface SettingsResult {
   /** true 면 저장, false 면 취소(미리보기 되돌림). */
@@ -303,14 +310,47 @@ export function settingsDialog(
 
     gen.appendChild(sectionLabel("데이터"));
 
-    const exportRow = controlRow("설정 내보내기 (PC 이전용)");
+    const exportRow = controlRow("설정 내보내기 (PC 이전용, 암호화)");
     exportRow.appendChild(
       mkSmallButton("내보내기…", async () => {
-        const target = await saveDialog({ defaultPath: "sshtool2-backup.json" });
+        // 호스트 IP 등 평문 노출 방지 — 백업을 패스프레이즈로 암호화한다.
+        const pass = await masterPrompt(
+          "백업 암호 (12자 이상)",
+          "세션 비밀번호까지 담기므로 이 암호 없이는 절대 열 수 없습니다. 특수문자보다 길이가 중요 — 12자 이상, 외우기 쉬운 패스프레이즈(예: 단어 조합)를 권장합니다. 잊으면 복구 불가.",
+          "내보내기",
+          true, // 확인 입력란(오타 방지)
+        );
+        if (pass === null) return;
+        if (pass.length < 12) {
+          await alertDialog("백업 암호는 12자 이상이어야 합니다.");
+          return;
+        }
+        // 앱(최신 설치본)까지 함께 ZIP 으로 묶을지 선택. 인터넷이 없으면 백업만 담긴다.
+        const withApp = await confirmDialog(
+          "최신 앱(설치본)도 함께 ZIP 으로 묶을까요?\n확인 = 앱+백업 ZIP (인터넷 필요, 다른 PC 설치용)\n취소 = 백업 파일만 저장",
+        );
+        if (withApp) {
+          const target = await saveDialog({ defaultPath: "sshtool2-backup.zip" });
+          if (!target) return;
+          try {
+            const r = await backupExportZip(target, pass);
+            await alertDialog(
+              r.appIncluded
+                ? `${r.count}개 파일을 암호화하고 최신 앱과 함께 ZIP 으로 저장했습니다.\n이 암호 없이는 열 수 없습니다.`
+                : `${r.count}개 파일을 암호화해 저장했습니다.\n인터넷 연결이 없어 앱은 제외되고 백업만 담겼습니다.`,
+            );
+          } catch (e) {
+            await alertDialog(`내보내기 실패: ${String(e)}`);
+          }
+          return;
+        }
+        const target = await saveDialog({ defaultPath: "sshtool2-backup.stbak" });
         if (!target) return;
         try {
-          const n = await backupExport(target);
-          await alertDialog(`${n}개 파일을 내보냈습니다.\n비밀번호는 암호화된 상태로 담겼습니다.`);
+          const n = await backupExport(target, pass);
+          await alertDialog(
+            `${n}개 파일을 암호화해 내보냈습니다.\n호스트 IP 등은 이 암호 없이는 열 수 없습니다.`,
+          );
         } catch (e) {
           await alertDialog(`내보내기 실패: ${String(e)}`);
         }
@@ -328,8 +368,17 @@ export function settingsDialog(
           "현재 설정을 덮어씁니다. 기존 설정은 import_backup 폴더에 보관됩니다. 계속할까요?",
         );
         if (!ok) return;
+        // 암호화 백업이면 암호 입력(구버전 평문 백업이면 비워도 됨).
+        const pass = await masterPrompt(
+          "백업 암호",
+          "암호화된 백업이면 내보낼 때 쓴 암호를 입력하세요. 구버전(평문) 백업이면 비워도 됩니다.",
+          "가져오기",
+          false, // 확인 입력란 없음
+          true, // 빈 값 허용(구버전 평문 백업)
+        );
+        if (pass === null) return;
         try {
-          const n = await backupImport(source);
+          const n = await backupImport(source, pass);
           await alertDialog(`${n}개 파일을 복원했습니다. 앱을 다시 시작합니다.`);
           await relaunch();
         } catch (e) {

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// 패턴 감지 → 자동 입력 규칙. 평문 저장이므로 비밀번호를 넣지 않도록 UI 에서 경고한다.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -95,12 +95,7 @@ fn default_charset() -> String {
 }
 
 fn sessions_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("설정 경로 확인 실패: {e}"))?;
-    fs::create_dir_all(&dir).map_err(|e| format!("설정 폴더 생성 실패: {e}"))?;
-    Ok(dir.join("sessions.json"))
+    Ok(crate::paths::config_dir(app)?.join("sessions.json"))
 }
 
 pub fn load(app: &AppHandle) -> Result<Vec<SessionInfo>, String> {
@@ -125,12 +120,7 @@ pub fn save(app: &AppHandle, sessions: Vec<SessionInfo>) -> Result<(), String> {
 // ── 앱 설정(테마·폰트 등). 스키마는 프론트가 소유 → serde_json::Value 로 통째 저장. ──
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("설정 경로 확인 실패: {e}"))?;
-    fs::create_dir_all(&dir).map_err(|e| format!("설정 폴더 생성 실패: {e}"))?;
-    Ok(dir.join("settings.json"))
+    Ok(crate::paths::config_dir(app)?.join("settings.json"))
 }
 
 pub fn load_settings(app: &AppHandle) -> Result<serde_json::Value, String> {

@@ -38,10 +38,16 @@ export const sshClose = (id: string): Promise<void> => invoke("ssh_close", { id 
 
 // ── 설정 백업/복원/초기화 ─────────────────────────────────────────────────────
 
-export const backupExport = (target: string): Promise<number> =>
-  invoke<number>("backup_export", { target });
-export const backupImport = (source: string): Promise<number> =>
-  invoke<number>("backup_import", { source });
+export const backupExport = (target: string, password: string): Promise<number> =>
+  invoke<number>("backup_export", { target, password });
+export interface ExportZipResult {
+  count: number;
+  appIncluded: boolean;
+}
+export const backupExportZip = (target: string, password: string): Promise<ExportZipResult> =>
+  invoke<ExportZipResult>("backup_export_zip", { target, password });
+export const backupImport = (source: string, password: string): Promise<number> =>
+  invoke<number>("backup_import", { source, password });
 export const factoryReset = (): Promise<void> => invoke("factory_reset");
 
 // ── 로컬 셸(서버 없이 cmd/PowerShell 실행) — 이벤트는 SSH 와 동일 ─────────────

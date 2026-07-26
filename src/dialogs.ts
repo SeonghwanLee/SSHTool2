@@ -167,6 +167,8 @@ export function masterPrompt(
   okText = "확인",
   /** true 면 확인 입력란을 추가해 오타로 인한 영구 잠김을 막는다(생성/변경 시). */
   requireConfirm = false,
+  /** true 면 빈 값도 제출 허용(구버전 평문 백업 가져오기 등). */
+  allowEmpty = false,
 ): Promise<string | null> {
   return new Promise((resolve) => {
     openModal((close) => {
@@ -209,7 +211,7 @@ export function masterPrompt(
       card.addEventListener("submit", (e) => {
         e.preventDefault();
         const v = pass.value;
-        if (!v) return; // 빈 마스터는 허용하지 않음
+        if (!v && !allowEmpty) return; // 빈 값 불허(단 allowEmpty 면 통과)
         if (requireConfirm && v !== confirm.value) {
           err.textContent = "두 입력이 일치하지 않습니다.";
           return;

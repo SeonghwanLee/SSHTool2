@@ -7,6 +7,7 @@ mod import;
 mod keystore;
 mod localfs;
 mod localshell;
+mod paths;
 mod portfwd;
 mod sftp;
 mod ssh;
@@ -235,12 +236,7 @@ async fn sftp_canonicalize(
 /// 설정 폴더를 OS 파일 탐색기로 연다(로그·known_hosts 등 확인용).
 #[tauri::command]
 fn open_config_dir(app: AppHandle) -> Result<(), String> {
-    use tauri::Manager;
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("설정 경로 확인 실패: {e}"))?;
-    std::fs::create_dir_all(&dir).ok();
+    let dir = paths::config_dir(&app)?;
     #[cfg(windows)]
     let program = "explorer";
     #[cfg(target_os = "macos")]
@@ -280,18 +276,31 @@ fn keystore_clear() -> Result<(), String> {
 
 // ── 설정 백업/복원/초기화 ────────────────────────────────────────────────────
 
-/// 설정 폴더를 JSON 번들로 내보낸다(비밀번호는 암호화된 상태 그대로).
+/// 설정 폴더를 패스프레이즈로 암호화한 바이너리 백업으로 내보낸다(호스트 IP 등 평문 노출 방지).
 #[tauri::command]
-fn backup_export(app: AppHandle, target: String) -> Result<usize, String> {
-    backup::export(&app, &target)
+fn backup_export(app: AppHandle, target: String, password: String) -> Result<usize, String> {
+    backup::export(&app, &target, &password)
 }
 
-/// 번들을 복원한다. 기존 설정은 import_backup/ 에 보관된다.
+/// 암호화 백업 + GitHub 최신 설치본을 ZIP 하나로 내보낸다(오프라인이면 앱 제외).
+/// 네트워크 다운로드가 있어 블로킹 스레드에서 처리(UI 프리즈 방지).
 #[tauri::command]
-fn backup_import(app: AppHandle, source: String) -> Result<usize, String> {
+async fn backup_export_zip(
+    app: AppHandle,
+    target: String,
+    password: String,
+) -> Result<backup::ZipResult, String> {
+    tokio::task::spawn_blocking(move || backup::export_zip(&app, &target, &password))
+        .await
+        .map_err(|e| format!("내보내기 작업 실패: {e}"))?
+}
+
+/// 백업을 복원한다(암호화 형식이면 password 로 복호). 기존 설정은 import_backup/ 에 보관된다.
+#[tauri::command]
+fn backup_import(app: AppHandle, source: String, password: String) -> Result<usize, String> {
     // 가져온 볼트의 마스터는 이 PC 키체인의 값과 다르므로 자동해제를 초기화한다.
     let _ = keystore::clear();
-    backup::import(&app, &source)
+    backup::import(&app, &source, &password)
 }
 
 /// 설정 폴더 전체 삭제(첫 설치 상태로) + OS 키체인의 마스터도 함께 제거.
@@ -556,6 +565,7 @@ fn main() {
             keystore_has,
             keystore_clear,
             backup_export,
+            backup_export_zip,
             backup_import,
             factory_reset,
             local_open,

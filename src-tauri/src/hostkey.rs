@@ -7,7 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// "host:port" -> "SHA256:..." 지문.
 type KnownHosts = HashMap<String, String>;
@@ -28,12 +28,7 @@ pub enum Verdict {
 }
 
 fn path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("설정 경로 확인 실패: {e}"))?;
-    fs::create_dir_all(&dir).map_err(|e| format!("설정 폴더 생성 실패: {e}"))?;
-    Ok(dir.join("known_hosts.json"))
+    Ok(crate::paths::config_dir(app)?.join("known_hosts.json"))
 }
 
 fn load(app: &AppHandle) -> KnownHosts {
