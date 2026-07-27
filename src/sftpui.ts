@@ -525,6 +525,42 @@ export async function openSftpBrowser(
       this.listEl.tabIndex = 0;
       this.listEl.addEventListener("keydown", (e) => this.onKey(e));
 
+      // 목록 빈 곳 우클릭 — 폴더가 비어 있으면 우클릭할 행 자체가 없어 '새 폴더'로 가는
+      // 길이 머리말 버튼뿐이었다. 행 위에서 뜬 메뉴는 행 핸들러가 이미 처리하므로 건너뛴다.
+      this.listEl.addEventListener("contextmenu", (e) => {
+        // '..' 행은 제 메뉴가 없으므로 여기서 받는다 — 제외하면 우클릭이 죽은 자리가 된다.
+        if ((e.target as HTMLElement).closest(".sftp-row:not(.sftp-updir)")) return;
+        e.preventDefault();
+        // 탐색기와 같게 빈 곳을 누르면 선택을 푼다 — 안 그러면 이 메뉴가 무엇을 대상으로
+        // 하는지 모호해진다(선택은 남아 있는데 메뉴에는 그 항목 명령이 없다).
+        if (this.selected.size > 0) {
+          this.selected.clear();
+          this.markSelection();
+        }
+        const items: MenuItem[] = [
+          { label: "새 폴더", accel: "n", action: () => void this.makeDir() },
+          { separator: true },
+          { label: "상위 폴더", accel: "u", action: () => void this.up() },
+          { label: "새로고침 (F5)", accel: "f", action: () => void this.reload() },
+        ];
+        // 빈 폴더에서는 고를 것이 없다.
+        if (this.visible().length > 0) {
+          items.push(
+            { separator: true },
+            {
+              label: "전체 선택 (Ctrl+A)",
+              accel: "a",
+              action: () => {
+                for (const v of this.visible()) this.selected.add(v.path);
+                this.markSelection();
+                this.listEl.focus();
+              },
+            },
+          );
+        }
+        showContextMenu(e.clientX, e.clientY, items);
+      });
+
       // 반대 패널에서 끌어온 항목 받기.
       this.listEl.addEventListener("dragover", (e) => {
         if (!e.dataTransfer) return;
@@ -1028,6 +1064,7 @@ export async function openSftpBrowser(
           },
           { separator: true },
           { label: "이름 변경 (F2)", accel: "r", action: () => void this.rename(entry) },
+          { label: "새 폴더", accel: "n", action: () => void this.makeDir() },
           { label: "새로고침 (F5)", accel: "f", action: () => void this.reload() },
           { separator: true },
           {
