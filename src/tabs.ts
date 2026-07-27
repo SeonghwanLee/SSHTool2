@@ -339,6 +339,7 @@ class TerminalTab {
 
     // 조합 중 눌린 Ctrl+Enter 는 여기(확정 시점)에서 LF 를 지연 전송한다.
     this.term.textarea?.addEventListener("compositionend", () => {
+      this.termHost.classList.remove("composing");
       if (this.pendingCompositionLf) {
         this.pendingCompositionLf = false;
         sendCtrlEnterLf();
@@ -346,7 +347,11 @@ class TerminalTab {
     });
     // 조합이 새로 시작되면 예약을 무효화 — 이전 Ctrl+Enter 가 조합을 끝내지 못한 경우
     // 다음 조합의 compositionend 에서 엉뚱한 LF 가 나가는 것을 막는다.
+    // 조합 중에는 터미널 커서를 감춘다. 조합 글자는 오버레이로 그려지는데, 그 옆에 커서
+    // 사각형이 같이 보이면 "지금 치는 글자가 커서 밖에 나온다"처럼 읽혀 거슬린다.
+    // 조합이 끝나면 곧바로 되돌린다(compositionend).
     this.term.textarea?.addEventListener("compositionstart", () => {
+      this.termHost.classList.add("composing");
       this.pendingCompositionLf = false;
     });
 

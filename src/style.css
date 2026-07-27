@@ -939,6 +939,12 @@ button {
 .term-host .xterm-helper-textarea {
   caret-color: transparent;
 }
+/* 조합 중에는 커서를 감춘다 — 조합 오버레이와 커서가 나란히 보이면 입력 위치가
+   두 군데인 것처럼 읽힌다. 캔버스/DOM 렌더러 양쪽의 커서 요소를 모두 덮는다. */
+.term-host.composing .xterm-cursor-layer,
+.term-host.composing .xterm-cursor {
+  opacity: 0;
+}
 /* IME 조합 미리보기(합성 중 글자).
    0.28.0 에서 xterm 기본값(검정 박스)을 --panel-2 로 바꿨는데, 그 색이 터미널 배경보다
    밝아 조합 중인 글자가 회색 박스로 도드라졌다. 배경은 터미널과 같게 두고 밑줄로만

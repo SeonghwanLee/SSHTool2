@@ -411,6 +411,33 @@ function applyStaticIcons(): void {
  * preventDefault 만 하고 전파는 막지 않으므로, 각 컴포넌트의 자체 핸들러(SFTP F5 새로고침,
  * 터미널 검색 등)는 그대로 동작한다.
  */
+/**
+ * 웹뷰가 통째로 다른 문서로 넘어가는 경로를 막는다. 넘어가면 접속 중인 세션이 전부 끊기고
+ * 되돌릴 방법이 없다 — 키 차단(wireBrowserKeyGuard)만으로는 부족한 경로들이다.
+ */
+function wireNavigationGuard(): void {
+  // (1) 웹뷰 기본 우클릭 메뉴를 어디서도 띄우지 않는다. '새로고침' 항목이 있어 한 번만
+  //     잘못 눌러도 접속 중인 세션이 전부 날아간다 — 입력란도 예외로 두지 않는다.
+  //     capture 단계라 앱 자체 메뉴(showContextMenu)보다 먼저 돌지만, preventDefault 는
+  //     브라우저 기본 동작만 막고 전파는 그대로여서 앱 메뉴는 정상 동작한다.
+  //     입력란 붙여넣기는 Ctrl+V 로 계속 된다.
+  window.addEventListener("contextmenu", (e) => e.preventDefault(), { capture: true });
+
+  // (2) 탐색기에서 창으로 파일을 떨어뜨리면 웹뷰가 그 파일 문서로 이동해 버린다.
+  //     앱 내부 드래그(세션 정렬·SFTP 패널)는 파일이 아니라 자체 타입을 쓰므로 건드리지 않는다.
+  const hasFiles = (e: DragEvent): boolean =>
+    Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  for (const type of ["dragover", "drop"] as const) {
+    window.addEventListener(
+      type,
+      (e) => {
+        if (hasFiles(e)) e.preventDefault();
+      },
+      { capture: false },
+    );
+  }
+}
+
 function wireBrowserKeyGuard(): void {
   // 앱이 쓰지 않는 브라우저 전용 기능키.
   const blockedFn = new Set(["F1", "F3", "F6", "F7"]);
@@ -567,6 +594,7 @@ async function openSftpFor(s: SessionInfo): Promise<void> {
 async function main(): Promise<void> {
   applyStaticIcons();
   wireBrowserKeyGuard();
+  wireNavigationGuard();
   // 설정 로드 + 테마 즉시 적용(첫 페인트 전).
   settings = await loadSettings();
   applyAppTheme(themeById(settings.theme));
