@@ -148,8 +148,9 @@ export class Sidebar {
     return node;
   }
 
+  /** 세션 행·최근 접속 행 공용 선택 표시(트리 전체에서 하나만 선택된다). */
   private select(row: HTMLElement): void {
-    for (const el of this.tree.querySelectorAll(".tree-session.selected"))
+    for (const el of this.tree.querySelectorAll(".tree-session.selected, .recent-row.selected"))
       el.classList.remove("selected");
     row.classList.add("selected");
   }
@@ -362,7 +363,7 @@ export class Sidebar {
     for (const s of recent) {
       const row = document.createElement("div");
       row.className = "recent-row";
-      row.title = `${detailText(s)} · 클릭하여 접속`;
+      row.title = `${detailText(s)} · 더블클릭하여 접속`;
 
       const icon = document.createElement("span");
       icon.className = "tree-icon";
@@ -401,9 +402,13 @@ export class Sidebar {
       row.append(icon, name, detail, sftp, del);
       row.dataset.navKind = "recent";
       this.registerNav(row, `r:${s.id}`, () => this.cb.onOpen(s));
-      row.addEventListener("click", () => this.cb.onOpen(s));
+      // 세션 행과 같은 규칙 — 단일 클릭은 선택만, 접속은 더블클릭.
+      // 한 번 클릭에 바로 붙으면 목록을 훑다가 실수로 접속하게 된다.
+      row.addEventListener("click", () => this.select(row));
+      row.addEventListener("dblclick", () => this.cb.onOpen(s));
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
+        this.select(row);
         showContextMenu(e.clientX, e.clientY, [
           { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
           ...(sftpAvailable

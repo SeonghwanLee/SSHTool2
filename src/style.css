@@ -502,6 +502,15 @@ button {
 .recent-row:hover {
   background: var(--panel-2);
 }
+/* 세션 행과 같은 선택 표시 — 단일 클릭은 선택만 하고 접속은 더블클릭이므로,
+   "지금 어느 항목을 고른 상태인지"가 보여야 한다. */
+.recent-row.selected {
+  background: var(--accent);
+}
+.recent-row.selected .recent-name,
+.recent-row.selected .recent-detail {
+  color: var(--accent-ink);
+}
 .recent-row .tree-icon {
   flex: 0 0 auto;
   color: var(--accent);
