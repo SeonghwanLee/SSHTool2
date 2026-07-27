@@ -575,6 +575,14 @@ button {
 .tree-folder.drop-into .tree-arrow {
   color: var(--accent-ink);
 }
+/* 키보드 탐색 포커스 링 — 선택 하이라이트와 별개로 "지금 어디 있는지"를 보여 준다. */
+.recent-row:focus,
+.tree-folder:focus,
+.tree-session:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--panel-2);
+}
 .tree-session.selected {
   background: var(--accent);
 }

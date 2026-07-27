@@ -517,6 +517,8 @@ export class TabManager {
   private settings: Settings;
   private viewMode: ViewMode = "tabs";
   private refitPending = false;
+  /** 탭 구성·접속 상태가 바뀔 때 알림받을 구독자(동시 명령 창 세션 수 등). */
+  private readonly tabsChanged: Array<() => void> = [];
 
   constructor(
     private readonly tabbar: HTMLElement,
@@ -725,6 +727,14 @@ export class TabManager {
     return this.tabs.filter((t) => t.liveId).length;
   }
 
+  /**
+   * 탭이 열리거나 닫힐 때, 접속 상태가 바뀔 때 호출된다.
+   * 동시 명령 창처럼 connectedCount() 를 화면에 띄워 두는 쪽이 갱신 시점을 알기 위해 쓴다.
+   */
+  onTabsChanged(fn: () => void): void {
+    this.tabsChanged.push(fn);
+  }
+
   private cycle(dir: number): void {
     if (this.tabs.length < 2 || !this.active) return;
     const i = this.tabs.indexOf(this.active);
@@ -897,6 +907,8 @@ export class TabManager {
       });
       this.tabbar.appendChild(item);
     }
+    // 탭바를 다시 그리는 시점 = 탭 추가/삭제·접속 상태 변화가 확정된 시점.
+    for (const fn of this.tabsChanged) fn();
   }
 }
 

@@ -1106,6 +1106,10 @@ function wireCommandBar(tabs: TabManager): void {
     status.textContent = all.checked ? `대상 ${n}개 세션` : "활성 세션";
   };
   all.addEventListener("change", updateCount);
+  // 창을 켜 둔 채 세션이 열리거나 닫혀도 대상 개수가 따라가야 한다.
+  tabs.onTabsChanged(() => {
+    if (!bar.classList.contains("hidden")) updateCount();
+  });
 
   const run = () => {
     const line = input.value;

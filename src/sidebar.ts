@@ -52,6 +52,13 @@ const newFolder = (name: string, path: string): FolderNode => ({
   sessions: [],
 });
 
+/** 키보드 탐색 대상이 되는 행 — DOM 순서가 곧 위/아래 이동 순서다. */
+const NAV_ROWS = ".recent-row, .tree-folder, .tree-session";
+/** 최근 접속 행처럼 트리 깊이가 없는 항목의 깊이값(부모 탐색에서 걸리지 않는다). */
+const NO_DEPTH = -1;
+
+const navDepth = (row: HTMLElement): number => Number(row.dataset.navDepth ?? NO_DEPTH);
+
 /** 세션 상세(계정@호스트:포트 또는 로컬 셸) — 세션 행·최근 접속 공용. */
 const detailText = (s: SessionInfo): string =>
   s.kind === "local"
@@ -69,6 +76,10 @@ export class Sidebar {
   private sortByRecent = false;
   private showDetail = true;
   private recentLimit = 10;
+  /** 키보드 포커스가 놓인 행의 식별자. 다시 그려도 같은 행으로 돌아가기 위해 값으로 들고 있다. */
+  private focusKey: string | null = null;
+  /** 행 → Enter 로 실행할 동작(폴더는 펼침 토글, 세션·최근 접속은 연결). */
+  private readonly activateFns = new WeakMap<HTMLElement, () => void>();
 
   constructor(
     private readonly tree: HTMLElement,
@@ -78,6 +89,8 @@ export class Sidebar {
   ) {
     newBtn.addEventListener("click", () => this.cb.onNew());
     quickBtn.addEventListener("click", () => this.cb.onQuick());
+
+    this.tree.addEventListener("keydown", (e) => this.onKeyDown(e));
 
     // 빈 영역에 드롭 = 루트로 꺼내기(모든 세션이 폴더 안이면 다른 방법이 없다).
     this.tree.addEventListener("dragover", (e) => {
@@ -141,6 +154,119 @@ export class Sidebar {
     row.classList.add("selected");
   }
 
+  /**
+   * 행을 키보드 탐색 대상으로 등록한다. roving tabindex — 트리 전체에서 Tab 으로 들어올 수
+   * 있는 행은 항상 하나뿐이고, 나머지는 방향키로만 옮겨 다닌다(트리뷰 관례).
+   */
+  private registerNav(row: HTMLElement, key: string, activate: () => void): void {
+    row.tabIndex = -1;
+    row.dataset.navKey = key;
+    this.activateFns.set(row, activate);
+    row.addEventListener("focus", () => {
+      this.focusKey = key;
+      for (const r of this.navRows()) r.tabIndex = r === row ? 0 : -1;
+    });
+  }
+
+  private navRows(): HTMLElement[] {
+    return [...this.tree.querySelectorAll<HTMLElement>(NAV_ROWS)];
+  }
+
+  private focusRow(row: HTMLElement | undefined): void {
+    row?.focus();
+  }
+
+  /**
+   * 다시 그린 뒤 키보드 포커스를 같은 행으로 되돌린다. 트리 밖에 포커스가 있었다면
+   * 뺏지 않고 진입 지점(tabIndex=0)만 잡아 둔다.
+   */
+  private restoreNavFocus(hadFocus: boolean): void {
+    const rows = this.navRows();
+    if (rows.length === 0) return;
+    const row = rows.find((r) => r.dataset.navKey === this.focusKey) ?? rows[0];
+    this.focusKey = row.dataset.navKey ?? null;
+    for (const r of rows) r.tabIndex = r === row ? 0 : -1;
+    if (hadFocus) row.focus();
+  }
+
+  /** 현재 행의 부모 폴더 행 — 자기보다 얕은 깊이의 폴더 중 위쪽에서 가장 가까운 것. */
+  private parentRow(rows: HTMLElement[], index: number): HTMLElement | undefined {
+    const depth = navDepth(rows[index]);
+    for (let i = index - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r.dataset.navKind === "folder" && navDepth(r) < depth) return r;
+    }
+    return undefined;
+  }
+
+  private onKeyDown(e: KeyboardEvent): void {
+    const row = e.target as HTMLElement | null;
+    // 행 안의 버튼(삭제·편집 등)에 포커스가 있을 때는 그쪽 기본 동작을 방해하지 않는다.
+    if (!row?.dataset.navKey) return;
+    const rows = this.navRows();
+    const i = rows.indexOf(row);
+    if (i < 0) return;
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        this.focusRow(rows[i + 1]);
+        return;
+      case "ArrowUp":
+        e.preventDefault();
+        this.focusRow(rows[i - 1]);
+        return;
+      case "Home":
+        e.preventDefault();
+        this.focusRow(rows[0]);
+        return;
+      case "End":
+        e.preventDefault();
+        this.focusRow(rows[rows.length - 1]);
+        return;
+      case "ArrowRight":
+        e.preventDefault();
+        this.navRight(row, rows, i);
+        return;
+      case "ArrowLeft":
+        e.preventDefault();
+        this.navLeft(row, rows, i);
+        return;
+      case "Enter":
+        e.preventDefault();
+        this.activateFns.get(row)?.();
+        return;
+      default:
+        return;
+    }
+  }
+
+  /** → 접혀 있으면 펼치고, 이미 펼쳐져 있으면 첫 자식으로. 세션·최근 접속은 자식이 없다. */
+  private navRight(row: HTMLElement, rows: HTMLElement[], index: number): void {
+    if (row.dataset.navKind !== "folder") return;
+    const path = row.dataset.navPath ?? "";
+    if (this.collapsed.has(path) && !this.filter) {
+      this.collapsed.delete(path);
+      this.render(this.sessions);
+      return;
+    }
+    const next = rows[index + 1];
+    if (next && navDepth(next) > navDepth(row)) this.focusRow(next);
+  }
+
+  /** ← 펼쳐진 폴더면 접고, 그 외에는 부모 폴더로 올라간다. */
+  private navLeft(row: HTMLElement, rows: HTMLElement[], index: number): void {
+    if (row.dataset.navKind === "folder") {
+      const path = row.dataset.navPath ?? "";
+      if (!this.collapsed.has(path) && !this.filter) {
+        this.collapsed.add(path);
+        this.render(this.sessions);
+        return;
+      }
+    }
+    this.focusRow(this.parentRow(rows, index));
+  }
+
   /** 설정 변경 시 표시 옵션을 반영한다. */
   setDisplayOptions(sortByRecent: boolean, showDetail: boolean, recentLimit = 10): void {
     this.sortByRecent = sortByRecent;
@@ -168,6 +294,8 @@ export class Sidebar {
 
   /** 세션 + 명시적으로 만든(비어 있을 수 있는) 폴더 목록으로 트리를 그린다. */
   render(sessions: SessionInfo[], folders: string[] = this.folders): void {
+    // 폴더를 접었다 펴면 트리를 통째로 다시 만들므로, 그 전에 포커스가 트리 안에 있었는지 본다.
+    const hadFocus = this.tree.contains(document.activeElement);
     this.sessions = sessions;
     this.folders = folders;
     const rootNode = newFolder("", "");
@@ -194,9 +322,11 @@ export class Sidebar {
         ? "검색 결과가 없습니다."
         : "저장된 세션이 없습니다.\n＋ 로 추가하거나, 빈 곳을 우클릭해\n다른 클라이언트에서 가져오세요.";
       this.tree.appendChild(empty);
+      this.restoreNavFocus(hadFocus);
       return;
     }
     this.renderNode(rootNode, this.tree, 0);
+    this.restoreNavFocus(hadFocus);
   }
 
   /** 폴더와 그 하위 모든 폴더를 접는다(우클릭 '폴더 접기'). */
@@ -257,6 +387,8 @@ export class Sidebar {
       });
 
       row.append(icon, name, detail, del);
+      row.dataset.navKind = "recent";
+      this.registerNav(row, `r:${s.id}`, () => this.cb.onOpen(s));
       row.addEventListener("click", () => this.cb.onOpen(s));
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -300,11 +432,16 @@ export class Sidebar {
         e.dataTransfer?.setData(DRAG_FOLDER, f.path);
         if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
       });
-      row.addEventListener("click", () => {
+      const toggle = () => {
         if (isCollapsed) this.collapsed.delete(f.path);
         else this.collapsed.add(f.path);
         this.render(this.sessions);
-      });
+      };
+      row.dataset.navKind = "folder";
+      row.dataset.navPath = f.path;
+      row.dataset.navDepth = String(depth);
+      this.registerNav(row, `f:${f.path}`, toggle);
+      row.addEventListener("click", toggle);
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         showContextMenu(e.clientX, e.clientY, [
@@ -450,6 +587,11 @@ export class Sidebar {
     });
 
     row.append(icon, main, actions);
+    row.dataset.navKind = "session";
+    row.dataset.navDepth = String(depth);
+    this.registerNav(row, `s:${s.id}`, () => this.cb.onOpen(s));
+    // 키보드로 옮겨 다닐 때도 마우스 클릭과 같은 선택 하이라이트를 남긴다.
+    row.addEventListener("focus", () => this.select(row));
     // 더블클릭 = 접속(단일 클릭 중복·오접속 방지). 선택 하이라이트만 단일 클릭.
     row.addEventListener("dblclick", () => this.cb.onOpen(s));
     row.addEventListener("click", () => this.select(row));
