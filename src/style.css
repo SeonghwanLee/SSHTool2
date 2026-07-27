@@ -1612,6 +1612,9 @@ button {
 .trigger-warn {
   font-size: 11px;
   color: #d0a63f;
+  /* 경고가 여러 줄이라 줄바꿈을 그대로 살린다. */
+  white-space: pre-line;
+  line-height: 1.5;
 }
 .trigger-list {
   display: flex;

@@ -332,9 +332,15 @@ class TriggerEditor {
     });
     head.append(label, add);
 
+    // 자동 전송의 위험은 '저장 위치'가 아니라 '발동 조건'에 있다. 규칙을 어디에
+    // 보관하든, 전송을 촉발하는 것은 **서버가 보낸 출력**이라는 점을 분명히 적는다.
     const warn = document.createElement("div");
     warn.className = "trigger-warn";
-    warn.textContent = "⚠ 규칙 값은 암호화되지 않습니다 — 비밀번호를 넣지 마세요.";
+    warn.textContent =
+      "⚠ 트리거는 서버가 보낸 출력에 반응해 값을 자동으로 전송합니다.\n" +
+      "서버를 장악한 쪽이 패턴 문자열을 아무 때나 출력하면 그 값을 그대로 받아낼 수 있습니다. " +
+      "색상 코드로 위장한 출력도 감지되고, 1초 간격으로 반복해서 끌어낼 수 있습니다.\n" +
+      "비밀번호·sudo 암호는 넣지 마세요. 규칙 값은 세션 파일에 그대로 저장됩니다.";
 
     this.list.className = "trigger-list";
     this.draw();
