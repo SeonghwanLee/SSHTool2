@@ -2,10 +2,20 @@ name: build
 
 # 태그 vX.Y.Z push 시 Windows 러너에서 Tauri 앱 빌드 + 서명 + GitHub Release 생성.
 # tauri-action 이 업데이터용 서명 번들과 latest.json 매니페스트를 릴리스에 자동 업로드한다.
+#
+# workflow_dispatch 로도 돌릴 수 있다(릴리스는 만들지 않는다). 두 가지 용도:
+#   · Windows 에서 컴파일이 되는지 배포 전에 확인 — 개발 장비가 리눅스라 로컬에서 못 굽는다.
+#   · 빌드 시간·산출물 크기 측정 — 측정하려고 버전을 하나 태우지 않아도 된다.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: '이번 실행 메모(측정 목적 등, 선택)'
+        required: false
+        default: ''
 
 # 릴리스 생성/에셋 업로드에 필요한 권한.
 permissions:
@@ -38,6 +48,8 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
+      # 태그 push 면 릴리스까지, 수동 실행이면 빌드만.
+      # tauri-action 은 tagName 이 비어 있으면 릴리스를 만들지 않는다.
       - name: Build, sign and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -48,9 +60,17 @@ jobs:
         with:
           # src-tauri 가 리포 루트에 위치.
           projectPath: .
-          tagName: ${{ github.ref_name }}
-          releaseName: 'SSHTool2 ${{ github.ref_name }}'
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          releaseName: ${{ github.event_name == 'push' && format('SSHTool2 {0}', github.ref_name) || '' }}
           releaseDraft: false
           prerelease: false
           # Windows NSIS 인스톨러 타겟. 서명된 .nsis.zip + latest.json 이 릴리스에 업로드됨.
           args: --target x86_64-pc-windows-msvc --bundles nsis
+
+      # LTO 를 끄면서 크기를 대가로 내줬다. 매 실행마다 실제 크기를 남겨 추세를 본다.
+      - name: 산출물 크기
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -File src-tauri/target/x86_64-pc-windows-msvc/release/bundle |
+            Where-Object { $_.Extension -in '.exe', '.zip' } |
+            ForEach-Object { '{0,-46} {1,8:N2} MB' -f $_.Name, ($_.Length / 1MB) }
