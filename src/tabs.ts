@@ -7,7 +7,7 @@ import { applyIcon, iconSpan } from "./icons";
 import { showContextMenu, type MenuItem } from "./contextmenu";
 import { confirmDialog, alertDialog } from "./dialogs";
 import { FitAddon } from "@xterm/addon-fit";
-import { SearchAddon } from "@xterm/addon-search";
+import { SearchAddon, type ISearchDecorationOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
@@ -104,6 +104,26 @@ const LOCKED_HINT = "세션 잠김 — 탭 우클릭 → 세션 잠금 해제";
  * 반응하지 않게 한다. 로그인·sudo 프롬프트는 접속 직후에 나오므로 정상 용도는 이 안에 든다.
  */
 const TRIGGER_WINDOW_MS = 10_000;
+
+/** "#RRGGBB" 를 [r,g,b] 로. 형식이 아니면 null. */
+function parseHex(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * 두 색을 t 비율로 섞는다(0 = a, 1 = b). 검색 강조색을 테마에 맞춰 만드는 데 쓴다 —
+ * 색을 고정하면 밝은 테마에서 글자가 안 보이거나 어두운 테마에서 튄다.
+ */
+function mixHex(a: string, b: string, t: number): string {
+  const ca = parseHex(a);
+  const cb = parseHex(b);
+  if (!ca || !cb) return a;
+  const mix = ca.map((v, i) => Math.round(v + (cb[i] - v) * t));
+  return "#" + mix.map((v) => v.toString(16).padStart(2, "0")).join("");
+}
 
 /** 접속 유지시간 표기 — 1시간을 넘기면 HH:MM:SS, 그 전까지는 MM:SS. */
 const formatUptime = (ms: number): string => {
@@ -457,9 +477,32 @@ class TerminalTab {
   }
 
   // ── 검색 ──
+  /**
+   * 검색어 강조 색. 예전에는 clearDecorations() 만 부르고 decorations 를 넘기지 않아
+   * 강조가 아예 켜지지 않았다 — 현재 위치로 이동만 하고 나머지 일치는 표시되지 않았다.
+   *
+   * 활성 일치는 accent 그대로, 나머지는 accent 를 터미널 배경 쪽으로 섞어 한 단계 죽인다.
+   * 둘을 같은 색으로 두면 지금 어디에 있는지 알 수 없다.
+   */
+  private searchDecorations(): ISearchDecorationOptions {
+    const accent =
+      getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#a7c080";
+    const bg = themeById(this.settings.theme).term.background ?? "#000000";
+    return {
+      matchBackground: mixHex(accent, bg, 0.5),
+      matchOverviewRuler: accent,
+      activeMatchBackground: accent,
+      activeMatchColorOverviewRuler: accent,
+    };
+  }
+
   private wireSearch(): void {
     this.searchInput.addEventListener("input", () => {
-      if (this.searchInput.value) this.search.findNext(this.searchInput.value, { incremental: true });
+      if (this.searchInput.value)
+        this.search.findNext(this.searchInput.value, {
+          incremental: true,
+          decorations: this.searchDecorations(),
+        });
       else this.search.clearDecorations();
     });
     this.searchInput.addEventListener("keydown", (e) => {
@@ -485,10 +528,12 @@ class TerminalTab {
     this.term.focus();
   }
   private searchNext(): void {
-    if (this.searchInput.value) this.search.findNext(this.searchInput.value);
+    if (this.searchInput.value)
+      this.search.findNext(this.searchInput.value, { decorations: this.searchDecorations() });
   }
   private searchPrev(): void {
-    if (this.searchInput.value) this.search.findPrevious(this.searchInput.value);
+    if (this.searchInput.value)
+      this.search.findPrevious(this.searchInput.value, { decorations: this.searchDecorations() });
   }
 
   // ── 설정 적용 ──
