@@ -1157,11 +1157,44 @@ button {
   width: 260px;
   padding: 2px 6px;
 }
-/* 세션 잠금 — 이 탭만의 오조작 방지(앱 전체 볼트 잠금과 무관하다) */
+/* ── 세션 잠금 — 이 탭만의 오조작 방지(앱 전체 볼트 잠금과 무관하다) ──────────
+   색은 호박색(#e0a54f)을 쓰지 않는다. 그 색은 이미 '아직 안 본 출력 있음'(.tab.activity)
+   이라 겹치면 두 상태를 구분할 수 없다. 잠금은 사용자가 일부러 건 상태이므로 파랑 계열로
+   따로 두고, 글리프뿐 아니라 탭 배경·왼쪽 띠까지 물들여 멀리서도 바로 보이게 한다. */
+:root {
+  --lock: #7aa2d6;
+}
 .tab-lock {
   flex: 0 0 auto;
   font-size: 10px;
-  color: #e0a54f;
+  color: var(--lock);
+}
+/* 잠긴 탭 — 배경 틴트 + 왼쪽 굵은 띠. 활성/비활성 어느 쪽이어도 보인다. */
+.tab.locked {
+  /* color-mix 는 비교적 최신 문법이라 고정 런타임(구버전 WebView2)에서 무시될 수 있다.
+     잠금 표시가 통째로 사라지면 안 되므로 rgba/gradient 로만 쓴다. */
+  background: rgba(122, 162, 214, 0.16);
+  box-shadow: inset 3px 0 0 0 var(--lock);
+}
+.tab.locked:hover:not(.active) {
+  background: rgba(122, 162, 214, 0.26);
+}
+.tab.locked.active {
+  background:
+    linear-gradient(rgba(122, 162, 214, 0.22), rgba(122, 162, 214, 0.22)),
+    var(--bg);
+}
+.tab.locked .tab-label {
+  color: var(--lock);
+}
+/* 잠긴 탭은 활성 표시(위쪽 accent 띠)를 잠금색으로 바꿔 상태가 섞이지 않게 한다. */
+.tab.locked.active {
+  border-top-color: var(--lock);
+}
+/* 잠긴 세션의 터미널 — 안쪽 테두리로 경계를 표시. 배지만으로는 화면 구석이라
+   전체화면 앱(vim·top 등)을 보고 있을 때 눈에 안 들어온다. */
+.term-pane.locked .term-host {
+  box-shadow: inset 0 0 0 2px var(--lock);
 }
 .term-lock-badge {
   position: absolute;
@@ -1171,8 +1204,8 @@ button {
   display: flex;
   align-items: center;
   gap: 5px;
-  background: #e0a54f;
-  color: #1b1b1b;
+  background: var(--lock);
+  color: #10161c;
   padding: 4px 10px;
   border-radius: 4px;
   font-size: 11px;
