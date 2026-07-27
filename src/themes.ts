@@ -190,6 +190,30 @@ export const THEMES: Theme[] = [
       brightBlue: "#61afef", brightMagenta: "#c678dd", brightCyan: "#56b6c2", brightWhite: "#ffffff",
     },
   },
+  {
+    // 기존 13종은 모두 '예쁜' 쪽에 맞춰 대비를 낮게 잡은 팔레트다. 오래 보기엔 편하지만
+    // 밝은 사무실·저가 모니터·시력 보정이 필요한 상황에서는 글자가 묻힌다. 그 자리를 채운다.
+    // GitHub 의 High Contrast 팔레트를 기준으로 삼았다 — 접근성 기준(WCAG)을 목표로
+    // 설계된 몇 안 되는 터미널 색 조합이고, ANSI 검정을 밝게 잡아 어두운 배경에서
+    // 사라지지 않게 처리한 점이 특히 터미널에 맞는다.
+    id: "high-contrast-dark",
+    name: "고대비 다크",
+    dark: true,
+    app: {
+      bg: "#0a0c10", panel: "#0d1117", panel2: "#161b22", border: "#7a828e",
+      fg: "#f0f3f6", muted: "#bdc4cc", accent: "#71b7ff", accentHover: "#91cbff",
+      accentInk: "#0a0c10", error: "#ff9492",
+    },
+    term: {
+      background: "#0a0c10", foreground: "#f0f3f6", cursor: "#f0f3f6",
+      cursorAccent: "#0a0c10", selectionBackground: "#2f4a77",
+      // black 을 회색으로 올린다 — 원색 검정이면 이 배경에서 글자가 통째로 사라진다.
+      black: "#7a828e", red: "#ff9492", green: "#26cd4d", yellow: "#f0b72f",
+      blue: "#71b7ff", magenta: "#cb9eff", cyan: "#39c5cf", white: "#d9dee3",
+      brightBlack: "#9ea7b3", brightRed: "#ffb1af", brightGreen: "#4ae168", brightYellow: "#f7c843",
+      brightBlue: "#91cbff", brightMagenta: "#dbb7ff", brightCyan: "#56d4dd", brightWhite: "#ffffff",
+    },
+  },
   // ── 라이트 ────────────────────────────────────────────────────────────────
   {
     id: "everforest-light",
@@ -261,6 +285,30 @@ export const THEMES: Theme[] = [
       blue: "#56949f", magenta: "#907aa9", cyan: "#d7827e", white: "#575279",
       brightBlack: "#9893a5", brightRed: "#b4637a", brightGreen: "#286983", brightYellow: "#ea9d34",
       brightBlue: "#56949f", brightMagenta: "#907aa9", brightCyan: "#d7827e", brightWhite: "#575279",
+    },
+  },
+  {
+    // 기존 라이트 4종은 크림·베이지 배경이라 종이처럼 편하지만 대비가 낮다.
+    // 이쪽은 순백 배경 + 거의 검정 글자로, 밝은 조명 아래나 화면 공유 때를 노린다.
+    // ANSI 색은 전부 어둡게 잡았다 — 흰 배경에서 밝은 색은 그대로 날아간다.
+    id: "high-contrast-light",
+    name: "고대비 라이트",
+    dark: false,
+    app: {
+      bg: "#ffffff", panel: "#f5f8fa", panel2: "#e7ecf0", border: "#3d444d",
+      fg: "#0e1116", muted: "#4b535d", accent: "#0349b4", accentHover: "#023b93",
+      accentInk: "#ffffff", error: "#a0111f",
+    },
+    term: {
+      background: "#ffffff", foreground: "#0e1116", cursor: "#0e1116",
+      cursorAccent: "#ffffff", selectionBackground: "#b6d4fb",
+      black: "#0e1116", red: "#a0111f", green: "#024c1a", yellow: "#3f2200",
+      // GitHub 원본의 cyan/brightCyan(#1b7c83 / #3192aa)은 bright 쪽이 흰 배경에서 3.61 로
+      // AA(4.5)에 못 미쳤다. bright 를 더 어둡게 하면 기본색과 뒤집히므로 짝을 통째로 한 단
+      // 낮춰 둘 다 통과시켰다(7.45 / 4.93).
+      blue: "#0349b4", magenta: "#622cbc", cyan: "#155e64", white: "#66707b",
+      brightBlack: "#4b535d", brightRed: "#86061d", brightGreen: "#055d20", brightYellow: "#4e2c00",
+      brightBlue: "#1168e3", brightMagenta: "#844ae7", brightCyan: "#1b7c83", brightWhite: "#0e1116",
     },
   },
 ];
