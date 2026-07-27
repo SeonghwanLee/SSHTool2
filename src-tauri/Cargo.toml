@@ -36,7 +36,11 @@ winreg = "0.52"
 
 [profile.release]
 panic = "abort"
-codegen-units = 1
-lto = true
+# fat LTO(lto = true) + codegen-units = 1 은 우리 코드가 한 줄만 바뀌어도 의존성까지
+# 통째로 다시 링크한다. 의존성 캐시가 살아 있어도 CI 빌드가 8분 가까이 걸리던 이유다.
+# thin LTO 는 크레이트 경계 최적화를 대부분 유지하면서 그 재링크 비용을 크게 줄인다.
+# 이 앱은 시간의 거의 전부를 네트워크·터미널 I/O 대기로 보내므로 잃는 쪽이 체감되지 않는다.
+codegen-units = 16
+lto = "thin"
 opt-level = "s"
 strip = true
