@@ -391,6 +391,7 @@ function applyStaticIcons(): void {
     "view-vertical": "viewVertical",
     "view-horizontal": "viewHorizontal",
     "cmd-toggle": "command",
+    "open-search": "search",
     "open-settings": "settings",
     "open-about": "info",
     "win-min": "minimize",
@@ -882,6 +883,8 @@ async function main(): Promise<void> {
   wireLockKeys();
   wireSidebarResize();
   wireHostKeyPrompt();
+  // 단축키(Ctrl+Shift+F)를 모르면 찾기 기능을 못 쓴다 — 타이틀바 버튼으로도 연다.
+  $("open-search").addEventListener("click", () => tabs.openSearch());
   // 살아있는 SFTP 상태·진행률이 바뀌면 사이드바 칩을 다시 그린다.
   onLiveSftpChanged(() => redraw());
   // 잠금 버튼 = 토글: 열려 있으면 잠그고, 잠겨 있으면 마스터 비밀번호로 해제.

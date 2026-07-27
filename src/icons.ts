@@ -32,6 +32,7 @@ export const GLYPH: Record<string, string> = {
   moveUp: "",
   moveDown: "",
   refresh: "",
+  search: "", // 터미널 검색(Search)
   up: "",
   setDefault: "",
   sftp: "",

@@ -515,7 +515,7 @@ class TerminalTab {
       }
     });
   }
-  private openSearch(): void {
+  openSearch(): void {
     this.searchOpen = true;
     this.searchBar.style.display = "flex";
     this.searchInput.focus();
@@ -944,6 +944,11 @@ export class TabManager {
     }
     return false;
   }
+  /** 활성 탭의 찾기 창을 연다(타이틀바 버튼용). 열린 탭이 없으면 아무 일도 하지 않는다. */
+  openSearch(): void {
+    this.active?.openSearch();
+  }
+
   connectedCount(): number {
     return this.tabs.filter((t) => t.liveId).length;
   }
