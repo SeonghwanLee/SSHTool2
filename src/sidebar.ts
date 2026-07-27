@@ -9,6 +9,8 @@ interface SidebarCallbacks {
   onEdit: (s: SessionInfo) => void;
   onDelete: (s: SessionInfo) => void;
   onSftp: (s: SessionInfo) => void;
+  /** 폴더를 접거나 펼쳤을 때 — 설정에 저장해 재시작 후에도 유지한다. */
+  onCollapsedChange?: (paths: string[]) => void;
   /** 살아있는 SFTP 연결 상태(없으면 null). 칩 색·진행률 표시에 쓴다. */
   sftpLive?: (s: SessionInfo) => { transferring: boolean; percent: number } | null;
   /** SFTP 칩 우클릭 → 연결 끊기. */
@@ -284,6 +286,7 @@ export class Sidebar {
     const path = row.dataset.navPath ?? "";
     if (this.collapsed.has(path) && !this.filter) {
       this.collapsed.delete(path);
+      this.collapsedChanged();
       this.render(this.sessions);
       return;
     }
@@ -297,11 +300,23 @@ export class Sidebar {
       const path = row.dataset.navPath ?? "";
       if (!this.collapsed.has(path) && !this.filter) {
         this.collapsed.add(path);
+        this.collapsedChanged();
         this.render(this.sessions);
         return;
       }
     }
     this.focusRow(this.parentRow(rows, index));
+  }
+
+  /** 저장돼 있던 접힘 상태를 되살린다(시작 시 1회). */
+  setCollapsed(paths: string[]): void {
+    this.collapsed = new Set(paths);
+    this.render(this.sessions);
+  }
+
+  /** 접힘이 바뀔 때마다 저장을 요청한다 — 폴더를 정리해 쓰면 매번 다시 접는 건 번거롭다. */
+  private collapsedChanged(): void {
+    this.cb.onCollapsedChange?.([...this.collapsed]);
   }
 
   /** 설정 변경 시 표시 옵션을 반영한다. */
@@ -490,6 +505,7 @@ export class Sidebar {
       const toggle = () => {
         if (isCollapsed) this.collapsed.delete(f.path);
         else this.collapsed.add(f.path);
+        this.collapsedChanged();
         this.render(this.sessions);
       };
       row.dataset.navKind = "folder";
@@ -505,6 +521,7 @@ export class Sidebar {
             accel: "c",
             action: () => {
               this.collapseTree(f);
+              this.collapsedChanged();
               this.render(this.sessions);
             },
           },

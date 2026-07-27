@@ -654,6 +654,11 @@ async function main(): Promise<void> {
         redraw();
       },
       onSftp: openSftpFor,
+      // 폴더 접힘은 설정에 저장한다 — 재시작할 때마다 다시 접는 건 번거롭다.
+      onCollapsedChange: (paths) => {
+        settings = { ...settings, collapsedFolders: paths };
+        void saveSettings(settings).catch(() => {});
+      },
       // 모달을 닫아도 연결이 살아 있으므로, 그 사실과 진행률을 칩에 드러낸다.
       sftpLive: (s) => {
         const live = liveSftpOf(s.id);
@@ -847,6 +852,8 @@ async function main(): Promise<void> {
   applyDisplayOptions = (s) =>
     sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail, s.recentLimit);
   applyDisplayOptions(settings);
+  // 저장돼 있던 폴더 접힘 상태 복원(설정 로드 후 첫 렌더에 반영).
+  sidebar.setCollapsed(settings.collapsedFolders ?? []);
 
   wireCommandBar(tabs);
   wireViewModes(tabs);

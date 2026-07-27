@@ -18,6 +18,8 @@ export interface Settings {
   scrollback: number;
   /** 명시적으로 만든 폴더 경로 — 세션이 하나도 없어도 트리에 유지된다(빈 폴더). */
   folders: string[];
+  /** 접어 둔 세션 폴더 경로. 재시작해도 접힌 상태가 유지되도록 저장한다. */
+  collapsedFolders: string[];
   /** 무활동 자동 잠금(분). 0 = 사용 안 함. */
   autoLockMinutes: number;
   /** 세션 화면 배치(탭/세로 분할/가로 분할). */
@@ -45,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   copyOnSelect: true,
   scrollback: 5000,
   folders: [],
+  collapsedFolders: [],
   autoLockMinutes: 0,
   viewMode: "tabs",
   checkUpdateOnStartup: true,

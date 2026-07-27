@@ -95,6 +95,17 @@ function fmtTime(unixSec: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/**
+ * 실행 파일로 볼 확장자. 원격 목록에는 권한 정보가 없어(Entry 에 mode 가 없다) 이름으로
+ * 판단한다 — 색으로 눈에 띄게 하는 용도라 오탐이 있어도 손해가 없다.
+ */
+const EXEC_EXT = new Set(["exe", "bat", "cmd", "com", "msi", "ps1", "sh", "bash", "zsh", "py", "pl", "rb"]);
+
+function isExecutable(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && EXEC_EXT.has(name.slice(dot + 1).toLowerCase());
+}
+
 /** 파일유형 열 텍스트. */
 function entryType(e: Entry): string {
   if (e.isDir) return "폴더";
@@ -475,6 +486,9 @@ export async function openSftpBrowser(
     /** 타입어헤드 누적 버퍼와 마지막 입력 시각 — 잠시 쉬면 초기화된다. */
     private typeBuf = "";
     private typeAt = 0;
+    /** 열 헤더 클릭 정렬. 기본은 이름 오름차순(기존 동작과 같다). */
+    private sortKey: "name" | "type" | "size" | "time" = "name";
+    private sortAsc = true;
     other!: Pane;
 
     constructor(readonly side: Side) {
@@ -561,6 +575,12 @@ export async function openSftpBrowser(
       this.root.append(head, this.tree.el, hsplit, this.buildColHead(), this.listEl);
     }
 
+    /** 정렬이 바뀌면 헤더만 다시 그려 방향 표시를 갱신한다. */
+    private rebuildHead(): void {
+      const old = this.root.querySelector(".sftp-colhead");
+      if (old) old.replaceWith(this.buildColHead());
+    }
+
     /** 컬럼 헤더(파일명/유형/크기/수정일자) + 구분선 드래그로 너비 조절(탐색기 방식). */
     private buildColHead(): HTMLElement {
       // 이전에 조절해 둔 폭이 있으면 그대로 되살린다.
@@ -568,18 +588,45 @@ export async function openSftpBrowser(
       const head = document.createElement("div");
       head.className = "sftp-colhead";
       const spacer = document.createElement("span"); // 아이콘 칸 자리
-      head.append(spacer, this.colCell("파일명"), this.colCell("유형", "--c-type"),
-        this.colCell("크기", "--c-size"), this.colCell("수정일자", "--c-time"));
+      head.append(
+        spacer,
+        this.colCell("파일명", undefined, "name"),
+        this.colCell("유형", "--c-type", "type"),
+        this.colCell("크기", "--c-size", "size"),
+        this.colCell("수정일자", "--c-time", "time"),
+      );
       return head;
     }
 
-    private colCell(label: string, cssVar?: string): HTMLElement {
+    private colCell(
+      label: string,
+      cssVar?: string,
+      sortKey?: "name" | "type" | "size" | "time",
+    ): HTMLElement {
       const cell = document.createElement("span");
       cell.className = "sftp-colcell";
       const text = document.createElement("span");
       text.className = "sftp-collabel";
-      text.textContent = label;
+      // 정렬 중인 열에는 방향 표시를 붙인다(탐색기 관례).
+      const arrow = sortKey && this.sortKey === sortKey ? (this.sortAsc ? " ▲" : " ▼") : "";
+      text.textContent = label + arrow;
       cell.appendChild(text);
+
+      if (sortKey) {
+        cell.classList.add("sortable");
+        cell.title = "클릭하여 정렬";
+        cell.addEventListener("click", () => {
+          // 같은 열을 다시 누르면 방향만 뒤집는다.
+          if (this.sortKey === sortKey) this.sortAsc = !this.sortAsc;
+          else {
+            this.sortKey = sortKey;
+            // 크기·날짜는 큰 값/최신이 먼저 보이는 편이 쓸모 있다.
+            this.sortAsc = sortKey === "name" || sortKey === "type";
+          }
+          this.rebuildHead();
+          this.draw();
+        });
+      }
       if (cssVar) {
         const handle = document.createElement("span");
         handle.className = "sftp-colhandle";
@@ -784,7 +831,30 @@ export async function openSftpBrowser(
 
     /** 화면에 보이는 항목만("."/".." 제외) — 범위 선택·전체 선택 기준. */
     private visible(): Entry[] {
-      return this.entries.filter((x) => x.name !== "." && x.name !== "..");
+      return this.sorted(this.entries.filter((x) => x.name !== "." && x.name !== ".."));
+    }
+
+    /**
+     * 정렬 결과. **폴더를 항상 먼저** 둔다 — 정렬 기준이 무엇이든 폴더가 위에 모이는 것이
+     * 파일 관리자의 공통 관례이고, 크기·날짜로 정렬했을 때 폴더가 파일 사이에 흩어지면
+     * 탐색이 어려워진다.
+     */
+    private sorted(list: Entry[]): Entry[] {
+      const dir = this.sortAsc ? 1 : -1;
+      const byName = (a: Entry, b: Entry) => a.name.localeCompare(b.name, "ko");
+      return [...list].sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        switch (this.sortKey) {
+          case "size":
+            return (a.size - b.size) * dir || byName(a, b);
+          case "time":
+            return (a.modified - b.modified) * dir || byName(a, b);
+          case "type":
+            return entryType(a).localeCompare(entryType(b), "ko") * dir || byName(a, b);
+          default:
+            return byName(a, b) * dir;
+        }
+      });
     }
 
     /** 파일을 기본 연결 프로그램으로 연다(원격은 임시폴더로 내려받아 사본을 연다). */
@@ -838,10 +908,7 @@ export async function openSftpBrowser(
     draw(): void {
       this.listEl.innerHTML = "";
       if (this.path) this.listEl.appendChild(this.upRow()); // '..' 상위 이동
-      for (const entry of this.entries) {
-        if (entry.name === "." || entry.name === "..") continue;
-        this.listEl.appendChild(this.row(entry));
-      }
+      for (const entry of this.visible()) this.listEl.appendChild(this.row(entry));
     }
 
     /** 선택 표시만 갱신 — draw() 로 재생성하면 드래그 소스가 사라져 드래그가 취소된다. */
@@ -855,7 +922,10 @@ export async function openSftpBrowser(
 
     private row(entry: Entry): HTMLElement {
       const el = document.createElement("div");
-      el.className = "sftp-row" + (this.selected.has(entry.path) ? " selected" : "");
+      el.className =
+        "sftp-row" +
+        (this.selected.has(entry.path) ? " selected" : "") +
+        (entry.isDir ? " is-dir" : isExecutable(entry.name) ? " is-exec" : "");
       el.dataset.path = entry.path;
       el.draggable = true;
 

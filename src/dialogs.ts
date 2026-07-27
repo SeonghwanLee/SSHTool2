@@ -365,8 +365,9 @@ export function hostKeyPrompt(info: {
       (close) => {
         const card = document.createElement("div");
 
-        const title = document.createElement("div");
-        title.className = "modal-title";
+        // 다른 다이얼로그와 같은 h3 를 쓴다 — div.modal-title 은 CSS 정의가 없어
+        // 제목이 본문 글씨로 렌더됐다. 보안 확인창이라 제목이 눈에 띄어야 한다.
+        const title = document.createElement("h3");
         title.textContent = "처음 접속하는 서버입니다";
 
         const msg = document.createElement("div");
