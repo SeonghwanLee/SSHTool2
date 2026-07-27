@@ -10,6 +10,7 @@ mod localfs;
 mod localshell;
 mod paths;
 mod portfwd;
+mod rdp;
 mod sftp;
 mod ssh;
 mod store;
@@ -66,6 +67,12 @@ async fn ssh_probe(
     allow_legacy_algorithms: bool,
 ) -> Result<String, String> {
     ssh::probe(app, host, port, user, allow_legacy_algorithms).await
+}
+
+/// RDP 세션 접속 — Windows 기본 클라이언트(mstsc.exe)를 별도 창으로 띄운다.
+#[tauri::command]
+fn rdp_launch(host: String, port: u16, user: String) -> Result<(), String> {
+    rdp::launch(host, port, user)
 }
 
 #[tauri::command]
@@ -599,6 +606,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_probe,
+            rdp_launch,
             ssh_write,
             ssh_resize,
             ssh_close,

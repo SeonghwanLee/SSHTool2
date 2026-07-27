@@ -39,6 +39,13 @@ export const sshProbe = (
 ): Promise<string> =>
   invoke<string>("ssh_probe", { host, port, user, allowLegacyAlgorithms });
 
+/**
+ * RDP 세션 접속 — Windows 기본 원격 데스크톱(mstsc.exe)이 별도 창으로 뜬다.
+ * 화면을 앱 안에 넣지 않으므로 탭이 생기지 않는다.
+ */
+export const rdpLaunch = (host: string, port: number, user: string): Promise<void> =>
+  invoke("rdp_launch", { host, port, user });
+
 export const sshConnect = (a: ConnectArgs): Promise<string> =>
   invoke<string>("ssh_connect", { ...a });
 

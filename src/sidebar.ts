@@ -69,7 +69,9 @@ const navDepth = (row: HTMLElement): number => Number(row.dataset.navDepth ?? NO
 const detailText = (s: SessionInfo): string =>
   s.kind === "local"
     ? `로컬 셸${s.shellExe ? ` · ${s.shellExe}` : ""}`
-    : s.user
+    : s.kind === "rdp"
+      ? `원격 데스크톱 · ${s.user ? `${s.user}@` : ""}${s.host}:${s.port}`
+      : s.user
       ? `${s.user}@${s.host}:${s.port}`
       : `${s.host}:${s.port}`;
 
@@ -464,7 +466,7 @@ export class Sidebar {
       });
 
       // 세션 행과 같은 기준 — 로컬 셸이거나 SFTP 를 끈 세션에는 노출하지 않는다.
-      const sftpAvailable = s.kind !== "local" && s.enableSftp;
+      const sftpAvailable = s.kind === "ssh" && s.enableSftp;
       const sftp = document.createElement("button");
       sftp.className = "recent-sftp tree-act sftp-chip";
       this.paintSftpChip(sftp, s);
@@ -631,7 +633,7 @@ export class Sidebar {
     // 로컬 셸 세션에는 SFTP 가 없다(로컬 파일은 탐색기로 접근).
     const sftp = document.createElement("button");
     sftp.className = "tree-act";
-    sftp.style.display = s.kind === "local" || !s.enableSftp ? "none" : "";
+    sftp.style.display = s.kind === "ssh" && s.enableSftp ? "" : "none";
     sftp.title = "SFTP 파일 전송";
     sftp.classList.add("sftp-chip");
     const sftpAlive = this.paintSftpChip(sftp, s);
@@ -703,7 +705,7 @@ export class Sidebar {
       this.select(row);
       showContextMenu(e.clientX, e.clientY, [
         { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
-        ...(s.kind === "local" || !s.enableSftp
+        ...(s.kind !== "ssh" || !s.enableSftp
           ? []
           : [
               { label: "SFTP 파일 전송", accel: "f", action: () => this.cb.onSftp(s) } as const,

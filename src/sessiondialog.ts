@@ -43,6 +43,7 @@ export function sessionDialog(
         for (const [val, label] of [
           ["ssh", "SSH 원격 접속"],
           ["local", "로컬 셸 (서버 없이 실행)"],
+          ["rdp", "원격 데스크톱 (RDP · 별도 창)"],
         ] as [SessionKind, string][]) {
           const o = document.createElement("option");
           o.value = val;
@@ -221,18 +222,32 @@ export function sessionDialog(
         // 종류에 따라 필요한 입력만 보인다.
         const syncKind = () => {
           const local = kind.value === "local";
+          // RDP 는 mstsc 가 화면·입력을 맡는다 — 터미널/SSH 전용 설정은 의미가 없다.
+          const rdp = kind.value === "rdp";
           const key = auth.value === "key";
-          for (const el of [hostField, portField, userField, saveRow, authField])
+          for (const el of [hostField, portField, userField])
             (el as HTMLElement).style.display = local ? "none" : "";
-          keyField.style.display = local || !key ? "none" : "";
+          // 인증·비밀번호 저장은 앱이 직접 인증하는 SSH 에서만 쓴다(RDP 는 mstsc 가 묻는다).
+          for (const el of [saveRow, authField])
+            (el as HTMLElement).style.display = local || rdp ? "none" : "";
+          keyField.style.display = local || rdp || !key ? "none" : "";
           for (const el of [shellField, dirField])
             (el as HTMLElement).style.display = local ? "" : "none";
           // 문자셋 변환은 SSH 전용 — 로컬 셸에서는 적용되지 않으므로 숨긴다.
-          charsetField.style.display = local ? "none" : "";
-          forwardsField.style.display = local ? "none" : "";
-          sftpRow.style.display = local ? "none" : "";
+          charsetField.style.display = local || rdp ? "none" : "";
+          forwardsField.style.display = local || rdp ? "none" : "";
+          sftpRow.style.display = local || rdp ? "none" : "";
         };
-        kind.addEventListener("change", syncKind);
+        kind.addEventListener("change", () => {
+          // 종류를 바꿨는데 포트가 이전 기본값 그대로면 새 기본값으로 맞춘다.
+          // 사용자가 직접 넣은 값은 건드리지 않는다.
+          const DEFAULTS: Record<string, string> = { ssh: "22", rdp: "3389" };
+          const cur = port.value.trim();
+          if (Object.values(DEFAULTS).includes(cur) || cur === "") {
+            port.value = DEFAULTS[kind.value] ?? cur;
+          }
+          syncKind();
+        });
         auth.addEventListener("change", syncKind);
 
         // ── 표준 가로 탭(연결/인증/자동화/트리거) ──

@@ -1229,7 +1229,7 @@ export class TabManager {
     // 비밀 값(트리거·시작 명령)이 이미 채워져 있어 다시 묻지 않는다.
     items.push({ label: "세션 하나 더 열기", accel: "d", action: () => void this.openSession(s) });
     // 로컬 셸과 SFTP 를 끈 세션에는 전송 항목을 넣지 않는다(사이드바와 같은 기준).
-    if (this.actions.sftp && s.kind !== "local" && s.enableSftp) {
+    if (this.actions.sftp && s.kind === "ssh" && s.enableSftp) {
       items.push({ label: "SFTP 파일 전송", accel: "f", action: () => this.actions.sftp?.(s) });
     }
 

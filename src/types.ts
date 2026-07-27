@@ -21,7 +21,11 @@ export type Charset =
   | "GBK"
   | "US-ASCII";
 /** 세션 종류 — SSH 원격 접속 또는 로컬 셸(서버 없이 cmd/PowerShell 실행). */
-export type SessionKind = "ssh" | "local";
+/**
+ * 세션 종류. "rdp" 는 터미널 탭을 만들지 않고 Windows 기본 원격 데스크톱(mstsc.exe)을
+ * 별도 창으로 띄운다 — RDP 는 그래픽 프로토콜이라 xterm 영역에 넣을 수 없다.
+ */
+export type SessionKind = "ssh" | "local" | "rdp";
 /** 인증 방식 — 비밀번호 또는 개인키. */
 export type AuthType = "password" | "key";
 

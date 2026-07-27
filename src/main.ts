@@ -6,6 +6,7 @@ import { blankSession, normalizeSession, type SessionInfo } from "./types";
 import {
   sessionsLoad,
   sshProbe,
+  rdpLaunch,
   sessionsSave,
   vaultStatus,
   vaultInit,
@@ -654,6 +655,13 @@ async function main(): Promise<void> {
           const now = Math.floor(Date.now() / 1000);
           sessions = sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: now } : x));
           void persist().then(redraw);
+        }
+        // RDP 는 터미널 탭을 만들지 않는다 — mstsc 가 별도 창으로 화면을 맡는다.
+        if (s.kind === "rdp") {
+          void rdpLaunch(s.host, s.port, s.user).catch((e) =>
+            alertDialog(String(e), "원격 데스크톱 실행 실패"),
+          );
+          return;
         }
         // 볼트에 있는 비밀 값(트리거·시작 명령)을 메모리에서만 되채워 넘긴다.
         void hydrateSecrets(s).then((ready) => tabs.openSession(ready));
