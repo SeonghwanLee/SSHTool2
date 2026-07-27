@@ -71,6 +71,12 @@ export type ViewMode = "tabs" | "vertical" | "horizontal";
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const LF = new Uint8Array([0x0a]);
 
+/**
+ * 트리거 발동 허용 창(ms). 접속 직후에만 발동시켜, 한참 뒤에 나타난 패턴 출력에는
+ * 반응하지 않게 한다. 로그인·sudo 프롬프트는 접속 직후에 나오므로 정상 용도는 이 안에 든다.
+ */
+const TRIGGER_WINDOW_MS = 10_000;
+
 /** 접속 유지시간 표기 — 1시간을 넘기면 HH:MM:SS, 그 전까지는 MM:SS. */
 const formatUptime = (ms: number): string => {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -100,6 +106,8 @@ class TerminalTab {
   connectedAt: number | null = null;
   /** 끊긴 시각(ms). null = 접속 유지 중. 값이 있으면 유지시간이 여기서 멈춘다. */
   disconnectedAt: number | null = null;
+  /** 발동 창을 벗어나 규칙을 건너뛴 사실을 이미 알렸는지(세션당 1회만 안내). */
+  private triggerWindowNotified = false;
 
   readonly root: HTMLDivElement;
   private readonly header: HTMLDivElement;
@@ -474,6 +482,19 @@ class TerminalTab {
       }
       if (!hit) return;
       this.lastFired.set(cooldownKey, now);
+
+      // 접속 직후 창을 벗어난 매칭은 전송하지 않는다. 조용히 무시하면 "왜 트리거가
+      // 안 되지" 하고 원인을 찾기 어려우므로, 세션당 한 번은 이유를 알려 준다.
+      if (this.connectedAt === null || now - this.connectedAt > TRIGGER_WINDOW_MS) {
+        if (!this.triggerWindowNotified) {
+          this.triggerWindowNotified = true;
+          this.term.writeln(
+            `\r\n\x1b[33m[트리거] 접속 후 ${TRIGGER_WINDOW_MS / 1000}초가 지나 규칙을 실행하지 않았습니다.\x1b[0m`,
+          );
+        }
+        return;
+      }
+
       fired = true;
       this.sendText(rule.send.replace(/\\n/g, "\n"));
     });
@@ -500,6 +521,8 @@ class TerminalTab {
     // 유지시간 기준은 셸이 열린 이 시점. 재접속이면 여기서 다시 0 부터 센다.
     this.connectedAt = Date.now();
     this.disconnectedAt = null;
+    // 트리거 발동 창도 접속 시점 기준이므로 재접속 때 함께 초기화한다.
+    this.triggerWindowNotified = false;
     this.overlay.style.display = "none";
     this.overlay.innerHTML = "";
   }
