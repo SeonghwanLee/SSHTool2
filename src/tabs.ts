@@ -1108,6 +1108,30 @@ export class TabManager {
   }
 
   /** 접속 중인 모든 세션을 '종료'(연결만 끊기)한다. 탭은 하나도 닫지 않는다. */
+  /**
+   * 열린 탭을 모두 닫는다. '접속된 모든 세션 종료'(연결만 끊고 탭 유지)와 짝이 되는 동작으로,
+   * 이쪽은 탭 자체를 없앤다. 잠긴 탭은 하나씩 닫을 때와 같은 기준으로 건너뛴다 —
+   * 그래야 잠금을 믿을 수 있다.
+   */
+  private async closeAll(): Promise<void> {
+    const targets = this.tabs.filter((t) => !t.locked);
+    const lockedCount = this.tabs.length - targets.length;
+    if (targets.length === 0) {
+      await alertDialog("열린 세션이 모두 잠겨 있어 닫을 세션이 없습니다.", "잠긴 세션");
+      return;
+    }
+    const connected = targets.filter((t) => t.liveId).length;
+    const ok = await confirmDialog(
+      `열린 ${targets.length}개 세션을 모두 닫을까요?` +
+        (connected > 0 ? `\n접속 중인 ${connected}개는 연결이 끊깁니다.` : "") +
+        (lockedCount > 0 ? `\n잠긴 세션 ${lockedCount}개는 그대로 둡니다.` : ""),
+    );
+    if (!ok) return;
+    // 닫으면서 배열이 줄어드므로 사본을 돌린다. 확인은 위에서 한 번만 받았으므로
+    // 탭마다 다시 묻지 않도록 closeTab 대신 강제 닫기를 쓴다.
+    for (const t of [...targets]) this.forceCloseTab(t);
+  }
+
   private async disconnectAll(): Promise<void> {
     const connected = this.tabs.filter((t) => t.liveId);
     // 잠긴 탭은 건드리지 않는다 — 하나씩 끊을 때와 같은 기준이어야 잠금을 믿을 수 있다.
@@ -1153,6 +1177,14 @@ export class TabManager {
       const ok = await this.confirmClose(tab.session.name || tab.session.host);
       if (!ok) return;
     }
+    this.forceCloseTab(tab);
+  }
+
+  /**
+   * 확인 없이 탭을 닫는다. 잠금·연결 확인은 호출자가 이미 했다고 본다 —
+   * '모두 닫기' 처럼 한 번만 묻고 여러 개를 닫는 경우에 탭마다 다시 묻지 않기 위해 나눴다.
+   */
+  private forceCloseTab(tab: TerminalTab): void {
     if (tab.liveId) {
       void closeOf(tab.session, tab.liveId);
       this.byLiveId.delete(tab.liveId);
@@ -1262,6 +1294,15 @@ export class TabManager {
         accel: "a",
         danger: true,
         action: () => void this.disconnectAll(),
+      });
+    }
+    // 탭이 둘 이상일 때만 — 하나뿐이면 '세션 닫기' 와 같은 동작이라 메뉴만 늘어난다.
+    if (this.tabs.length > 1) {
+      items.push({
+        label: "모든 세션 닫기",
+        accel: "w",
+        danger: true,
+        action: () => void this.closeAll(),
       });
     }
     return items;
