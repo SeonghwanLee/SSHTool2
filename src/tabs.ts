@@ -170,6 +170,18 @@ class TerminalTab {
 
   // ── 입력/복사/붙여넣기/줌 ──
   private wireInput(onInput: (bytes: Uint8Array) => void): void {
+    // Ctrl+Enter 의 LF 를 항상 '지연' 전송한다. 한글 조합이 확정될 때 xterm 은 확정 문자를
+    // setTimeout(0) 으로 보내므로, LF 도 setTimeout(0) 으로 미뤄야 "문자 → 개행" 순서가 지켜진다.
+    // (동기로 보내면 IME 가 229 keydown→compositionend→실제 Enter keydown 순서를 낼 때
+    //  실제 Enter keydown 이 문자보다 먼저 LF 를 쏴 마지막 글자가 다음 줄로 밀린다.)
+    // 여러 keydown 이 겹치는 IME 모델에서 LF 가 두 번 나가지 않도록 짧은 시간 창으로 1회만 보낸다.
+    const sendCtrlEnterLf = () => {
+      const now = performance.now();
+      if (now - this.lastCtrlEnterLf < 50) return;
+      this.lastCtrlEnterLf = now;
+      setTimeout(() => onInput(LF), 0);
+    };
+
     this.term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const ctrl = e.ctrlKey;
@@ -179,16 +191,14 @@ class TerminalTab {
       };
 
       // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
-      // 한글 조합 중이면 setTimeout 같은 시간 기반 지연은 IME 환경에 따라 순서가 뒤바뀌어
-      // 마지막 글자가 개행 뒤로 밀린다. 대신 '확정 이벤트(compositionend)에서 LF 전송'으로
-      // 순서를 확정한다 — 아래 textarea compositionend 리스너가 xterm 이 확정 문자를
-      // onData 로 보낸 '직후' LF 를 보낸다(리스너 등록 순서상 xterm 다음에 실행됨).
       if (ctrl && e.key === "Enter") {
         if (e.isComposing || e.keyCode === 229) {
+          // 조합 중: IME 확정 흐름을 방해하지 않고 compositionend 에서 LF 를 지연 전송.
           this.pendingCompositionLf = true;
-          return true; // preventDefault 안 함 — IME 확정 흐름 유지(CR 은 xterm 이 조합 중 억제)
+          return true; // preventDefault 안 함(CR 은 xterm 이 조합 중 억제)
         }
-        onInput(LF);
+        // 비조합(영문 또는 229-모델의 실제 Enter keydown): LF 를 지연 전송해 확정 문자 뒤에 오게.
+        sendCtrlEnterLf();
         return stop();
       }
 
@@ -235,14 +245,11 @@ class TerminalTab {
       return true;
     });
 
-    // Ctrl+Enter 를 한글 조합 중 눌렀을 때, 확정 문자가 먼저 나간 '직후' LF 를 보낸다.
-    // xterm 6 은 compositionend 에서 확정 문자를 setTimeout(0) 으로 '지연' 전송한다.
-    // 우리 리스너는 xterm 것보다 뒤에 등록돼 있으므로, 여기서도 setTimeout(0) 으로 예약하면
-    // xterm 이 예약한 문자 전송 '다음'에 실행돼 "확정 문자 → 개행" 순서가 보장된다.
+    // 조합 중 눌린 Ctrl+Enter 는 여기(확정 시점)에서 LF 를 지연 전송한다.
     this.term.textarea?.addEventListener("compositionend", () => {
       if (this.pendingCompositionLf) {
         this.pendingCompositionLf = false;
-        setTimeout(() => onInput(LF), 0);
+        sendCtrlEnterLf();
       }
     });
     // 조합이 새로 시작되면 예약을 무효화 — 이전 Ctrl+Enter 가 조합을 끝내지 못한 경우
@@ -405,6 +412,7 @@ class TerminalTab {
   }
   private imeInitDone = false;
   private pendingCompositionLf = false; // Ctrl+Enter(조합 중) → compositionend 에서 LF 전송 예약
+  private lastCtrlEnterLf = 0; // Ctrl+Enter LF 중복(이중 keydown) 방지용 타임스탬프
   writeBytes(data: number[]): void {
     const bytes = new Uint8Array(data);
     this.term.write(bytes);

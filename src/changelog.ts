@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.33.1",
+    date: "2026-07-24",
+    notes: [
+      "터미널 — 한글 조합 중 Ctrl+Enter 로 마지막 글자가 다음 줄로 밀리던 문제 재수정(3차). 이전 수정이 놓친 '비조합 Enter keydown 의 즉시 LF 전송' 경로까지 지연 처리해 확정 문자 뒤에 개행이 오도록 보장",
+    ],
+  },
+  {
     version: "0.33.0",
     date: "2026-07-24",
     notes: [
