@@ -11,6 +11,19 @@ const APP_DIR: &str = "SSHTool2";
 /// 새 폴더로 1회 복사할 상태 파일(볼트·세션·설정·알려진 호스트).
 const MIGRATE: [&str; 4] = ["sessions.json", "settings.json", "vault.json", "known_hosts.json"];
 
+/// 임시 파일에 쓴 뒤 제자리로 옮긴다.
+///
+/// `fs::write` 는 대상 파일을 먼저 0바이트로 자르므로, 쓰는 도중 크래시하거나 전원이 나가면
+/// 내용이 통째로 사라진다. 세션 목록·설정·알려진 호스트는 한 파일이 곧 전부여서 그 손실이
+/// 곧바로 데이터 유실이 된다. rename 은 같은 볼륨에서 원자적이라 절단 상태가 생기지 않는다.
+pub fn write_atomic(path: &PathBuf, data: &str) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, data).map_err(|e| format!("임시 파일 쓰기 실패({}): {e}", tmp.display()))?;
+    // fs::rename 은 Windows 에서도 기존 파일을 덮어쓴다(MOVEFILE_REPLACE_EXISTING).
+    // 미리 지우면 파일이 없는 순간이 생겨 원자성이 깨지므로 그대로 교체한다.
+    fs::rename(&tmp, path).map_err(|e| format!("파일 교체 실패({}): {e}", path.display()))
+}
+
 /// 설정 루트 폴더를 반환하고, 없으면 생성한다(필요 시 구 폴더에서 1회 이전 복사).
 pub fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let id_dir = app

@@ -117,7 +117,7 @@ pub fn save(app: &AppHandle, sessions: Vec<SessionInfo>) -> Result<(), String> {
     let path = sessions_path(app)?;
     let data =
         serde_json::to_string_pretty(&sessions).map_err(|e| format!("세션 직렬화 실패: {e}"))?;
-    fs::write(&path, data).map_err(|e| format!("세션 파일 쓰기 실패: {e}"))
+    crate::paths::write_atomic(&path, &data)
 }
 
 // ── 앱 설정(테마·폰트 등). 스키마는 프론트가 소유 → serde_json::Value 로 통째 저장. ──
@@ -141,5 +141,5 @@ pub fn load_settings(app: &AppHandle) -> Result<serde_json::Value, String> {
 pub fn save_settings(app: &AppHandle, value: serde_json::Value) -> Result<(), String> {
     let path = settings_path(app)?;
     let data = serde_json::to_string_pretty(&value).map_err(|e| format!("설정 직렬화 실패: {e}"))?;
-    fs::write(&path, data).map_err(|e| format!("설정 쓰기 실패: {e}"))
+    crate::paths::write_atomic(&path, &data)
 }

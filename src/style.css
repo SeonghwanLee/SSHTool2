@@ -2035,6 +2035,24 @@ button {
 .modal-msg {
   font-size: 14px;
   line-height: 1.5;
+  white-space: pre-line;
+}
+/* 호스트키 지문 — 눈으로 대조하는 값이라 등폭·선택 가능하게, 본문과 뚜렷이 분리. */
+.hostkey-fp {
+  font-family: ui-monospace, Consolas, "D2Coding", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+  user-select: text;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  word-break: break-all;
+}
+.hostkey-note {
+  font-size: 12px;
+  color: var(--muted);
 }
 .modal-err {
   color: var(--error);

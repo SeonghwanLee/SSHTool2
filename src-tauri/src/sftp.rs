@@ -34,21 +34,25 @@ pub struct SftpEntry {
     pub modified: u32,
 }
 
-/// 셸 세션과 동일한 TOFU 호스트키 검증을 적용한다.
+/// 셸 세션과 완전히 같은 호스트키 검증을 적용한다(첫 접속은 지문 확인 후에만 수락).
 struct Client {
     app: AppHandle,
     host: String,
     port: u16,
+    /// 호스트키 문제로 끊었음을 connect() 에 알리는 플래그(오류 메시지 구분용).
+    refused: Arc<AtomicBool>,
 }
 
 impl client::Handler for Client {
     type Error = russh::Error;
     async fn check_server_key(&mut self, pk: &ssh_key::PublicKey) -> Result<bool, Self::Error> {
-        let fp = pk.fingerprint(ssh_key::HashAlg::Sha256).to_string();
-        Ok(!matches!(
-            crate::hostkey::verify(&self.app, &self.host, self.port, &fp),
-            crate::hostkey::Verdict::Mismatch
-        ))
+        match crate::hostkey::check(&self.app, &self.host, self.port, pk).await {
+            crate::hostkey::Decision::Accept => Ok(true),
+            _ => {
+                self.refused.store(true, Ordering::SeqCst);
+                Ok(false)
+            }
+        }
     }
 }
 
@@ -83,14 +87,22 @@ pub async fn connect(
 ) -> Result<String, String> {
     let config = crate::ssh::client_config(allow_legacy_algorithms);
 
+    let refused = Arc::new(AtomicBool::new(false));
     let client = Client {
         app: app.clone(),
         host: host.clone(),
         port,
+        refused: refused.clone(),
     };
     let mut handle: Handle<Client> = client::connect(config, (host.as_str(), port), client)
         .await
-        .map_err(|e| format!("SFTP 연결 실패(호스트 키 변경 시에도 발생): {e}"))?;
+        .map_err(|e| {
+            if refused.load(Ordering::SeqCst) {
+                "SFTP 연결 실패 — 호스트 키를 확인하지 않았거나 이전과 다릅니다.".to_string()
+            } else {
+                format!("SFTP 연결 실패: {e}")
+            }
+        })?;
 
     let ok = if auth_type == "key" {
         let passphrase = if password.is_empty() { None } else { Some(password.as_str()) };

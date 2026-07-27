@@ -19,6 +19,8 @@ import {
   keystoreGet,
   keystoreHas,
   keystoreClear,
+  onHostKeyPrompt,
+  hostKeyAnswer,
 } from "./ipc";
 import { TabManager, type CredentialProvider, type ResolvedCreds, type StatusInfo } from "./tabs";
 import { Sidebar, type DropTarget } from "./sidebar";
@@ -30,6 +32,7 @@ import {
   textPrompt,
   alertDialog,
   choiceDialog,
+  hostKeyPrompt,
 } from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
 import { settingsDialog } from "./settingsdialog";
@@ -675,6 +678,7 @@ async function main(): Promise<void> {
   wireAutoLock();
   wireLockKeys();
   wireSidebarResize();
+  wireHostKeyPrompt();
   // 잠금 버튼 = 토글: 열려 있으면 잠그고, 잠겨 있으면 마스터 비밀번호로 해제.
   $("vault-lock").addEventListener("click", async () => {
     const st = await vaultStatus();
@@ -885,6 +889,26 @@ async function changeMasterFlow(): Promise<void> {
   } catch (e) {
     await alertDialog(`마스터 변경 실패: ${String(e)}`);
   }
+}
+
+/**
+ * 처음 보는 호스트키 확인 요청 처리. 백엔드의 접속은 이 응답이 갈 때까지 멈춰 있으므로,
+ * 어떤 경로로 끝나든 반드시 답을 보낸다(안 보내면 백엔드 타임아웃까지 매달린다).
+ */
+function wireHostKeyPrompt(): void {
+  void onHostKeyPrompt(async (e) => {
+    let accept = false;
+    try {
+      accept = await hostKeyPrompt(e);
+    } catch (err) {
+      console.error("호스트키 확인 창 오류 — 거부로 처리합니다", err);
+    }
+    try {
+      await hostKeyAnswer(e.id, accept);
+    } catch (err) {
+      console.error("호스트키 확인 응답 전달 실패", err);
+    }
+  });
 }
 
 /** 사이드바 폭 조절(드래그) + 접기(더블클릭). 폭·접힘은 설정에 저장. */

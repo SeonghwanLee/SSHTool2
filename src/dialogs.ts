@@ -334,6 +334,68 @@ export function confirmDialog(message: string): Promise<boolean> {
   });
 }
 
+/**
+ * 처음 보는 호스트의 키 지문 확인. 반환 true 일 때만 접속을 이어간다.
+ *
+ * 확인(confirmDialog)과 달리 기본 포커스를 '취소'에 둔다 — Enter 를 습관적으로 눌러
+ * 검증 없이 통과시키는 일이 없어야 한다. Esc·바깥 클릭도 거부로 처리한다.
+ */
+export function hostKeyPrompt(info: {
+  host: string;
+  port: number;
+  fingerprint: string;
+  keyType: string;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    openModal(
+      (close) => {
+        const card = document.createElement("div");
+
+        const title = document.createElement("div");
+        title.className = "modal-title";
+        title.textContent = "처음 접속하는 서버입니다";
+
+        const msg = document.createElement("div");
+        msg.className = "modal-msg";
+        msg.textContent =
+          `${info.host}:${info.port} 의 호스트 키를 아직 신뢰한 적이 없습니다.\n` +
+          `아래 지문이 서버 관리자가 알려준 값과 같은지 확인하세요.\n` +
+          `다르다면 중간자 공격일 수 있습니다.`;
+
+        const fp = document.createElement("div");
+        fp.className = "hostkey-fp";
+        fp.textContent = `${info.keyType}\n${info.fingerprint}`;
+
+        const note = document.createElement("div");
+        note.className = "modal-msg hostkey-note";
+        note.textContent = "연결하면 이 지문을 저장하고, 다음부터는 묻지 않습니다.";
+
+        const buttons = document.createElement("div");
+        buttons.className = "modal-buttons";
+        const no = document.createElement("button");
+        no.textContent = "취소";
+        no.addEventListener("click", () => {
+          close();
+          resolve(false);
+        });
+        const yes = document.createElement("button");
+        yes.className = "btn-accent";
+        yes.textContent = "연결";
+        yes.addEventListener("click", () => {
+          close();
+          resolve(true);
+        });
+        buttons.append(no, yes);
+
+        card.append(title, msg, fp, note, buttons);
+        setTimeout(() => no.focus(), 0);
+        return card;
+      },
+      () => resolve(false),
+    );
+  });
+}
+
 /** 여러 선택지 중 하나 고르기. 반환=선택한 value, 취소/Esc/바깥클릭=null. */
 export function choiceDialog(
   message: string,

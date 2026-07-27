@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use russh::client::{self, Config, Handle, KeyboardInteractiveAuthResponse};
-use russh::keys::ssh_key::{self, HashAlg};
+use russh::keys::ssh_key;
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
 use russh::{cipher, kex, mac, ChannelMsg, Disconnect, Preferred};
 use serde::Serialize;
@@ -143,14 +143,16 @@ struct ClosedPayload {
     message: String,
 }
 
-/// russh client event handler. 호스트키는 TOFU 로 검증한다 —
-/// 처음 보는 호스트는 지문을 저장하고 수락, 저장된 지문과 다르면 거부.
+/// russh client event handler. 호스트키는 TOFU 로 검증하되 첫 접속은 자동 수락하지 않는다 —
+/// 처음 보는 호스트는 지문을 사용자에게 확인받아 등록하고, 저장된 지문과 다르면 거부.
 struct Client {
     app: AppHandle,
     host: String,
     port: u16,
     /// 지문 불일치로 거부했음을 connect() 에 알리는 플래그(오류 메시지 구분용).
     mismatch: Arc<AtomicBool>,
+    /// 첫 접속 지문을 사용자가 수락하지 않았음을 알리는 플래그.
+    rejected: Arc<AtomicBool>,
     /// -R 원격 포워딩: 서버 바인드 포트 → (대상 호스트, 대상 포트).
     remote_forwards: Arc<Mutex<HashMap<u32, (String, u16)>>>,
 }
@@ -162,11 +164,14 @@ impl client::Handler for Client {
         &mut self,
         server_public_key: &ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        let fp = server_public_key.fingerprint(HashAlg::Sha256).to_string();
-        match hostkey::verify(&self.app, &self.host, self.port, &fp) {
-            hostkey::Verdict::New | hostkey::Verdict::Match => Ok(true),
-            hostkey::Verdict::Mismatch => {
+        match hostkey::check(&self.app, &self.host, self.port, server_public_key).await {
+            hostkey::Decision::Accept => Ok(true),
+            hostkey::Decision::Mismatch => {
                 self.mismatch.store(true, Ordering::SeqCst);
+                Ok(false)
+            }
+            hostkey::Decision::Rejected => {
+                self.rejected.store(true, Ordering::SeqCst);
                 Ok(false)
             }
         }
@@ -273,11 +278,13 @@ pub async fn connect(
     ));
 
     let mismatch = Arc::new(AtomicBool::new(false));
+    let rejected = Arc::new(AtomicBool::new(false));
     let client = Client {
         app: app.clone(),
         host: host.clone(),
         port,
         mismatch: mismatch.clone(),
+        rejected: rejected.clone(),
         remote_forwards: remote_forwards.clone(),
     };
     let mut handle: Handle<Client> = match client::connect(config, (host.as_str(), port), client)
@@ -291,6 +298,8 @@ pub async fn connect(
                      서버를 재설치한 경우처럼 정당한 변경이라면 설정에서 \
                      '{host}:{port}' 의 알려진 호스트 항목을 삭제한 뒤 다시 접속하세요."
                 )
+            } else if rejected.load(Ordering::SeqCst) {
+                "호스트 키를 확인하지 않아 접속을 중단했습니다.".to_string()
             } else {
                 let msg = e.to_string();
                 let hint = algorithm_hint(&msg, allow_legacy_algorithms).unwrap_or("");

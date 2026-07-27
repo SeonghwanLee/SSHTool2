@@ -104,6 +104,12 @@ fn hostkeys_clear(app: AppHandle) {
     hostkey::clear(&app);
 }
 
+/// 첫 접속 지문 확인 결과를 접속 대기 중인 쪽으로 전달한다(ssh://hostkey-prompt 의 응답).
+#[tauri::command]
+fn hostkey_answer(app: AppHandle, id: String, accept: bool) {
+    hostkey::answer(&app, &id, accept);
+}
+
 #[tauri::command]
 fn settings_load(app: AppHandle) -> Result<serde_json::Value, String> {
     store::load_settings(&app)
@@ -550,6 +556,7 @@ fn main() {
         .manage(SftpMap::default())
         .manage(sftp::TransferCancel::default())
         .manage(LocalMap::default())
+        .manage(hostkey::HostKeyPrompts::default())
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_write,
@@ -563,6 +570,7 @@ fn main() {
             hostkeys_list,
             hostkey_remove,
             hostkeys_clear,
+            hostkey_answer,
             vault_status,
             vault_init,
             vault_unlock,

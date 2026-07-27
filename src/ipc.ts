@@ -268,3 +268,21 @@ export const onSshData = (cb: (e: DataEvent) => void): Promise<UnlistenFn> =>
 
 export const onSshClosed = (cb: (e: ClosedEvent) => void): Promise<UnlistenFn> =>
   listen<ClosedEvent>("ssh://closed", (e) => cb(e.payload));
+
+/** 처음 보는 호스트의 키 지문 — 사용자가 확인해 줄 때까지 접속은 멈춰 있다. */
+export interface HostKeyPrompt {
+  /** 응답을 되돌려 보낼 요청 식별자. */
+  id: string;
+  host: string;
+  port: number;
+  /** "SHA256:..." 형식. */
+  fingerprint: string;
+  /** "ssh-ed25519" 등 키 알고리즘. */
+  keyType: string;
+}
+
+export const onHostKeyPrompt = (cb: (e: HostKeyPrompt) => void): Promise<UnlistenFn> =>
+  listen<HostKeyPrompt>("ssh://hostkey-prompt", (e) => cb(e.payload));
+
+export const hostKeyAnswer = (id: string, accept: boolean): Promise<void> =>
+  invoke("hostkey_answer", { id, accept });
