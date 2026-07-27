@@ -436,6 +436,19 @@ function appToast(message: string): void {
   }, 2200);
 }
 
+/**
+ * 세션 하나에 대해 SFTP 브라우저를 연다. 사이드바(세션·최근 접속)와 세션 탭 우클릭이
+ * 같은 경로를 쓰도록 한 곳에 둔다.
+ */
+async function openSftpFor(s: SessionInfo): Promise<void> {
+  // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
+  const creds = await credentials.resolve(s);
+  if (creds === null) return;
+  const target = creds.user !== s.user ? { ...s, user: creds.user } : s;
+  // 저장은 SFTP 인증이 '성공한 뒤에만' — 틀린 비번을 볼트에 넣지 않는다.
+  await openSftpBrowser(target, creds.password, () => credentials.onConnected(s, creds));
+}
+
 async function main(): Promise<void> {
   applyStaticIcons();
   wireBrowserKeyGuard();
@@ -455,6 +468,7 @@ async function main(): Promise<void> {
     settings,
     updateStatusBar,
     onSessionFontSize,
+    (s) => void openSftpFor(s),
   );
   tabManager = tabs;
 
@@ -489,14 +503,7 @@ async function main(): Promise<void> {
         }
         redraw();
       },
-      onSftp: async (s) => {
-        // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
-        const creds = await credentials.resolve(s);
-        if (creds === null) return;
-        const target = creds.user !== s.user ? { ...s, user: creds.user } : s;
-        // 저장은 SFTP 인증이 '성공한 뒤에만' — 틀린 비번을 볼트에 넣지 않는다.
-        await openSftpBrowser(target, creds.password, () => credentials.onConnected(s, creds));
-      },
+      onSftp: openSftpFor,
       onNew: async () => {
         const created = await sessionDialog(blankSession(), "새 세션");
         if (!created) return;

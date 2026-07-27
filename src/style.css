@@ -527,8 +527,18 @@ button {
   opacity: 0;
   transition: opacity 0.12s;
 }
-.recent-row:hover .recent-del {
+/* SFTP 칩 — 삭제 버튼과 같이 행에 마우스를 올렸을 때만 나타난다. */
+.recent-sftp {
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.recent-row:hover .recent-del,
+.recent-row:hover .recent-sftp {
   opacity: 0.75;
+}
+.recent-sftp:hover {
+  opacity: 1;
 }
 .recent-del:hover {
   opacity: 1;
@@ -901,6 +911,14 @@ button {
   height: 100%;
   /* 마지막 행 아래 잔여 영역이 검게 비치지 않도록 터미널 배경색으로 채운다.
      실제 글자/셀 배경은 .xterm-rows 가 위에 그리므로 영향 없음. */
+  background-color: var(--term-bg);
+}
+/* 하단 검은 띠의 진짜 원인 — xterm.css 의 `.xterm .xterm-viewport { background-color: #000 }`.
+   앱의 `.term-host .xterm-viewport` 는 특이도가 같아(0,2,0) 나중에 로드되는 xterm.css 가 이겼다.
+   0.29.0·0.30.0 에서 배경색을 덧칠하고도 띠가 남은 이유가 이것이다.
+   `.xterm` 을 끼워 특이도를 0,3,0 으로 올려 로드 순서와 무관하게 이기도록 한다.
+   (viewport 는 행 높이의 배수가 아닌 잔여 영역만큼 screen 보다 커서 그 부분이 검게 보인다.) */
+.term-host .xterm .xterm-viewport {
   background-color: var(--term-bg);
 }
 /* 세로 스크롤(스크롤백)만 허용, 가로 스크롤바는 숨긴다. */

@@ -4,6 +4,7 @@
 
 import { Terminal } from "@xterm/xterm";
 import { applyIcon } from "./icons";
+import { showContextMenu } from "./contextmenu";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -558,6 +559,8 @@ export class TabManager {
     settings: Settings,
     private readonly onStatus: (info: StatusInfo) => void,
     private readonly onSessionFontSize: (session: SessionInfo, size: number) => void = () => {},
+    /** 세션 탭 우클릭 → SFTP 파일 전송. 미주입 시 메뉴에 항목을 넣지 않는다. */
+    private readonly onSftp?: (session: SessionInfo) => void,
   ) {
     this.settings = settings;
 
@@ -950,6 +953,21 @@ export class TabManager {
           ev.preventDefault();
           void this.closeTab(tab);
         }
+      });
+      item.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        this.activate(tab); // 어느 탭에 대한 메뉴인지 눈으로 분명히
+        const s = tab.session;
+        // 로컬 셸과 SFTP 를 끈 세션에는 전송 항목을 넣지 않는다(사이드바와 같은 기준).
+        const sftpItem =
+          this.onSftp && s.kind !== "local" && s.enableSftp
+            ? [{ label: "SFTP 파일 전송", accel: "f", action: () => this.onSftp?.(s) } as const]
+            : [];
+        showContextMenu(ev.clientX, ev.clientY, [
+          ...sftpItem,
+          ...(sftpItem.length ? [{ separator: true } as const] : []),
+          { label: "닫기", accel: "c", danger: true, action: () => void this.closeTab(tab) },
+        ]);
       });
       this.tabbar.appendChild(item);
     }

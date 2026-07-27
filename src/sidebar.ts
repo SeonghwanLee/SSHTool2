@@ -386,7 +386,19 @@ export class Sidebar {
         this.cb.onRemoveRecent(s);
       });
 
-      row.append(icon, name, detail, del);
+      // 세션 행과 같은 기준 — 로컬 셸이거나 SFTP 를 끈 세션에는 노출하지 않는다.
+      const sftpAvailable = s.kind !== "local" && s.enableSftp;
+      const sftp = document.createElement("button");
+      sftp.className = "recent-sftp tree-act sftp-chip";
+      sftp.textContent = "SFTP";
+      sftp.title = "SFTP 파일 전송";
+      sftp.style.display = sftpAvailable ? "" : "none";
+      sftp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.cb.onSftp(s);
+      });
+
+      row.append(icon, name, detail, sftp, del);
       row.dataset.navKind = "recent";
       this.registerNav(row, `r:${s.id}`, () => this.cb.onOpen(s));
       row.addEventListener("click", () => this.cb.onOpen(s));
@@ -394,6 +406,9 @@ export class Sidebar {
         e.preventDefault();
         showContextMenu(e.clientX, e.clientY, [
           { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
+          ...(sftpAvailable
+            ? [{ label: "SFTP 파일 전송", accel: "f", action: () => this.cb.onSftp(s) } as const]
+            : []),
           { separator: true },
           {
             label: "최근 목록에서 삭제",
