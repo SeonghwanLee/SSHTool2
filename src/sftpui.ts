@@ -124,6 +124,12 @@ interface LiveSftp {
   total: number;
 }
 
+/** 열 너비(px) — 모달을 닫았다 열어도 유지한다. 앱을 껐다 켜면 기본값으로 돌아간다. */
+const colWidths: Record<string, number> = {};
+
+/** 타입어헤드 입력이 이어진 것으로 볼 시간(ms). 넘으면 처음부터 다시 친 것으로 본다. */
+const TYPEAHEAD_RESET_MS = 900;
+
 const liveSftp = new Map<string, LiveSftp>();
 const liveWatchers = new Set<() => void>();
 let progressHooked = false;
@@ -466,6 +472,9 @@ export async function openSftpBrowser(
     private readonly listEl = document.createElement("div");
     private readonly pathInput = document.createElement("input");
     private anchor = -1; // Shift 범위 선택 기준 인덱스(visible 기준)
+    /** 타입어헤드 누적 버퍼와 마지막 입력 시각 — 잠시 쉬면 초기화된다. */
+    private typeBuf = "";
+    private typeAt = 0;
     other!: Pane;
 
     constructor(readonly side: Side) {
@@ -554,6 +563,8 @@ export async function openSftpBrowser(
 
     /** 컬럼 헤더(파일명/유형/크기/수정일자) + 구분선 드래그로 너비 조절(탐색기 방식). */
     private buildColHead(): HTMLElement {
+      // 이전에 조절해 둔 폭이 있으면 그대로 되살린다.
+      for (const [v, w] of Object.entries(colWidths)) this.root.style.setProperty(v, `${w}px`);
       const head = document.createElement("div");
       head.className = "sftp-colhead";
       const spacer = document.createElement("span"); // 아이콘 칸 자리
@@ -565,7 +576,10 @@ export async function openSftpBrowser(
     private colCell(label: string, cssVar?: string): HTMLElement {
       const cell = document.createElement("span");
       cell.className = "sftp-colcell";
-      cell.textContent = label;
+      const text = document.createElement("span");
+      text.className = "sftp-collabel";
+      text.textContent = label;
+      cell.appendChild(text);
       if (cssVar) {
         const handle = document.createElement("span");
         handle.className = "sftp-colhandle";
@@ -583,6 +597,7 @@ export async function openSftpBrowser(
             // 왼쪽 경계를 끌어 이 컬럼 너비를 조절(파일명 컬럼이 남는 폭을 흡수).
             const w = Math.max(48, Math.min(360, cur - (m.clientX - startX)));
             this.root.style.setProperty(cssVar, `${w}px`);
+            colWidths[cssVar] = w; // 모달을 닫았다 열어도 폭이 유지되게 기억한다
           };
           const onUp = () => {
             window.removeEventListener("mousemove", onMove);
@@ -673,7 +688,61 @@ export async function openSftpBrowser(
         const first = [...this.selected][0];
         const entry = this.entries.find((x) => x.path === first);
         if (entry) void this.rename(entry);
+      } else {
+        this.typeAhead(e);
       }
+    }
+
+    /**
+     * 타입어헤드 — 글자를 치면 그 글자로 시작하는 항목으로 이동한다(탐색기 관례).
+     *
+     * 빠르게 이어 치면 누적해서 좁히고(`2`,`0`,`2` → "202…"), 잠시 쉬면 처음부터 다시
+     * 시작한다. 같은 글자만 반복해서 누르면 그 글자로 시작하는 항목들을 순환한다 —
+     * 파일명을 정확히 모를 때 훑어보는 용도라 이쪽이 누적보다 쓸모 있다.
+     */
+    private typeAhead(e: KeyboardEvent): void {
+      // 조합 중인 한글(229)·조합키·기능키는 건드리지 않는다.
+      if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+      if ([...e.key].length !== 1) return; // 문자 한 글자만(Enter·Arrow 등 제외)
+
+      e.preventDefault();
+      const now = Date.now();
+      const sameKey = this.typeBuf.length === 1 && this.typeBuf === e.key.toLowerCase();
+      if (now - this.typeAt > TYPEAHEAD_RESET_MS) this.typeBuf = "";
+      this.typeAt = now;
+
+      const rows = this.visible();
+      if (rows.length === 0) return;
+      const cur = rows.findIndex((v) => this.selected.has(v.path));
+
+      let from = 0;
+      if (sameKey) {
+        // 같은 글자 반복 = 다음 후보로 순환(버퍼는 그 글자 하나로 유지).
+        from = cur + 1;
+      } else {
+        this.typeBuf += e.key.toLowerCase();
+        from = cur < 0 ? 0 : cur; // 누적 중에는 현재 항목부터 다시 본다
+      }
+
+      const hit = this.findByPrefix(rows, this.typeBuf, from);
+      if (hit < 0) return;
+      const target = rows[hit];
+      this.selected.clear();
+      this.selected.add(target.path);
+      this.anchor = hit;
+      this.markSelection();
+      this.listEl
+        .querySelector<HTMLElement>(`[data-path="${CSS.escape(target.path)}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    }
+
+    /** from 부터 한 바퀴 돌며 prefix 로 시작하는 첫 항목의 인덱스(없으면 -1). */
+    private findByPrefix(rows: Entry[], prefix: string, from: number): number {
+      for (let i = 0; i < rows.length; i++) {
+        const idx = (from + i) % rows.length;
+        if (rows[idx].name.toLowerCase().startsWith(prefix)) return idx;
+      }
+      return -1;
     }
 
     private async rename(entry: Entry): Promise<void> {

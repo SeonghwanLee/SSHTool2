@@ -2039,11 +2039,19 @@ button {
   background: var(--panel);
   user-select: none;
 }
+/* 핸들이 셀 바깥(left:-8px)에 놓이므로 셀에 overflow:hidden 을 걸면 통째로 잘려
+   보이지도 잡히지도 않는다. 잘라야 하는 건 라벨 글자뿐이라 안쪽 span 으로 옮긴다. */
 .sftp-colcell {
   position: relative;
   white-space: nowrap;
+  overflow: visible;
+  min-width: 0;
+}
+.sftp-collabel {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sftp-colhandle {
   position: absolute;

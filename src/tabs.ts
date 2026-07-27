@@ -123,6 +123,23 @@ const formatUptime = (ms: number): string => {
 const ANSI_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[[\]()#;?]*[0-9;]*[A-Za-z]|[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
 const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
 
+/**
+ * 세션이 끊긴 뒤 터미널에 남는 입력 모드를 원상복구하는 시퀀스.
+ *
+ * 원격 앱(Claude CLI·vim·tmux 등)이 켜 둔 모드는 **터미널 쪽 상태**라 세션이 죽어도
+ * 그대로 남는다. 특히 마우스 추적이 켜진 채 재접속하면 마우스를 움직이는 것만으로
+ * `ESC[<35;82;12M` 같은 시퀀스가 새 셸로 날아가, 프롬프트에 `35;82;12M…` 이 찍힌다.
+ * 끊긴 시점에 꺼 두면 다음 세션이 깨끗한 상태에서 시작한다.
+ *
+ * term.reset() 은 쓰지 않는다 — 화면과 스크롤백까지 지워서, 끊긴 세션의 마지막 출력을
+ * 남겨 두는 '세션 종료' 동작과 어긋난다. 모드만 골라서 끈다.
+ */
+const RESET_INPUT_MODES =
+  "\x1b[?1000l\x1b[?1002l\x1b[?1003l" + // 마우스 추적(클릭·버튼이동·전체이동)
+  "\x1b[?1005l\x1b[?1006l\x1b[?1015l" + // 마우스 좌표 확장 인코딩
+  "\x1b[?2004l" + // 괄호 붙여넣기
+  "\x1b[?1l\x1b>"; // 커서키·키패드를 일반 모드로
+
 /** 탭 하나 = 터미널 뷰 + 상태. 접속/재접속 로직은 TabManager 가 구동한다. */
 class TerminalTab {
   readonly key = crypto.randomUUID();
@@ -627,6 +644,9 @@ class TerminalTab {
     if (this.connectedAt !== null && this.disconnectedAt === null) {
       this.disconnectedAt = Date.now();
     }
+    // 원격 앱이 켜 둔 마우스 추적 등이 남아 있으면 재접속 후 마우스 이동이 그대로
+    // 입력된다. 화면은 남기고 모드만 되돌린다.
+    this.term.write(RESET_INPUT_MODES);
     this.term.writeln(`\r\n\x1b[33m[세션 종료] ${message}\x1b[0m`);
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = "";
