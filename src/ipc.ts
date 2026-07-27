@@ -27,6 +27,18 @@ export interface ConnectArgs {
   allowLegacyAlgorithms: boolean;
 }
 
+/**
+ * 자격증명을 묻기 전에 서버가 실제로 붙는지 확인한다(TCP·키교환·호스트키까지).
+ * 반환값 = 서버가 알려 온 인증 방식 표기(빈 문자열이면 알 수 없음).
+ */
+export const sshProbe = (
+  host: string,
+  port: number,
+  user: string,
+  allowLegacyAlgorithms: boolean,
+): Promise<string> =>
+  invoke<string>("ssh_probe", { host, port, user, allowLegacyAlgorithms });
+
 export const sshConnect = (a: ConnectArgs): Promise<string> =>
   invoke<string>("ssh_connect", { ...a });
 

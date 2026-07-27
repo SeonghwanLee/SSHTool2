@@ -5,6 +5,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { blankSession, normalizeSession, type SessionInfo } from "./types";
 import {
   sessionsLoad,
+  sshProbe,
   sessionsSave,
   vaultStatus,
   vaultInit,
@@ -303,6 +304,19 @@ const credentials: CredentialProvider = {
     } catch (e) {
       console.error("볼트 사용 실패 — 직접 입력받습니다", e);
       await alertDialog(`저장된 비밀번호를 사용할 수 없습니다: ${String(e)}`);
+    }
+
+    // 여기부터는 사용자에게 물어봐야 한다. 묻기 전에 **서버가 실제로 붙는지 먼저 확인**한다
+    // — 예전에는 네트워크에 손도 대기 전에 비밀번호 창부터 떴다. 호스트가 죽었거나
+    // 호스트키가 바뀐 경우에도 비밀번호를 받아 놓고 나서야 실패했다.
+    // probe 는 TCP·키교환·호스트키 확인까지 마치고, 계정을 알린 뒤 서버 응답까지 받아 온다.
+    // 로컬 셸은 이 경로를 타지 않는다(인증 자체가 없다).
+    try {
+      await sshProbe(session.host, session.port, session.user, session.allowLegacyAlgorithms);
+    } catch (e) {
+      // 붙지도 않는 서버에 비밀번호를 묻지 않는다. 실패 사유는 그대로 보여 준다.
+      await alertDialog(String(e), "접속 실패");
+      return null;
     }
 
     if (!session.user) {

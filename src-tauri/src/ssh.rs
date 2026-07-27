@@ -247,6 +247,72 @@ pub(crate) fn open_session_log(app: &AppHandle, name: &str, session_id: &str) ->
         .ok()
 }
 
+/// 접속만 확인하고 곧바로 끊는다 — 자격증명을 묻기 **전에** 서버가 실제로 붙는지 보기 위한 것.
+///
+/// 예전에는 세션을 열자마자(네트워크에 손도 대기 전에) 비밀번호 창이 떴다. 호스트가
+/// 죽었거나 호스트키가 바뀐 경우에도 일단 비밀번호부터 받아 놓고 그다음에 실패했다.
+/// 여기서 TCP·키교환·호스트키 확인까지 마치고, 계정을 알린 뒤(`authenticate_none`)
+/// 서버가 돌려준 인증 방식 목록을 반환한다. 그 응답을 받은 다음에야 프론트가 창을 띄운다.
+///
+/// 반환값은 서버가 허용한다고 알려 온 방식 표기(빈 문자열 = 알 수 없음).
+pub async fn probe(
+    app: AppHandle,
+    host: String,
+    port: u16,
+    user: String,
+    allow_legacy_algorithms: bool,
+) -> Result<String, String> {
+    let config = client_config(allow_legacy_algorithms);
+    let mismatch = Arc::new(AtomicBool::new(false));
+    let rejected = Arc::new(AtomicBool::new(false));
+    let client = Client {
+        app: app.clone(),
+        host: host.clone(),
+        port,
+        mismatch: mismatch.clone(),
+        rejected: rejected.clone(),
+        remote_forwards: Arc::new(Mutex::new(HashMap::new())),
+    };
+
+    let mut handle: Handle<Client> = match client::connect(config, (host.as_str(), port), client)
+        .await
+    {
+        Ok(h) => h,
+        Err(e) => {
+            return Err(if mismatch.load(Ordering::SeqCst) {
+                format!(
+                    "호스트 키가 이전과 다릅니다 — 중간자 공격일 수 있습니다. \
+                     서버를 재설치한 경우처럼 정당한 변경이라면 설정에서 \
+                     '{host}:{port}' 의 알려진 호스트 항목을 삭제한 뒤 다시 접속하세요."
+                )
+            } else if rejected.load(Ordering::SeqCst) {
+                "호스트 키를 확인하지 않아 접속을 중단했습니다.".to_string()
+            } else {
+                let msg = e.to_string();
+                let hint = algorithm_hint(&msg, allow_legacy_algorithms).unwrap_or("");
+                format!("연결 실패: {msg}{hint}")
+            });
+        }
+    };
+
+    // 계정만 알리고 서버 응답을 받는다. 대부분의 서버는 여기서 실패를 돌려주며
+    // 허용 방식을 함께 알려 준다(none 인증을 그대로 통과시키는 서버도 드물게 있다).
+    let methods = match handle.authenticate_none(user).await {
+        Ok(res) if res.success() => String::new(),
+        Ok(client::AuthResult::Failure {
+            remaining_methods, ..
+        }) => format!("{remaining_methods:?}"),
+        Ok(_) => String::new(),
+        // 응답을 못 받아도 접속 자체는 확인됐다 — 프롬프트를 막지 않는다.
+        Err(_) => String::new(),
+    };
+
+    let _ = handle
+        .disconnect(Disconnect::ByApplication, "probe", "")
+        .await;
+    Ok(methods)
+}
+
 /// Connect, authenticate with a password, open a PTY shell, and spawn the
 /// read/drive loop. Returns the new session id on success.
 pub async fn connect(

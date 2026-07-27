@@ -55,6 +55,19 @@ async fn ssh_connect(
     .await
 }
 
+/// 자격증명을 묻기 전에 서버가 실제로 붙는지 확인한다(호스트키 확인 포함).
+/// 반환값 = 서버가 알려 온 인증 방식 표기(빈 문자열이면 알 수 없음).
+#[tauri::command]
+async fn ssh_probe(
+    app: AppHandle,
+    host: String,
+    port: u16,
+    user: String,
+    allow_legacy_algorithms: bool,
+) -> Result<String, String> {
+    ssh::probe(app, host, port, user, allow_legacy_algorithms).await
+}
+
 #[tauri::command]
 fn ssh_write(app: AppHandle, id: String, data: Vec<u8>) -> Result<(), String> {
     ssh::write(&app, &id, data)
@@ -585,6 +598,7 @@ fn main() {
         .manage(hostkey::HostKeyPrompts::default())
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
+            ssh_probe,
             ssh_write,
             ssh_resize,
             ssh_close,

@@ -216,9 +216,25 @@ export async function openSftpBrowser(
     if (sftpId) void sftpDisconnect(sftpId);
     overlay.remove();
   };
-  closeBtn.addEventListener("click", cleanup);
+  /**
+   * 전송 중에는 실수로 닫히지 않게 한다. 파일 자체는 `.part` 로 받아 취소해도 안전하지만,
+   * 받던 시간이 통째로 날아가므로 바깥 클릭 한 번으로 끊기면 곤란하다.
+   * 닫기 버튼은 확인을 거치고, 바깥 클릭은 아예 무시한다.
+   */
+  const requestClose = async (): Promise<void> => {
+    if (!currentTransfer) {
+      cleanup();
+      return;
+    }
+    const ok = await confirmDialog("파일을 전송 중입니다. 전송을 중단하고 닫을까요?");
+    // 묻는 사이에 전송이 끝났거나 창이 이미 닫혔을 수 있다.
+    if (ok && !disposed) cleanup();
+  };
+  closeBtn.addEventListener("click", () => void requestClose());
   overlay.addEventListener("mousedown", (e) => {
-    if (e.target === overlay) cleanup();
+    if (e.target !== overlay) return;
+    if (currentTransfer) return; // 전송 중 바깥 클릭은 오조작으로 보고 무시
+    cleanup();
   });
 
   // ── 디렉터리 트리(지연 로딩) ──
