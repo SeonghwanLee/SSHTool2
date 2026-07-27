@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use russh::client::{self, Handle};
 use russh::keys::ssh_key;
@@ -192,8 +193,11 @@ struct ProgressPayload {
 }
 
 const CHUNK: usize = 64 * 1024;
-/// 진행률 이벤트를 너무 자주 보내지 않도록 하는 간격.
-const EMIT_STEP: u64 = 256 * 1024;
+/// 진행률 통지 주기. 예전에는 256KB 마다 보냈는데, 빠른 전송에서는 초당 수백 번이 되어
+/// 진행바 숫자가 눈에 띄게 튀었다(그만큼 IPC 도 낭비였다). 시간 기준으로 두면 전송 속도와
+/// 무관하게 주기가 일정하다. 완료 시점의 마지막 통지는 루프 밖에서 따로 보내므로,
+/// 주기 사이에 끝나는 짧은 전송도 100% 가 정확히 찍힌다.
+const EMIT_EVERY: Duration = Duration::from_secs(1);
 
 fn base_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
@@ -257,7 +261,10 @@ pub async fn download(
             .map_err(|e| format!("로컬 파일 생성 실패: {e}"))?;
 
         let mut buf = vec![0u8; CHUNK];
-        let (mut done, mut marked) = (0u64, 0u64);
+        let mut done = 0u64;
+        // None = 아직 한 번도 안 보냄 → 첫 청크에서 즉시 보낸다.
+        // 1초를 기다리면 그동안 진행바가 뜨지 않아 멈춘 것처럼 보인다.
+        let mut last_emit: Option<Instant> = None;
         loop {
             if flag.load(Ordering::SeqCst) {
                 return Err("전송이 취소되었습니다".to_string());
@@ -274,8 +281,8 @@ pub async fn download(
                 .await
                 .map_err(|e| format!("로컬 쓰기 실패: {e}"))?;
             done += n as u64;
-            if done - marked >= EMIT_STEP {
-                marked = done;
+            if last_emit.map_or(true, |t| t.elapsed() >= EMIT_EVERY) {
+                last_emit = Some(Instant::now());
                 let _ = app.emit(
                     "sftp://progress",
                     ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total },
@@ -339,7 +346,10 @@ pub async fn upload(
             .map_err(|e| format!("원격 파일 생성 실패: {e}"))?;
 
         let mut buf = vec![0u8; CHUNK];
-        let (mut done, mut marked) = (0u64, 0u64);
+        let mut done = 0u64;
+        // None = 아직 한 번도 안 보냄 → 첫 청크에서 즉시 보낸다.
+        // 1초를 기다리면 그동안 진행바가 뜨지 않아 멈춘 것처럼 보인다.
+        let mut last_emit: Option<Instant> = None;
         loop {
             if flag.load(Ordering::SeqCst) {
                 return Err("전송이 취소되었습니다".to_string());
@@ -356,8 +366,8 @@ pub async fn upload(
                 .await
                 .map_err(|e| format!("원격 쓰기 실패: {e}"))?;
             done += n as u64;
-            if done - marked >= EMIT_STEP {
-                marked = done;
+            if last_emit.map_or(true, |t| t.elapsed() >= EMIT_EVERY) {
+                last_emit = Some(Instant::now());
                 let _ = app.emit(
                     "sftp://progress",
                     ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total },
