@@ -3,9 +3,9 @@
 // 검색(Ctrl+Shift+F), Ctrl+휠 zoom, Ctrl+Enter=LF, 탭 상태색, 탭 단축키, 상태바 연동.
 
 import { Terminal } from "@xterm/xterm";
-import { applyIcon } from "./icons";
+import { applyIcon, iconSpan } from "./icons";
 import { showContextMenu, type MenuItem } from "./contextmenu";
-import { confirmDialog } from "./dialogs";
+import { confirmDialog, alertDialog } from "./dialogs";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -94,6 +94,12 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
 const LF = new Uint8Array([0x0a]);
 
 /**
+ * 잠긴 세션에서 입력이 막혔을 때 띄우는 안내.
+ * 아무 반응이 없으면 고장으로 오해하므로 왜 안 나가는지 매번 알려 준다.
+ */
+const LOCKED_HINT = "세션 잠김 — 탭 우클릭 → 세션 잠금 해제";
+
+/**
  * 트리거 발동 허용 창(ms). 접속 직후에만 발동시켜, 한참 뒤에 나타난 패턴 출력에는
  * 반응하지 않게 한다. 로그인·sudo 프롬프트는 접속 직후에 나오므로 정상 용도는 이 안에 든다.
  */
@@ -124,6 +130,12 @@ class TerminalTab {
   liveId: string | null = null;
   status: "connecting" | "connected" | "disconnected" = "connecting";
   activity = false; // 비활성 탭에 출력이 도착하면 true(호박색)
+  /**
+   * 이 탭만의 잠금. 켜지면 셸로 나가는 입력이 모두 막히고 종료·닫기도 거부된다.
+   * 앱 전체 볼트 잠금(vault)과는 아무 상관이 없다 — 저장된 비밀번호는 그대로 쓸 수 있고,
+   * 볼트를 잠가도 이 값은 바뀌지 않는다. 실수로 명령을 치거나 창을 닫는 것만 막는 장치다.
+   */
+  locked = false;
   /** 셸이 열린 시각(ms). null = 아직 접속된 적 없음. 접속 유지시간의 기준점. */
   connectedAt: number | null = null;
   /** 끊긴 시각(ms). null = 접속 유지 중. 값이 있으면 유지시간이 여기서 멈춘다. */
@@ -138,6 +150,8 @@ class TerminalTab {
   private readonly termHost: HTMLDivElement;
   private readonly overlay: HTMLDivElement;
   private readonly toast: HTMLDivElement;
+  /** 잠긴 동안 늘 떠 있는 표시 — 입력이 안 먹는 이유를 화면에서 바로 알 수 있게 한다. */
+  private readonly lockBadge: HTMLDivElement;
   private readonly searchBar: HTMLDivElement;
   private readonly searchInput: HTMLInputElement;
   readonly term: Terminal;
@@ -177,12 +191,22 @@ class TerminalTab {
     this.overlay = el("div", "term-overlay");
     this.toast = el("div", "term-toast");
     this.toast.style.display = "none";
+    this.lockBadge = el("div", "term-lock-badge");
+    this.lockBadge.append(iconSpan("lock"), document.createTextNode("잠김"));
+    this.lockBadge.style.display = "none";
     this.searchBar = el("div", "term-search");
     this.searchBar.style.display = "none";
     this.searchInput = document.createElement("input");
     this.searchInput.placeholder = "검색 (Enter/F3, Shift+F3 역방향, Esc 닫기)";
     this.searchBar.appendChild(this.searchInput);
-    this.root.append(this.header, this.termHost, this.overlay, this.toast, this.searchBar);
+    this.root.append(
+      this.header,
+      this.termHost,
+      this.overlay,
+      this.toast,
+      this.lockBadge,
+      this.searchBar,
+    );
     this.headerLabel.textContent = session.name || `${session.user}@${session.host}`;
 
     const theme = themeById(settings.theme);
@@ -208,15 +232,27 @@ class TerminalTab {
     // — 컨테이너 배경을 터미널 배경색과 같게 칠해 눈에 띄지 않게 한다(글자 크기 무관).
     this.termHost.style.background = theme.term.background ?? "";
 
-    this.term.onData((d) => onInput(new TextEncoder().encode(d)));
+    this.term.onData((d) => this.send(new TextEncoder().encode(d)));
     this.term.onResize(() => onResize());
 
-    this.wireInput(onInput);
+    this.wireInput();
     this.wireSearch();
   }
 
+  /**
+   * 셸로 나가는 유일한 출구. 키 입력·붙여넣기·트리거·시작 명령이 모두 여기를 지나므로,
+   * 잠금은 이 한 곳에서 막으면 새어 나갈 경로가 남지 않는다.
+   */
+  private send(bytes: Uint8Array): void {
+    if (this.locked) {
+      this.showToast(LOCKED_HINT);
+      return;
+    }
+    this.onInput(bytes);
+  }
+
   // ── 입력/복사/붙여넣기/줌 ──
-  private wireInput(onInput: (bytes: Uint8Array) => void): void {
+  private wireInput(): void {
     // Ctrl+Enter 의 LF 를 항상 '지연' 전송한다. 한글 조합이 확정될 때 xterm 은 확정 문자를
     // setTimeout(0) 으로 보내므로, LF 도 setTimeout(0) 으로 미뤄야 "문자 → 개행" 순서가 지켜진다.
     // (동기로 보내면 IME 가 229 keydown→compositionend→실제 Enter keydown 순서를 낼 때
@@ -226,10 +262,13 @@ class TerminalTab {
       const now = performance.now();
       if (now - this.lastCtrlEnterLf < 50) return;
       this.lastCtrlEnterLf = now;
-      setTimeout(() => onInput(LF), 0);
+      setTimeout(() => this.send(LF), 0);
     };
 
     this.term.attachCustomKeyEventHandler((e) => {
+      // 잠금 중에는 keydown 이 아닌 키 이벤트(keypress 등)도 xterm 에 넘기지 않는다.
+      // xterm 은 keypress 로도 문자를 만들어 내므로 keydown 만 봐서는 막을 수 없다.
+      if (this.locked && e.type !== "keydown") return false;
       if (e.type !== "keydown") return true;
       const ctrl = e.ctrlKey;
       const stop = () => {
@@ -289,6 +328,12 @@ class TerminalTab {
         this.bumpZoom(-1);
         return stop();
       }
+      // 여기까지 온 키는 셸로 전달될 입력이다 — 잠금 중이면 막는다.
+      // 복사·검색·스크롤·확대는 위에서 이미 처리돼 잠겨 있어도 그대로 쓸 수 있다.
+      if (this.locked) {
+        this.showToast(LOCKED_HINT);
+        return stop();
+      }
       return true;
     });
 
@@ -345,6 +390,11 @@ class TerminalTab {
   }
 
   private async pasteClipboard(): Promise<void> {
+    // 잠긴 세션에서는 클립보드를 읽지도 않는다 — 어차피 보내지 못한다.
+    if (this.locked) {
+      this.showToast(LOCKED_HINT);
+      return;
+    }
     try {
       const t = await navigator.clipboard.readText();
       if (t) this.term.paste(t);
@@ -434,6 +484,13 @@ class TerminalTab {
     this.fitNow();
   }
 
+  /** 이 탭의 잠금을 켜고 끈다. 표시(배지·탭 라벨)까지 함께 맞춘다. */
+  setLocked(locked: boolean): void {
+    this.locked = locked;
+    this.root.classList.toggle("locked", locked);
+    this.lockBadge.style.display = locked ? "flex" : "none";
+  }
+
   /** 탭에 붙은 세션 정보 교체 — 편집·이름 변경 결과를 라벨에 즉시 반영한다. */
   setSession(next: SessionInfo): void {
     this.session = next;
@@ -486,7 +543,7 @@ class TerminalTab {
   }
 
   private sendText(text: string): void {
-    this.onInput(new TextEncoder().encode(text));
+    this.send(new TextEncoder().encode(text));
   }
 
   /**
@@ -935,9 +992,37 @@ export class TabManager {
     if (tab === this.active) this.emitStatus();
   }
 
+  /** 탭 잠금 토글 — 탭바 표시(자물쇠)를 함께 갱신한다. */
+  private setTabLocked(tab: TerminalTab, locked: boolean): void {
+    tab.setLocked(locked);
+    this.renderTabbar();
+  }
+
+  /**
+   * 잠긴 탭이면 이유를 알리고 true 를 돌려준다. 종료·닫기 계열 앞에 공통으로 쓴다
+   * — 조용히 무시하면 버튼이 고장 난 것처럼 보인다.
+   */
+  private async refuseIfLocked(tab: TerminalTab): Promise<boolean> {
+    if (!tab.locked) return false;
+    await alertDialog(
+      `'${tabName(tab)}' 세션은 잠겨 있습니다.\n` +
+        "탭을 우클릭해 '세션 잠금 해제' 를 먼저 하세요.",
+      "잠긴 세션",
+    );
+    return true;
+  }
+
+  /** 메뉴에서 고른 '세션 종료' — 잠긴 탭은 거부한다(잠금의 목적이 오조작 방지다). */
+  private async runDisconnect(tab: TerminalTab): Promise<void> {
+    if (await this.refuseIfLocked(tab)) return;
+    this.disconnectTab(tab);
+  }
+
   /** 메뉴에서 고른 재접속 — 살아 있는 연결을 끊고 다시 붙으므로 한 번 확인받는다. */
   private async reconnectFromMenu(tab: TerminalTab): Promise<void> {
     if (tab.status === "connected") {
+      // 살아 있는 연결을 끊게 되므로 '종료' 와 같은 기준으로 잠금이 걸린다.
+      if (await this.refuseIfLocked(tab)) return;
       const ok = await confirmDialog(
         `'${tabName(tab)}' 세션의 연결을 끊고 다시 접속할까요? 실행 중인 작업이 중단됩니다.`,
       );
@@ -949,10 +1034,17 @@ export class TabManager {
 
   /** 접속 중인 모든 세션을 '종료'(연결만 끊기)한다. 탭은 하나도 닫지 않는다. */
   private async disconnectAll(): Promise<void> {
-    const targets = this.tabs.filter((t) => t.liveId);
-    if (targets.length === 0) return;
+    const connected = this.tabs.filter((t) => t.liveId);
+    // 잠긴 탭은 건드리지 않는다 — 하나씩 끊을 때와 같은 기준이어야 잠금을 믿을 수 있다.
+    const targets = connected.filter((t) => !t.locked);
+    const lockedCount = connected.length - targets.length;
+    if (targets.length === 0) {
+      await alertDialog("접속 중인 세션이 모두 잠겨 있어 종료할 세션이 없습니다.", "잠긴 세션");
+      return;
+    }
     const ok = await confirmDialog(
-      `접속 중인 ${targets.length}개 세션을 모두 종료할까요? 탭은 닫지 않고 연결만 끊습니다.`,
+      `접속 중인 ${targets.length}개 세션을 모두 종료할까요? 탭은 닫지 않고 연결만 끊습니다.` +
+        (lockedCount > 0 ? `\n잠긴 세션 ${lockedCount}개는 그대로 둡니다.` : ""),
     );
     if (!ok) return;
     for (const t of targets) this.disconnectTab(t);
@@ -980,6 +1072,8 @@ export class TabManager {
   }
 
   private async closeTab(tab: TerminalTab): Promise<void> {
+    // 탭바 ×·가운데 클릭·Ctrl+F4·타일 헤더 × 가 모두 여기로 모이므로 잠금 검사는 여기 하나면 된다.
+    if (await this.refuseIfLocked(tab)) return;
     if (tab.status === "connected") {
       const ok = await this.confirmClose(tab.session.name || tab.session.host);
       if (!ok) return;
@@ -1068,8 +1162,16 @@ export class TabManager {
     items.push({ label: "재접속", accel: "r", action: () => void this.reconnectFromMenu(tab) });
     if (tab.status === "connected") {
       // '닫기' 와 다르다 — 연결만 끊고 탭은 남겨 재접속 화면이 되게 한다.
-      items.push({ label: "세션 종료", accel: "t", action: () => this.disconnectTab(tab) });
+      items.push({ label: "세션 종료", accel: "t", action: () => void this.runDisconnect(tab) });
     }
+
+    // 이 탭만의 잠금이다. 앱 전체 볼트 잠금과 헷갈리지 않도록 '세션' 을 붙여 부른다.
+    items.push({ separator: true });
+    items.push(
+      tab.locked
+        ? { label: "세션 잠금 해제", accel: "l", action: () => this.setTabLocked(tab, false) }
+        : { label: "세션 잠금", accel: "l", action: () => this.setTabLocked(tab, true) },
+    );
 
     items.push({ separator: true });
     items.push({
@@ -1096,6 +1198,7 @@ export class TabManager {
       const cls =
         "tab" +
         (tab === this.active ? " active" : "") +
+        (tab.locked ? " locked" : "") +
         (tab.status === "disconnected" ? " dead" : tab.activity ? " activity" : "");
       const item = el("div", cls);
 
@@ -1107,13 +1210,20 @@ export class TabManager {
       const close = document.createElement("button");
       close.className = "tab-close";
       applyIcon(close, "cancel");
-      close.title = "닫기";
+      close.title = "세션 닫기";
       close.addEventListener("click", (ev) => {
         ev.stopPropagation();
         void this.closeTab(tab);
       });
 
-      item.append(dot, label, close);
+      item.append(dot);
+      // 잠긴 탭은 자물쇠로 눈에 띄게 — 입력이 안 먹는 이유를 탭에서도 알 수 있어야 한다.
+      if (tab.locked) {
+        const lock = iconSpan("lock", "tab-lock");
+        lock.title = "잠긴 세션 — 입력·종료·닫기가 막혀 있습니다";
+        item.append(lock);
+      }
+      item.append(label, close);
       item.addEventListener("click", () => this.activate(tab));
       item.addEventListener("mousedown", (ev) => {
         if (ev.button === 1) {

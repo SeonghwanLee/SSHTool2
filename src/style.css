@@ -1157,6 +1157,29 @@ button {
   width: 260px;
   padding: 2px 6px;
 }
+/* 세션 잠금 — 이 탭만의 오조작 방지(앱 전체 볼트 잠금과 무관하다) */
+.tab-lock {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: #e0a54f;
+}
+.term-lock-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px; /* 토스트(우하단)·검색창(우상단)과 겹치지 않는 자리 */
+  z-index: 3; /* 끊긴 세션의 재접속 오버레이 위에도 보이게 */
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #e0a54f;
+  color: #1b1b1b;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 /* 비활성 탭의 상태는 통짜 배경 대신 점(dot)+글자색으로만 표시(깔끔) */
 .tab.activity:not(.active) .tab-label {
   color: #e0a54f; /* 호박색 — 아직 안 본 출력 있음 */
