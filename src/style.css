@@ -1644,11 +1644,28 @@ button {
   flex-direction: column;
   gap: 4px;
 }
-.trigger-row {
+/* 패턴 · 전송값 · 정규식 · 비밀 · 삭제.
+   머리글 행과 입력 행이 별도 그리드라, 체크박스 열은 폭을 고정해야 세로로 맞는다. */
+.trigger-row,
+.trigger-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr auto auto;
+  grid-template-columns: 1fr 1fr 40px 32px 28px;
   gap: 6px;
   align-items: center;
+}
+/* 체크박스만으로는 무엇을 뜻하는지 알 수 없어 열 머리글을 둔다(title 은 호버해야 보인다). */
+.trigger-cols {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 2px 2px;
+  white-space: nowrap;
+}
+.trigger-cols span:nth-child(3),
+.trigger-cols span:nth-child(4) {
+  text-align: center;
+}
+.trigger-row input[type="checkbox"] {
+  justify-self: center;
 }
 .trigger-row input[type="text"],
 .trigger-row input:not([type]) {

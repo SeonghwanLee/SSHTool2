@@ -13,9 +13,13 @@ use tauri::AppHandle;
 #[serde(rename_all = "camelCase")]
 pub struct TriggerRule {
     pub pattern: String,
+    /// 비밀 규칙이면 값은 볼트에 있고 여기는 빈 문자열이다.
     pub send: String,
     #[serde(default)]
     pub regex: bool,
+    /// true 면 send 를 파일이 아닌 볼트에 보관한다(옵트인).
+    #[serde(default)]
+    pub secret: bool,
 }
 
 /// 저장되는 세션 정의. JS(프론트)와 camelCase 로 1:1.
@@ -56,9 +60,12 @@ pub struct SessionInfo {
     /// 터미널 문자셋("UTF-8" | "EUC-KR" | "CP949").
     #[serde(default = "default_charset")]
     pub charset: String,
-    /// 접속 직후 자동 실행할 명령(줄바꿈 구분).
+    /// 접속 직후 자동 실행할 명령(줄바꿈 구분). 비밀이면 볼트에 있고 여기는 빈 문자열.
     #[serde(default)]
     pub startup_commands: String,
+    /// true 면 startup_commands 를 파일이 아닌 볼트에 보관한다(옵트인).
+    #[serde(default)]
+    pub startup_commands_secret: bool,
     /// 패턴 감지 자동 입력 규칙.
     #[serde(default)]
     pub triggers: Vec<TriggerRule>,

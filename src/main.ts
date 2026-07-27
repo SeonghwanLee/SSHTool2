@@ -15,6 +15,9 @@ import {
   vaultSetPassword,
   vaultGetPassword,
   vaultDeletePassword,
+  vaultSetSecret,
+  vaultGetSecret,
+  vaultDeleteSecret,
   keystoreStore,
   keystoreGet,
   keystoreHas,
@@ -436,6 +439,71 @@ function appToast(message: string): void {
   }, 2200);
 }
 
+// ── 세션의 '비밀 값'(트리거 send · 시작 명령) 볼트 분리 ──────────────────────
+//
+// 옵트인이다 — 사용자가 '비밀' 을 체크한 것만 볼트로 간다. 체크가 없으면 볼트를 쓰지
+// 않으므로, 볼트를 설정하지 않은 사용자도 무해한 트리거를 그대로 쓸 수 있다.
+// 세션 파일에는 빈 값 + 플래그만 남고, 실제 값은 접속 직전에 다시 채운다.
+
+const trigKey = (id: string): string => `${id}:triggers`;
+const startKey = (id: string): string => `${id}:startup`;
+
+/** 세션에 볼트로 보낼 비밀 값이 하나라도 있는가. */
+const hasSecrets = (s: SessionInfo): boolean =>
+  s.startupCommandsSecret || s.triggers.some((t) => t.secret);
+
+/**
+ * 저장 직전 호출 — 비밀 값을 볼트에 넣고, 파일에 남길 세션에서는 그 값을 비운다.
+ * 볼트 해제를 취소하면 null 을 돌려 저장 자체를 중단시킨다(평문으로 새어 나가지 않게).
+ */
+async function extractSecrets(s: SessionInfo): Promise<SessionInfo | null> {
+  if (!hasSecrets(s)) {
+    // 체크를 해제한 경우 볼트에 남아 있던 항목을 정리한다(실패는 무시 — 저장을 막지 않는다).
+    await vaultDeleteSecret(trigKey(s.id)).catch(() => {});
+    await vaultDeleteSecret(startKey(s.id)).catch(() => {});
+    return s;
+  }
+  if (!(await ensureVaultUnlocked())) return null;
+
+  const secretTriggers = s.triggers.filter((t) => t.secret);
+  if (secretTriggers.length) {
+    // 비밀 규칙의 send 만 모아 한 항목으로 — 패턴은 비밀이 아니라 파일에 남는다.
+    await vaultSetSecret(trigKey(s.id), JSON.stringify(secretTriggers.map((t) => t.send)));
+  } else {
+    await vaultDeleteSecret(trigKey(s.id)).catch(() => {});
+  }
+
+  if (s.startupCommandsSecret) await vaultSetSecret(startKey(s.id), s.startupCommands);
+  else await vaultDeleteSecret(startKey(s.id)).catch(() => {});
+
+  return {
+    ...s,
+    startupCommands: s.startupCommandsSecret ? "" : s.startupCommands,
+    triggers: s.triggers.map((t) => (t.secret ? { ...t, send: "" } : t)),
+  };
+}
+
+/**
+ * 접속 직전 호출 — 볼트에서 비밀 값을 꺼내 메모리 상의 세션을 원래대로 되돌린다.
+ * 해제를 취소하면 값이 빈 채로 접속한다(트리거가 안 걸릴 뿐, 접속 자체는 막지 않는다).
+ */
+async function hydrateSecrets(s: SessionInfo): Promise<SessionInfo> {
+  if (!hasSecrets(s)) return s;
+  if (!(await ensureVaultUnlocked())) return s;
+
+  let startup = s.startupCommands;
+  if (s.startupCommandsSecret) startup = (await vaultGetSecret(startKey(s.id))) ?? "";
+
+  let triggers = s.triggers;
+  if (s.triggers.some((t) => t.secret)) {
+    const raw = await vaultGetSecret(trigKey(s.id));
+    const sends: string[] = raw ? JSON.parse(raw) : [];
+    let n = 0;
+    triggers = s.triggers.map((t) => (t.secret ? { ...t, send: sends[n++] ?? "" } : t));
+  }
+  return { ...s, startupCommands: startup, triggers };
+}
+
 /**
  * 세션 하나에 대해 SFTP 브라우저를 연다. 사이드바(세션·최근 접속)와 세션 탭 우클릭이
  * 같은 경로를 쓰도록 한 곳에 둔다.
@@ -482,12 +550,16 @@ async function main(): Promise<void> {
           sessions = sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: now } : x));
           void persist().then(redraw);
         }
-        void tabs.openSession(s);
+        // 볼트에 있는 비밀 값(트리거·시작 명령)을 메모리에서만 되채워 넘긴다.
+        void hydrateSecrets(s).then((ready) => tabs.openSession(ready));
       },
       onEdit: async (s) => {
-        const edited = await sessionDialog(s, "세션 편집");
+        // 편집 창에는 볼트에 있던 값도 채워서 보여 준다(빈 칸으로 열리면 지운 걸로 오해한다).
+        const edited = await sessionDialog(await hydrateSecrets(s), "세션 편집");
         if (!edited) return;
-        sessions = sessions.map((x) => (x.id === edited.id ? edited : x));
+        const stripped = await extractSecrets(edited);
+        if (!stripped) return; // 볼트 해제 취소 — 평문으로 새지 않도록 저장 자체를 중단
+        sessions = sessions.map((x) => (x.id === stripped.id ? stripped : x));
         await persist();
         redraw();
       },
@@ -507,7 +579,9 @@ async function main(): Promise<void> {
       onNew: async () => {
         const created = await sessionDialog(blankSession(), "새 세션");
         if (!created) return;
-        sessions = [...sessions, created];
+        const stripped = await extractSecrets(created);
+        if (!stripped) return;
+        sessions = [...sessions, stripped];
         await persist();
         redraw();
       },
@@ -518,11 +592,16 @@ async function main(): Promise<void> {
         void tabs.openSession(temp);
       },
       onDuplicate: async (s) => {
+        // 복제본은 id 가 달라 원본의 볼트 항목을 가리키지 못한다. 비밀 값은 딸려가지
+        // 않으므로 플래그를 끄고 값도 비워 '있는 척' 하지 않게 한다.
         const copy: SessionInfo = {
           ...s,
           id: crypto.randomUUID(),
           name: `${s.name || s.host} (복사)`,
           sortOrder: s.sortOrder + 1,
+          startupCommands: s.startupCommandsSecret ? "" : s.startupCommands,
+          startupCommandsSecret: false,
+          triggers: s.triggers.map((t) => (t.secret ? { ...t, send: "", secret: false } : t)),
         };
         sessions = [...sessions, copy];
         await persist();

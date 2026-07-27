@@ -305,17 +305,47 @@ pub fn lock(state: &VaultState) {
     *state.dek.lock().unwrap() = None;
 }
 
+/// 임의의 비밀 값을 볼트에 넣는다.
+///
+/// `entries` 키는 네임스페이스로 구분한다 — `"{세션id}"` 는 비밀번호(기존 그대로),
+/// `"{세션id}:triggers"`·`"{세션id}:startup"` 은 세션 편집기의 비밀 필드.
+/// 기존 키는 UUID 라 `:` 가 들어갈 일이 없어 충돌하지 않는다.
+pub fn set_secret(
+    app: &AppHandle,
+    state: &VaultState,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let dek = current_dek(state)?;
+    let mut vf = read_file(app)?.ok_or("볼트가 아직 없습니다")?;
+    vf.entries.insert(key, encrypt(&dek, value.as_bytes())?);
+    write_file(app, &vf)
+}
+
+pub fn get_secret(
+    app: &AppHandle,
+    state: &VaultState,
+    key: &str,
+) -> Result<Option<String>, String> {
+    let dek = current_dek(state)?;
+    let Some(vf) = read_file(app)? else {
+        return Ok(None);
+    };
+    let Some(blob) = vf.entries.get(key) else {
+        return Ok(None);
+    };
+    let bytes = decrypt(&dek, blob)?;
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+}
+
+/// 세션 비밀번호 — 키가 세션 id 그대로인 `set_secret`.
 pub fn set_password(
     app: &AppHandle,
     state: &VaultState,
     session_id: String,
     password: String,
 ) -> Result<(), String> {
-    let dek = current_dek(state)?;
-    let mut vf = read_file(app)?.ok_or("볼트가 아직 없습니다")?;
-    vf.entries
-        .insert(session_id, encrypt(&dek, password.as_bytes())?);
-    write_file(app, &vf)
+    set_secret(app, state, session_id, password)
 }
 
 pub fn get_password(
@@ -323,22 +353,31 @@ pub fn get_password(
     state: &VaultState,
     session_id: &str,
 ) -> Result<Option<String>, String> {
-    let dek = current_dek(state)?;
-    let Some(vf) = read_file(app)? else {
-        return Ok(None);
-    };
-    let Some(blob) = vf.entries.get(session_id) else {
-        return Ok(None);
-    };
-    let bytes = decrypt(&dek, blob)?;
-    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+    get_secret(app, state, session_id)
 }
 
+/// 세션 하나에 딸린 항목을 모두 지운다 — 비밀번호(`{id}`)와 네임스페이스 항목(`{id}:*`).
+/// 세션을 지울 때 볼트에 유령 항목이 남지 않도록 접두사로 함께 훑는다.
 pub fn delete_password(app: &AppHandle, session_id: &str) -> Result<(), String> {
     let Some(mut vf) = read_file(app)? else {
         return Ok(());
     };
-    if vf.entries.remove(session_id).is_some() {
+    let prefix = format!("{session_id}:");
+    let before = vf.entries.len();
+    vf.entries
+        .retain(|k, _| k != session_id && !k.starts_with(&prefix));
+    if vf.entries.len() != before {
+        write_file(app, &vf)?;
+    }
+    Ok(())
+}
+
+/// 개별 비밀 항목 삭제 — 사용자가 '비밀 값' 체크를 해제했을 때.
+pub fn delete_secret(app: &AppHandle, key: &str) -> Result<(), String> {
+    let Some(mut vf) = read_file(app)? else {
+        return Ok(());
+    };
+    if vf.entries.remove(key).is_some() {
         write_file(app, &vf)?;
     }
     Ok(())

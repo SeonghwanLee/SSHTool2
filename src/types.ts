@@ -4,8 +4,10 @@
 export interface TriggerRule {
   /** 감지할 패턴(정규식 또는 부분문자열). */
   pattern: string;
-  /** 감지 시 전송할 문자열(끝에 개행이 필요하면 직접 포함). */
+  /** 감지 시 전송할 문자열(끝에 개행이 필요하면 직접 포함). 비밀이면 볼트에 보관되어 여기선 빈 값. */
   send: string;
+  /** true 면 send 를 세션 파일이 아니라 볼트에 저장한다(옵트인). */
+  secret: boolean;
   /** true 면 pattern 을 정규식으로 해석. */
   regex: boolean;
 }
@@ -49,8 +51,10 @@ export interface SessionInfo {
   sortOrder: number;
   /** 터미널 문자셋. 비-UTF-8 은 백엔드에서 변환. */
   charset: Charset;
-  /** 접속 직후 자동 실행할 명령(줄바꿈 구분). */
+  /** 접속 직후 자동 실행할 명령(줄바꿈 구분). 비밀이면 볼트에 보관되어 여기선 빈 값. */
   startupCommands: string;
+  /** true 면 startupCommands 를 세션 파일이 아니라 볼트에 저장한다(옵트인). */
+  startupCommandsSecret: boolean;
   /** 패턴 감지 자동 입력 규칙. */
   triggers: TriggerRule[];
   /** true 면 터미널 수신 내용을 logs/ 에 파일로 기록. */
@@ -88,6 +92,7 @@ export function blankSession(): SessionInfo {
     sortOrder: 0,
     charset: "UTF-8",
     startupCommands: "",
+    startupCommandsSecret: false,
     triggers: [],
     enableLog: false,
     enableSftp: true,
@@ -104,6 +109,8 @@ export function normalizeSession(s: Partial<SessionInfo>): SessionInfo {
     ...blankSession(),
     ...s,
     id: s.id ?? crypto.randomUUID(),
-    triggers: Array.isArray(s.triggers) ? s.triggers : [],
+    triggers: Array.isArray(s.triggers)
+      ? s.triggers.map((t) => ({ ...t, secret: t.secret ?? false }))
+      : [],
   };
 }

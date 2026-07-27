@@ -146,6 +146,14 @@ export const vaultSetPassword = (sessionId: string, password: string): Promise<v
   invoke("vault_set_password", { sessionId, password });
 export const vaultGetPassword = (sessionId: string): Promise<string | null> =>
   invoke<string | null>("vault_get_password", { sessionId });
+/** 세션 편집기의 '비밀 값' — 키는 `${sessionId}:triggers` / `${sessionId}:startup`. */
+export const vaultSetSecret = (key: string, value: string): Promise<void> =>
+  invoke("vault_set_secret", { key, value });
+export const vaultGetSecret = (key: string): Promise<string | null> =>
+  invoke<string | null>("vault_get_secret", { key });
+export const vaultDeleteSecret = (key: string): Promise<void> =>
+  invoke("vault_delete_secret", { key });
+
 export const vaultDeletePassword = (sessionId: string): Promise<void> =>
   invoke("vault_delete_password", { sessionId });
 

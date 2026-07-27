@@ -106,6 +106,19 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         startup.placeholder = "접속 후 자동 실행 (한 줄에 하나)\n예: cd /projects\n예: claude";
         startup.value = initial.startupCommands;
 
+        // 시작 명령도 트리거와 같은 기준 — 체크한 세션만 볼트로 보낸다.
+        // (무조건 볼트로 보내면 `cd /projects` 만 쓰는 세션도 접속마다 볼트 해제를 요구하게 된다.)
+        const startupSecretRow = document.createElement("label");
+        startupSecretRow.className = "check-row";
+        const startupSecretBox = document.createElement("input");
+        startupSecretBox.type = "checkbox";
+        startupSecretBox.checked = initial.startupCommandsSecret;
+        const startupSecretText = document.createElement("span");
+        startupSecretText.textContent = "시작 명령에 비밀 값 포함 (볼트에 저장)";
+        startupSecretRow.title =
+          "체크하면 위 명령을 세션 파일 대신 볼트에 저장합니다. 접속할 때 볼트 해제가 필요합니다.";
+        startupSecretRow.append(startupSecretBox, startupSecretText);
+
         const forwards = document.createElement("textarea");
         forwards.className = "area-input";
         forwards.rows = 2;
@@ -237,6 +250,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           "자동화",
           charsetField,
           field("접속 시 자동 실행", startup),
+          startupSecretRow,
           forwardsField,
           sftpRow,
           logRow,
@@ -286,6 +300,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
             savePassword: savePw.checked,
             charset: charset.value as Charset,
             startupCommands: startup.value,
+            startupCommandsSecret: startupSecretBox.checked,
             portForwards: forwards.value,
             enableLog: logBox.checked,
             enableSftp: sftpBox.checked,
@@ -327,7 +342,7 @@ class TriggerEditor {
     add.className = "sftp-btn";
     add.textContent = "규칙 추가";
     add.addEventListener("click", () => {
-      this.rules = [...this.rules, { pattern: "", send: "", regex: false }];
+      this.rules = [...this.rules, { pattern: "", send: "", regex: false, secret: false }];
       this.draw();
     });
     head.append(label, add);
@@ -340,11 +355,22 @@ class TriggerEditor {
       "⚠ 트리거는 서버가 보낸 출력에 반응해 값을 자동으로 전송합니다.\n" +
       "서버를 장악한 쪽이 패턴 문자열을 아무 때나 출력하면 그 값을 그대로 받아낼 수 있습니다. " +
       "색상 코드로 위장한 출력도 감지되고, 1초 간격으로 반복해서 끌어낼 수 있습니다.\n" +
-      "비밀번호·sudo 암호는 넣지 마세요. 규칙 값은 세션 파일에 그대로 저장됩니다.";
+      "비밀번호·sudo 암호는 넣지 마세요.\n" +
+      "'비밀' 을 체크하면 값이 세션 파일 대신 볼트에 저장되지만, 그것은 디스크에 남는 것만 " +
+      "가립니다 — 위의 자동 전송 위험은 그대로입니다.";
+
+    // 체크박스 두 개가 무엇인지 알 수 있도록 열 머리글을 붙인다.
+    const cols = document.createElement("div");
+    cols.className = "trigger-cols";
+    for (const t of ["감지할 패턴", "전송할 값", "정규식", "비밀", ""]) {
+      const c = document.createElement("span");
+      c.textContent = t;
+      cols.appendChild(c);
+    }
 
     this.list.className = "trigger-list";
     this.draw();
-    wrap.append(head, warn, this.list);
+    wrap.append(head, warn, cols, this.list);
     return wrap;
   }
 
@@ -366,6 +392,15 @@ class TriggerEditor {
       rx.title = "정규식으로 해석";
       rx.addEventListener("change", () => (this.rules[i].regex = rx.checked));
 
+      // 체크한 규칙의 값만 볼트로 간다. y/q 같은 무해한 규칙까지 볼트를 요구하지 않기 위해
+      // 옵트인으로 둔다(끄면 값은 세션 파일에 평문으로 남는다).
+      const sec = document.createElement("input");
+      sec.type = "checkbox";
+      sec.checked = rule.secret;
+      sec.title = "비밀 값 — 세션 파일 대신 볼트에 저장(볼트 마스터 필요)";
+      sec.classList.add("trigger-secret");
+      sec.addEventListener("change", () => (this.rules[i].secret = sec.checked));
+
       const del = document.createElement("button");
       del.type = "button";
       del.className = "tree-act";
@@ -376,7 +411,7 @@ class TriggerEditor {
         this.draw();
       });
 
-      row.append(pattern, send, rx, del);
+      row.append(pattern, send, rx, sec, del);
       this.list.appendChild(row);
     });
   }

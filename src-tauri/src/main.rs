@@ -190,6 +190,31 @@ fn vault_delete_password(app: AppHandle, session_id: String) -> Result<(), Strin
     vault::delete_password(&app, &session_id)
 }
 
+/// 세션 편집기의 '비밀 값'(트리거·시작 명령) — 키는 "{세션id}:triggers" 형식.
+#[tauri::command]
+fn vault_set_secret(
+    app: AppHandle,
+    state: State<'_, VaultState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    vault::set_secret(&app, &state, key, value)
+}
+
+#[tauri::command]
+fn vault_get_secret(
+    app: AppHandle,
+    state: State<'_, VaultState>,
+    key: String,
+) -> Result<Option<String>, String> {
+    vault::get_secret(&app, &state, &key)
+}
+
+#[tauri::command]
+fn vault_delete_secret(app: AppHandle, key: String) -> Result<(), String> {
+    vault::delete_secret(&app, &key)
+}
+
 #[tauri::command]
 async fn sftp_connect(
     app: AppHandle,
@@ -581,6 +606,9 @@ fn main() {
             vault_set_password,
             vault_get_password,
             vault_delete_password,
+            vault_set_secret,
+            vault_get_secret,
+            vault_delete_secret,
             sftp_connect,
             sftp_list,
             sftp_download,
