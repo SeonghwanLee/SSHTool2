@@ -4,7 +4,8 @@
 
 import { Terminal } from "@xterm/xterm";
 import { applyIcon } from "./icons";
-import { showContextMenu } from "./contextmenu";
+import { showContextMenu, type MenuItem } from "./contextmenu";
+import { confirmDialog } from "./dialogs";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -53,6 +54,27 @@ export interface CredentialProvider {
 }
 
 const LOCAL_CREDS: ResolvedCreds = { user: "", password: "", prompted: false };
+
+/**
+ * 세션 탭 우클릭 메뉴가 앱 쪽(main.ts)에 위임하는 동작 묶음.
+ *
+ * 인자를 하나씩 늘리는 대신 객체로 받는다 — 생성자 인자가 이미 여덟 개라 순서로 구분하기
+ * 어렵고, 항목이 늘 때마다 호출부가 위치로 어긋날 위험이 크다.
+ * 주입되지 않은 동작은 메뉴에 항목 자체를 넣지 않는다(눌러도 아무 일 없는 항목 금지).
+ */
+export interface TabActions {
+  /** SFTP 파일 전송 창 열기. */
+  sftp?: (session: SessionInfo) => void;
+  /** 저장 세션 이름 변경. 바뀐 이름을 돌려주면 탭 라벨을 즉시 갱신한다(취소는 null). */
+  rename?: (session: SessionInfo) => Promise<string | null>;
+  /** 저장 세션 편집. 편집 결과를 돌려주면 탭이 들고 있는 세션도 함께 갱신한다(취소는 null). */
+  edit?: (session: SessionInfo) => Promise<SessionInfo | null>;
+  /**
+   * 이 세션이 저장 목록에 있는지. 빠른 접속 같은 임시 세션은 저장 목록에 없어
+   * 이름 변경·편집이 아무것도 바꾸지 못하므로, false 면 두 항목을 메뉴에서 숨긴다.
+   */
+  isSaved?: (session: SessionInfo) => boolean;
+}
 
 export interface StatusInfo {
   label: string;
@@ -412,6 +434,12 @@ class TerminalTab {
     this.fitNow();
   }
 
+  /** 탭에 붙은 세션 정보 교체 — 편집·이름 변경 결과를 라벨에 즉시 반영한다. */
+  setSession(next: SessionInfo): void {
+    this.session = next;
+    this.headerLabel.textContent = next.name || `${next.user}@${next.host}`;
+  }
+
   get cols(): number {
     return this.term.cols;
   }
@@ -586,8 +614,8 @@ export class TabManager {
     settings: Settings,
     private readonly onStatus: (info: StatusInfo) => void,
     private readonly onSessionFontSize: (session: SessionInfo, size: number) => void = () => {},
-    /** 세션 탭 우클릭 → SFTP 파일 전송. 미주입 시 메뉴에 항목을 넣지 않는다. */
-    private readonly onSftp?: (session: SessionInfo) => void,
+    /** 세션 탭 우클릭 메뉴가 앱에 위임하는 동작들. 미주입 항목은 메뉴에 넣지 않는다. */
+    private readonly actions: TabActions = {},
   ) {
     this.settings = settings;
 
@@ -892,6 +920,65 @@ export class TabManager {
     this.layout(false);
   }
 
+  /**
+   * SSH 연결만 끊고 탭은 그대로 남긴다('닫기' 와 다르다).
+   * 끊긴 뒤에는 평소 연결이 죽었을 때와 똑같이 '재접속' 오버레이가 뜬다.
+   */
+  private disconnectTab(tab: TerminalTab): void {
+    const id = tab.liveId;
+    if (!id) return; // 이미 끊긴 탭
+    // 먼저 매핑을 지운다 — 백엔드가 뒤이어 보내는 종료 이벤트가 오버레이를 덧그리지 않게.
+    this.byLiveId.delete(id);
+    void closeOf(tab.session, id);
+    tab.setDisconnected("세션을 종료했습니다.", () => void this.reconnect(tab));
+    this.renderTabbar();
+    if (tab === this.active) this.emitStatus();
+  }
+
+  /** 메뉴에서 고른 재접속 — 살아 있는 연결을 끊고 다시 붙으므로 한 번 확인받는다. */
+  private async reconnectFromMenu(tab: TerminalTab): Promise<void> {
+    if (tab.status === "connected") {
+      const ok = await confirmDialog(
+        `'${tabName(tab)}' 세션의 연결을 끊고 다시 접속할까요? 실행 중인 작업이 중단됩니다.`,
+      );
+      if (!ok) return;
+      this.disconnectTab(tab);
+    }
+    await this.reconnect(tab);
+  }
+
+  /** 접속 중인 모든 세션을 '종료'(연결만 끊기)한다. 탭은 하나도 닫지 않는다. */
+  private async disconnectAll(): Promise<void> {
+    const targets = this.tabs.filter((t) => t.liveId);
+    if (targets.length === 0) return;
+    const ok = await confirmDialog(
+      `접속 중인 ${targets.length}개 세션을 모두 종료할까요? 탭은 닫지 않고 연결만 끊습니다.`,
+    );
+    if (!ok) return;
+    for (const t of targets) this.disconnectTab(t);
+  }
+
+  /** 편집·이름 변경 결과를 같은 세션을 쓰는 모든 탭에 반영한다(하나 더 열어 둔 경우 포함). */
+  private applySessionUpdate(next: SessionInfo): void {
+    for (const t of this.tabs) {
+      if (t.session.id === next.id) t.setSession({ ...next });
+    }
+    this.renderTabbar();
+    this.emitStatus();
+  }
+
+  private async runRename(tab: TerminalTab): Promise<void> {
+    const name = await this.actions.rename?.(tab.session);
+    if (!name) return;
+    this.applySessionUpdate({ ...tab.session, name });
+  }
+
+  private async runEdit(tab: TerminalTab): Promise<void> {
+    const edited = await this.actions.edit?.(tab.session);
+    if (!edited) return;
+    this.applySessionUpdate(edited);
+  }
+
   private async closeTab(tab: TerminalTab): Promise<void> {
     if (tab.status === "connected") {
       const ok = await this.confirmClose(tab.session.name || tab.session.host);
@@ -950,6 +1037,59 @@ export class TabManager {
     });
   }
 
+  /**
+   * 세션 탭 우클릭 메뉴 구성. 성격별로 묶어 구분선을 넣는다 —
+   * 세션 정의(편집·이름 변경) → 열기 계열 → 접속 계열 → 닫기·전체 종료.
+   * 상황에 맞지 않는 항목은 아예 넣지 않는다(임시 세션의 편집, 로컬 셸의 SFTP 등).
+   */
+  private tabMenu(tab: TerminalTab): MenuItem[] {
+    const s = tab.session;
+    // 빠른 접속처럼 저장 목록에 없는 세션은 편집·이름 변경이 아무것도 남기지 못한다.
+    const saved = this.actions.isSaved?.(s) ?? false;
+    const items: MenuItem[] = [];
+
+    if (saved && this.actions.edit) {
+      items.push({ label: "세션 편집", accel: "e", action: () => void this.runEdit(tab) });
+    }
+    if (saved && this.actions.rename) {
+      items.push({ label: "세션 이름 변경", accel: "n", action: () => void this.runRename(tab) });
+    }
+    if (items.length) items.push({ separator: true });
+
+    // 같은 세션으로 접속을 하나 더 연다. tab.session 을 그대로 쓰므로 볼트에서 꺼낸
+    // 비밀 값(트리거·시작 명령)이 이미 채워져 있어 다시 묻지 않는다.
+    items.push({ label: "세션 하나 더 열기", accel: "d", action: () => void this.openSession(s) });
+    // 로컬 셸과 SFTP 를 끈 세션에는 전송 항목을 넣지 않는다(사이드바와 같은 기준).
+    if (this.actions.sftp && s.kind !== "local" && s.enableSftp) {
+      items.push({ label: "SFTP 파일 전송", accel: "f", action: () => this.actions.sftp?.(s) });
+    }
+
+    items.push({ separator: true });
+    items.push({ label: "재접속", accel: "r", action: () => void this.reconnectFromMenu(tab) });
+    if (tab.status === "connected") {
+      // '닫기' 와 다르다 — 연결만 끊고 탭은 남겨 재접속 화면이 되게 한다.
+      items.push({ label: "세션 종료", accel: "t", action: () => this.disconnectTab(tab) });
+    }
+
+    items.push({ separator: true });
+    items.push({
+      label: "세션 닫기",
+      accel: "c",
+      danger: true,
+      action: () => void this.closeTab(tab),
+    });
+    // 접속이 하나뿐이면 위의 '세션 종료' 와 결과가 같아 굳이 내놓지 않는다.
+    if (this.connectedCount() >= 2) {
+      items.push({
+        label: "접속된 모든 세션 종료",
+        accel: "a",
+        danger: true,
+        action: () => void this.disconnectAll(),
+      });
+    }
+    return items;
+  }
+
   private renderTabbar(): void {
     this.tabbar.innerHTML = "";
     for (const tab of this.tabs) {
@@ -984,31 +1124,18 @@ export class TabManager {
       item.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
         this.activate(tab); // 어느 탭에 대한 메뉴인지 눈으로 분명히
-        const s = tab.session;
-        // 로컬 셸과 SFTP 를 끈 세션에는 전송 항목을 넣지 않는다(사이드바와 같은 기준).
-        const sftpItem =
-          this.onSftp && s.kind !== "local" && s.enableSftp
-            ? [{ label: "SFTP 파일 전송", accel: "f", action: () => this.onSftp?.(s) } as const]
-            : [];
-        showContextMenu(ev.clientX, ev.clientY, [
-          // 같은 세션으로 접속을 하나 더 연다. tab.session 을 그대로 쓰므로 볼트에서
-          // 꺼낸 비밀 값(트리거·시작 명령)이 이미 채워져 있어 다시 묻지 않는다.
-          {
-            label: "세션 하나 더 열기",
-            accel: "d",
-            action: () => void this.openSession(tab.session),
-          },
-          { separator: true },
-          ...sftpItem,
-          ...(sftpItem.length ? [{ separator: true } as const] : []),
-          { label: "닫기", accel: "c", danger: true, action: () => void this.closeTab(tab) },
-        ]);
+        showContextMenu(ev.clientX, ev.clientY, this.tabMenu(tab));
       });
       this.tabbar.appendChild(item);
     }
     // 탭바를 다시 그리는 시점 = 탭 추가/삭제·접속 상태 변화가 확정된 시점.
     for (const fn of this.tabsChanged) fn();
   }
+}
+
+/** 확인 문구에 쓸 탭 표시 이름 — 이름이 없으면 호스트로 대신한다. */
+function tabName(tab: TerminalTab): string {
+  return tab.session.name || tab.session.host || "세션";
 }
 
 function el(tag: string, className: string): HTMLDivElement {

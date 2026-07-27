@@ -522,6 +522,39 @@ async function hydrateSecrets(s: SessionInfo): Promise<SessionInfo> {
  * 세션 하나에 대해 SFTP 브라우저를 연다. 사이드바(세션·최근 접속)와 세션 탭 우클릭이
  * 같은 경로를 쓰도록 한 곳에 둔다.
  */
+/**
+ * 세션 편집 창을 열고 결과를 저장한다. 사이드바와 세션 탭 우클릭이 같은 경로를 쓰도록
+ * 한 곳에 둔다. 반환값은 편집 결과(볼트 값이 채워진 메모리 상의 세션) — 열려 있는 탭이
+ * 들고 있는 세션을 갱신하는 데 쓴다. 취소하거나 저장이 중단되면 null.
+ */
+async function editSessionFlow(s: SessionInfo): Promise<SessionInfo | null> {
+  // 편집 창에는 볼트에 있던 값도 채워서 보여 준다(빈 칸으로 열리면 지운 걸로 오해한다).
+  const edited = await sessionDialog(await hydrateSecrets(s), "세션 편집");
+  if (!edited) return null;
+  const stripped = await extractSecrets(edited);
+  if (!stripped) return null; // 볼트 해제 취소 — 평문으로 새지 않도록 저장 자체를 중단
+  sessions = sessions.map((x) => (x.id === stripped.id ? stripped : x));
+  await persist();
+  redraw();
+  return edited;
+}
+
+/**
+ * 세션 이름 변경 — 사이드바와 세션 탭 우클릭 공용. 바뀐 이름을 돌려주면
+ * 호출한 쪽(탭)이 라벨을 즉시 갱신한다. 취소하면 null.
+ */
+async function renameSessionFlow(s: SessionInfo): Promise<string | null> {
+  const next = await textPrompt("이름 변경", s.name, "변경");
+  if (!next) return null;
+  sessions = sessions.map((x) => (x.id === s.id ? { ...x, name: next } : x));
+  await persist();
+  redraw();
+  return next;
+}
+
+/** 저장 목록에 있는 세션인지 — 빠른 접속 등 임시 세션과 구분한다. */
+const isSavedSession = (s: SessionInfo): boolean => sessions.some((x) => x.id === s.id);
+
 async function openSftpFor(s: SessionInfo): Promise<void> {
   // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
   const creds = await credentials.resolve(s);
@@ -550,7 +583,12 @@ async function main(): Promise<void> {
     settings,
     updateStatusBar,
     onSessionFontSize,
-    (s) => void openSftpFor(s),
+    {
+      sftp: (s) => void openSftpFor(s),
+      rename: renameSessionFlow,
+      edit: editSessionFlow,
+      isSaved: isSavedSession,
+    },
   );
   tabManager = tabs;
 
@@ -568,14 +606,7 @@ async function main(): Promise<void> {
         void hydrateSecrets(s).then((ready) => tabs.openSession(ready));
       },
       onEdit: async (s) => {
-        // 편집 창에는 볼트에 있던 값도 채워서 보여 준다(빈 칸으로 열리면 지운 걸로 오해한다).
-        const edited = await sessionDialog(await hydrateSecrets(s), "세션 편집");
-        if (!edited) return;
-        const stripped = await extractSecrets(edited);
-        if (!stripped) return; // 볼트 해제 취소 — 평문으로 새지 않도록 저장 자체를 중단
-        sessions = sessions.map((x) => (x.id === stripped.id ? stripped : x));
-        await persist();
-        redraw();
+        await editSessionFlow(s);
       },
       onDelete: async (s) => {
         const ok = await confirmDialog(`'${s.name || s.host}' 세션을 삭제할까요?`);
@@ -631,11 +662,7 @@ async function main(): Promise<void> {
         redraw();
       },
       onRename: async (s) => {
-        const next = await textPrompt("이름 변경", s.name, "변경");
-        if (!next) return;
-        sessions = sessions.map((x) => (x.id === s.id ? { ...x, name: next } : x));
-        await persist();
-        redraw();
+        await renameSessionFlow(s);
       },
       onReorder: async (s, dir) => {
         sessions = reorderSession(sessions, s, dir);
