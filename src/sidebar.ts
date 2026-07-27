@@ -447,17 +447,41 @@ export class Sidebar {
       icon.className = "tree-icon";
       applyIcon(icon, s.kind === "local" ? "local" : "remote");
 
-      const name = document.createElement("span");
-      name.className = "recent-name";
+      // 구조·클래스를 세션 행(sessionRow)과 똑같이 맞춘다. 예전에는 이름·세부정보·버튼을
+      // 행에 나란히 붙였는데, 늘어나는 몫이 세부정보에만 있어서 '세션 세부정보 표시'를 끄면
+      // 버튼이 오른쪽 끝이 아니라 이름 옆에 따라붙었다. 세션 행처럼 이름+세부정보를 한 겹
+      // 감싸 그 묶음이 늘어나게 하면 세부정보 유무와 무관하게 버튼이 오른쪽에 고정된다.
+      // 클래스까지 공유해 두 목록이 다시 어긋나지 않게 한다.
+      const main = document.createElement("div");
+      main.className = "tree-session-main";
+      const name = document.createElement("div");
+      name.className = "tree-session-name";
       name.textContent = s.name || s.host;
-
-      const detail = document.createElement("span");
-      detail.className = "recent-detail";
+      const detail = document.createElement("div");
+      detail.className = "tree-session-detail";
       detail.textContent = detailText(s);
+      main.append(name);
+      // '세션 세부정보 표시' 는 최근 접속에도 같이 적용한다 — 세션 행에만 걸려 있어
+      // 설정을 꺼도 최근 접속에는 계정@호스트가 그대로 남아 있었다.
+      if (this.showDetail) main.append(detail);
+
+      const actions = document.createElement("div");
+      actions.className = "tree-actions";
+
+      // 세션 행과 같은 기준 — 로컬 셸이거나 SFTP 를 끈 세션에는 노출하지 않는다.
+      const sftpAvailable = s.kind === "ssh" && s.enableSftp;
+      const sftp = document.createElement("button");
+      sftp.className = "tree-act sftp-chip";
+      const sftpAlive = this.paintSftpChip(sftp, s);
+      sftp.style.display = sftpAvailable ? "" : "none";
+      sftp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.cb.onSftp(s);
+      });
 
       // 마우스 오버 시 나타나는 개별 삭제(휴지통) 버튼.
       const del = document.createElement("button");
-      del.className = "recent-del tree-act";
+      del.className = "tree-act";
       applyIcon(del, "delete");
       del.title = "최근 목록에서 삭제";
       del.addEventListener("click", (e) => {
@@ -465,22 +489,10 @@ export class Sidebar {
         this.cb.onRemoveRecent(s);
       });
 
-      // 세션 행과 같은 기준 — 로컬 셸이거나 SFTP 를 끈 세션에는 노출하지 않는다.
-      const sftpAvailable = s.kind === "ssh" && s.enableSftp;
-      const sftp = document.createElement("button");
-      sftp.className = "recent-sftp tree-act sftp-chip";
-      this.paintSftpChip(sftp, s);
-      sftp.style.display = sftpAvailable ? "" : "none";
-      sftp.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.cb.onSftp(s);
-      });
-
-      // '세션 세부정보 표시' 는 최근 접속에도 같이 적용한다 — 세션 행에만 걸려 있어
-      // 설정을 꺼도 최근 접속에는 계정@호스트가 그대로 남아 있었다.
-      row.append(icon, name);
-      if (this.showDetail) row.append(detail);
-      row.append(sftp, del);
+      actions.append(sftp, del);
+      // 연결이 살아 있으면 호버하지 않아도 칩이 보인다(세션 행과 동일).
+      row.classList.toggle("has-sftp", sftpAlive);
+      row.append(icon, main, actions);
       row.dataset.navKind = "recent";
       this.registerNav(row, `r:${s.id}`, () => this.cb.onOpen(s));
       // 세션 행과 같은 규칙 — 단일 클릭은 선택만, 접속은 더블클릭.

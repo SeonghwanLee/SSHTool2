@@ -376,6 +376,8 @@ export async function openSftpBrowser(
     constructor(
       private readonly side: Side,
       private readonly onPick: (path: string) => void,
+      /** 트리 폴더 우클릭 — 그 폴더를 대상으로 한 메뉴를 띄운다. */
+      private readonly onMenu?: (path: string, x: number, y: number) => void,
     ) {
       this.el.className = "sftp-tree";
     }
@@ -467,6 +469,11 @@ export async function openSftpBrowser(
 
       row.append(arrow, icon, label);
       row.addEventListener("click", () => this.onPick(path));
+      row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.onMenu?.(path, e.clientX, e.clientY);
+      });
       this.el.appendChild(row);
 
       if (isOpen && kids) {
@@ -495,7 +502,27 @@ export async function openSftpBrowser(
 
     constructor(readonly side: Side) {
       this.root.className = "sftp-pane";
-      this.tree = new DirTree(side, (p) => void this.go(p));
+      // 트리에서 고른 폴더를 반대편으로 통째로 옮긴다. 목록으로 내려가 그 폴더를 찾아
+      // 우클릭할 필요 없이, 트리에서 바로 보내려는 것이 이 메뉴의 목적이다.
+      this.tree = new DirTree(
+        side,
+        (p) => void this.go(p),
+        (path, x, y) => {
+          // 트리에 보이는 폴더가 반대편 목록에 떠 있다는 보장이 없어 항목을 직접 만든다.
+          const folder: Entry = { name: baseName(path), path, isDir: true, size: 0, modified: 0 };
+          showContextMenu(x, y, [
+            { label: "이 폴더 열기", accel: "o", action: () => void this.go(path) },
+            { separator: true },
+            {
+              label: side === "local" ? "업로드 →" : "← 다운로드",
+              accel: "t",
+              action: () => void transferItems(this.other, [folder]),
+            },
+            { separator: true },
+            { label: "새로고침", accel: "f", action: () => void this.tree.reveal(path, true) },
+          ]);
+        },
+      );
 
       const head = document.createElement("div");
       head.className = "sftp-pane-head";
@@ -1116,8 +1143,16 @@ export async function openSftpBrowser(
 
   /** dest 패널로 소스 경로들을 전송(폴더는 재귀). */
   async function transferInto(dest: Pane, paths: string[]): Promise<void> {
+    // 목록에 보이는 항목을 옮기는 경로 — 경로를 현재 목록에서 실제 항목으로 바꿔 넘긴다.
+    await transferItems(dest, dest.other.entries.filter((e) => paths.includes(e.path)));
+  }
+
+  /**
+   * 항목을 실제로 옮긴다. 목록(`entries`)에 없는 것도 옮길 수 있어야 해서 경로가 아니라
+   * 항목을 받는다 — 트리에서 고른 폴더는 반대편 목록에 떠 있지 않을 수 있다.
+   */
+  async function transferItems(dest: Pane, items: Entry[]): Promise<void> {
     const src = dest.other;
-    const items = src.entries.filter((e) => paths.includes(e.path));
     if (items.length === 0) return;
     if (!sftpId) {
       setStatus("원격에 접속되지 않았습니다.");

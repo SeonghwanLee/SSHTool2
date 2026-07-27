@@ -494,7 +494,8 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px 4px 14px;
+  /* 여백까지 세션 행(.tree-session)과 같게 둔다 — 버튼이 서는 오른쪽 끝이 어긋나지 않게. */
+  padding: 5px 8px;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -507,8 +508,8 @@ button {
 .recent-row.selected {
   background: var(--accent);
 }
-.recent-row.selected .recent-name,
-.recent-row.selected .recent-detail {
+.recent-row.selected .tree-session-name,
+.recent-row.selected .tree-session-detail {
   color: var(--accent-ink);
 }
 .recent-row .tree-icon {
@@ -516,45 +517,10 @@ button {
   color: var(--accent);
   opacity: 0.8;
 }
-.recent-name {
-  flex: 0 1 auto;
-  font-size: 12.5px;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.recent-detail {
-  flex: 1 1 auto;
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* 개별 삭제(휴지통) — 행에 마우스 올리면 표시. */
-.recent-del {
-  flex: 0 0 auto;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-/* SFTP 칩 — 삭제 버튼과 같이 행에 마우스를 올렸을 때만 나타난다. */
-.recent-sftp {
-  flex: 0 0 auto;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.recent-row .recent-sftp.live {
+/* 이름·세부정보·버튼은 세션 행(.tree-session-*)과 같은 클래스를 쓴다 — 아래 세션 목록과
+   생김새·동작이 갈라지지 않게 하려는 것이므로, 규칙을 따로 두지 않고 함께 건다. */
+.recent-row .tree-act:hover {
   opacity: 1;
-}
-.recent-row:hover .recent-del,
-.recent-row:hover .recent-sftp {
-  opacity: 0.75;
-}
-.recent-sftp:hover {
-  opacity: 1;
-}
-.recent-del:hover {
-  opacity: 1;
-  color: var(--error);
 }
 .recent-divider {
   height: 1px;
@@ -659,18 +625,22 @@ button {
   display: none;
   gap: 2px;
 }
-.tree-session:hover .tree-actions {
+.tree-session:hover .tree-actions,
+.recent-row:hover .tree-actions {
   display: flex;
 }
 /* SFTP 연결이 살아있는 행은 호버하지 않아도 칩이 보여야 한다(모달을 닫아도 연결이 유지되므로).
    편집·삭제 버튼까지 상시 노출하면 목록이 시끄러워지므로 칩만 남긴다. */
-.tree-session.has-sftp .tree-actions {
+.tree-session.has-sftp .tree-actions,
+.recent-row.has-sftp .tree-actions {
   display: flex;
 }
-.tree-session.has-sftp .tree-actions > .tree-act:not(.sftp-chip) {
+.tree-session.has-sftp .tree-actions > .tree-act:not(.sftp-chip),
+.recent-row.has-sftp .tree-actions > .tree-act:not(.sftp-chip) {
   display: none;
 }
-.tree-session.has-sftp:hover .tree-actions > .tree-act {
+.tree-session.has-sftp:hover .tree-actions > .tree-act,
+.recent-row.has-sftp:hover .tree-actions > .tree-act {
   display: inline-flex;
 }
 .tree-act {
@@ -2317,7 +2287,8 @@ button {
   flex-wrap: wrap;
 }
 
-.tree-session.selected .tree-act {
+.tree-session.selected .tree-act,
+.recent-row.selected .tree-act {
   color: var(--accent-ink);
 }
 
