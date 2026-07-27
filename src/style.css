@@ -542,6 +542,9 @@ button {
   opacity: 0;
   transition: opacity 0.12s;
 }
+.recent-row .recent-sftp.live {
+  opacity: 1;
+}
 .recent-row:hover .recent-del,
 .recent-row:hover .recent-sftp {
   opacity: 0.75;
@@ -658,6 +661,17 @@ button {
 }
 .tree-session:hover .tree-actions {
   display: flex;
+}
+/* SFTP 연결이 살아있는 행은 호버하지 않아도 칩이 보여야 한다(모달을 닫아도 연결이 유지되므로).
+   편집·삭제 버튼까지 상시 노출하면 목록이 시끄러워지므로 칩만 남긴다. */
+.tree-session.has-sftp .tree-actions {
+  display: flex;
+}
+.tree-session.has-sftp .tree-actions > .tree-act:not(.sftp-chip) {
+  display: none;
+}
+.tree-session.has-sftp:hover .tree-actions > .tree-act {
+  display: inline-flex;
 }
 .tree-act {
   background: transparent;
@@ -2266,6 +2280,19 @@ button {
   color: var(--accent-ink);
   background: var(--accent);
   border-color: var(--accent);
+}
+/* 연결이 살아있는 칩 — 모달을 닫아도 연결이 유지되므로 그 사실이 보여야 끊을 수 있다.
+   호버해야 나타나는 기본 칩과 달리 항상 보인다. 깜빡이지 않는다: 몇 분씩 지속되는
+   상태라 계속 깜빡이면 시선만 뺏기고 정작 중요한 알림을 무시하게 된다.
+   위의 `.tree-act.sftp-chip`(0,2,0)보다 뒤이면서 특이도도 높아야 색이 실제로 먹는다. */
+.tree-act.sftp-chip.live {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.tree-act.sftp-chip.busy {
+  color: var(--lock);
+  border-color: var(--lock);
 }
 
 /* 세션 트리 스크롤바 — 전역보다 뚜렷하게(휠 대신 끌기 쉽도록) */

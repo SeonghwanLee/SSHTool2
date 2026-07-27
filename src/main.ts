@@ -43,7 +43,12 @@ import { sessionDialog } from "./sessiondialog";
 import { settingsDialog } from "./settingsdialog";
 import { bulkDeleteDialog } from "./bulkdelete";
 import { importDialog } from "./importdialog";
-import { openSftpBrowser } from "./sftpui";
+import {
+  openSftpBrowser,
+  liveSftpOf,
+  onLiveSftpChanged,
+  disconnectLiveSftp,
+} from "./sftpui";
 import { aboutDialog } from "./about";
 import {
   loadSettings,
@@ -649,6 +654,15 @@ async function main(): Promise<void> {
         redraw();
       },
       onSftp: openSftpFor,
+      // 모달을 닫아도 연결이 살아 있으므로, 그 사실과 진행률을 칩에 드러낸다.
+      sftpLive: (s) => {
+        const live = liveSftpOf(s.id);
+        if (!live) return null;
+        const transferring = live.transferId !== null;
+        const percent = live.total > 0 ? Math.min(100, Math.round((live.done / live.total) * 100)) : 0;
+        return { transferring, percent };
+      },
+      onSftpDisconnect: (s) => void disconnectLiveSftp(s.id),
       onNew: async () => {
         const created = await sessionDialog(blankSession(), "새 세션");
         if (!created) return;
@@ -842,6 +856,8 @@ async function main(): Promise<void> {
   wireLockKeys();
   wireSidebarResize();
   wireHostKeyPrompt();
+  // 살아있는 SFTP 상태·진행률이 바뀌면 사이드바 칩을 다시 그린다.
+  onLiveSftpChanged(() => redraw());
   // 잠금 버튼 = 토글: 열려 있으면 잠그고, 잠겨 있으면 마스터 비밀번호로 해제.
   $("vault-lock").addEventListener("click", async () => {
     const st = await vaultStatus();

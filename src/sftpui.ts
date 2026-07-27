@@ -103,6 +103,73 @@ function entryType(e: Entry): string {
   return x ? `${x} 파일` : "파일";
 }
 
+// ── 살아있는 SFTP 연결 레지스트리 ─────────────────────────────────────────────
+//
+// 모달을 닫아도 연결과 진행 중인 전송을 유지한다. 큰 파일을 받는 동안 터미널로 돌아갈 수
+// 있어야 하기 때문이다. 연결은 백엔드(SftpMap)가 id 로 들고 있어 UI 와 무관하게 살아 있으므로,
+// 프론트는 그 id 와 마지막 화면 상태만 기억하면 된다.
+//
+// 닫아도 끊기지 않으므로 **끊는 수단이 따로 있어야 한다** — 모달의 '연결 끊기' 버튼과
+// 사이드바 SFTP 칩 우클릭이 그 역할을 한다.
+
+interface LiveSftp {
+  sftpId: string;
+  /** 다시 열 때 돌아갈 위치. */
+  localDir: string;
+  remoteDir: string;
+  /** 진행 중 전송(없으면 null) — 모달이 닫혀 있어도 사이드바에 진행률을 보여 주기 위해 둔다. */
+  transferId: string | null;
+  name: string;
+  done: number;
+  total: number;
+}
+
+const liveSftp = new Map<string, LiveSftp>();
+const liveWatchers = new Set<() => void>();
+let progressHooked = false;
+
+const notifyLive = (): void => {
+  for (const fn of liveWatchers) fn();
+};
+
+/** 세션에 살아있는 SFTP 연결이 있는가(사이드바 표시용). */
+export const liveSftpOf = (sessionId: string): LiveSftp | undefined => liveSftp.get(sessionId);
+
+/** 살아있는 연결 목록이 바뀌거나 진행률이 갱신될 때 호출된다. */
+export function onLiveSftpChanged(fn: () => void): () => void {
+  liveWatchers.add(fn);
+  return () => liveWatchers.delete(fn);
+}
+
+/** 사이드바 등에서 명시적으로 끊을 때. 진행 중 전송도 함께 취소한다. */
+export async function disconnectLiveSftp(sessionId: string): Promise<void> {
+  const live = liveSftp.get(sessionId);
+  if (!live) return;
+  liveSftp.delete(sessionId);
+  notifyLive();
+  if (live.transferId) await sftpCancel(live.transferId).catch(() => {});
+  await sftpDisconnect(live.sftpId).catch(() => {});
+}
+
+/**
+ * 진행률 구독은 모달과 별개로 한 번만 건다 — 모달이 닫혀 있어도 배경 전송의 진행을
+ * 따라가야 사이드바에 퍼센트를 띄울 수 있다.
+ */
+function hookProgressOnce(): void {
+  if (progressHooked) return;
+  progressHooked = true;
+  void onSftpProgress((e) => {
+    for (const live of liveSftp.values()) {
+      if (live.transferId !== e.transferId) continue;
+      live.name = e.name;
+      live.done = e.done;
+      live.total = e.total;
+      notifyLive();
+      return;
+    }
+  });
+}
+
 export async function openSftpBrowser(
   session: SessionInfo,
   password: string,
@@ -131,10 +198,16 @@ export async function openSftpBrowser(
   title.textContent = `SFTP · ${session.name || session.host}`;
   const status = document.createElement("div");
   status.className = "sftp-status";
+  // 닫기는 연결을 유지한 채 창만 감춘다 — 끊으려면 이 버튼을 눌러야 한다.
+  const dcBtn = document.createElement("button");
+  dcBtn.className = "sftp-btn sftp-disconnect";
+  dcBtn.textContent = "연결 끊기";
+  dcBtn.title = "SFTP 연결을 끊습니다(진행 중 전송도 취소).";
   const closeBtn = document.createElement("button");
   closeBtn.className = "sftp-close";
+  closeBtn.title = "닫기(연결은 유지됩니다)";
   applyIcon(closeBtn, "close");
-  header.append(title, status, closeBtn);
+  header.append(title, status, dcBtn, closeBtn);
 
   const setStatus = (m: string) => {
     status.textContent = m;
@@ -207,34 +280,68 @@ export async function openSftpBrowser(
   const body = document.createElement("div");
   body.className = "sftp-body";
 
-  const cleanup = () => {
+  /** 진행 중 전송을 레지스트리에도 반영한다(모달이 닫혀도 사이드바가 상태를 안다). */
+  const setTransfer = (id: string | null) => {
+    currentTransfer = id;
+    const live = liveSftp.get(session.id);
+    if (live) {
+      live.transferId = id;
+      if (!id) {
+        live.done = 0;
+        live.total = 0;
+      }
+    }
+    notifyLive();
+  };
+
+  /** 마지막 화면 위치를 레지스트리에 남긴다(다시 열 때 그 자리로 돌아가기 위해). */
+  const rememberState = () => {
+    if (!sftpId) return;
+    const live = liveSftp.get(session.id);
+    if (!live) return;
+    live.localDir = local.path;
+    live.remoteDir = remote.path;
+    live.transferId = currentTransfer;
+  };
+
+  /**
+   * 창만 닫고 연결·전송은 살려 둔다. 큰 파일을 받는 동안 터미널로 돌아갈 수 있어야 해서
+   * 기본 닫기를 이 동작으로 둔다. 전송이 계속되므로 닫기 전 확인도 필요 없다.
+   */
+  const closeKeepAlive = () => {
+    disposed = true;
+    rememberState();
+    unlisten?.(); // 모달 진행바 구독만 해제 — 배경 진행률은 모듈 구독이 계속 받는다
+    overlay.remove();
+    notifyLive();
+  };
+
+  /** 실제로 끊는다 — 진행 중 전송도 취소된다. */
+  const disconnectNow = () => {
     disposed = true;
     cancelled = true;
-    // 진행 중 전송을 반드시 중단한다 — 안 그러면 창이 없는데 백그라운드로 계속 전송된다.
     if (currentTransfer) void sftpCancel(currentTransfer);
     unlisten?.();
+    liveSftp.delete(session.id);
     if (sftpId) void sftpDisconnect(sftpId);
     overlay.remove();
+    notifyLive();
   };
-  /**
-   * 전송 중에는 실수로 닫히지 않게 한다. 파일 자체는 `.part` 로 받아 취소해도 안전하지만,
-   * 받던 시간이 통째로 날아가므로 바깥 클릭 한 번으로 끊기면 곤란하다.
-   * 닫기 버튼은 확인을 거치고, 바깥 클릭은 아예 무시한다.
-   */
-  const requestClose = async (): Promise<void> => {
-    if (!currentTransfer) {
-      cleanup();
-      return;
-    }
-    const ok = await confirmDialog("파일을 전송 중입니다. 전송을 중단하고 닫을까요?");
-    // 묻는 사이에 전송이 끝났거나 창이 이미 닫혔을 수 있다.
-    if (ok && !disposed) cleanup();
-  };
-  closeBtn.addEventListener("click", () => void requestClose());
+  // 닫기는 연결을 유지하므로 전송 중이어도 그냥 닫아도 된다(예전엔 확인을 물었다).
+  closeBtn.addEventListener("click", closeKeepAlive);
   overlay.addEventListener("mousedown", (e) => {
-    if (e.target !== overlay) return;
-    if (currentTransfer) return; // 전송 중 바깥 클릭은 오조작으로 보고 무시
-    cleanup();
+    if (e.target === overlay) closeKeepAlive();
+  });
+
+  // 끊기는 되돌릴 수 없다 — 전송 중이면 한 번 확인한다.
+  dcBtn.addEventListener("click", () => {
+    void (async () => {
+      if (currentTransfer) {
+        const ok = await confirmDialog("파일을 전송 중입니다. 전송을 취소하고 연결을 끊을까요?");
+        if (!ok || disposed) return;
+      }
+      disconnectNow();
+    })();
   });
 
   // ── 디렉터리 트리(지연 로딩) ──
@@ -643,15 +750,15 @@ export async function openSftpBrowser(
         const dir = await localTempDir();
         const localPath = joinPath(dir.replace(/\\+$/, ""), safeName);
         const transferId = crypto.randomUUID();
-        currentTransfer = transferId;
+        setTransfer(transferId);
         showProgress(entry.name, 0, entry.size);
         await sftpDownload(sftpId, entry.path, localPath, transferId);
-        currentTransfer = null;
+        setTransfer(null);
         hideProgress();
         await openPath(localPath);
         setStatus("연결됨");
       } catch (e) {
-        currentTransfer = null;
+        setTransfer(null);
         hideProgress();
         setStatus(`열기 실패: ${String(e)}`);
       } finally {
@@ -877,7 +984,7 @@ export async function openSftpBrowser(
 
     hideProgress();
     setOverall("");
-    currentTransfer = null;
+    setTransfer(null);
     transferring = false;
     setStatus(
       cancelled
@@ -901,11 +1008,11 @@ export async function openSftpBrowser(
 
     if (!entry.isDir) {
       const transferId = crypto.randomUUID();
-      currentTransfer = transferId;
+      setTransfer(transferId);
       showProgress(entry.name, 0, entry.size);
       if (from === "local") await sftpUpload(sftpId!, entry.path, destPath, transferId);
       else await sftpDownload(sftpId!, entry.path, destPath, transferId);
-      currentTransfer = null;
+      setTransfer(null);
       return;
     }
 
@@ -934,32 +1041,58 @@ export async function openSftpBrowser(
   } catch {
     local.tree.init(["/"]);
   }
+  // 이미 살아있는 연결이 있으면 그대로 재사용한다 — 다시 붙지 않으므로 자격증명도 묻지 않고,
+  // 마지막에 보던 폴더로 곧장 돌아간다.
+  const existing = liveSftp.get(session.id);
   try {
-    const start = await localDefaultDir();
+    const start = existing?.localDir || (await localDefaultDir());
     await local.go(start);
   } catch {
     await local.go("");
   }
   try {
-    sftpId = await sftpConnect(
-      session.host,
-      session.port,
-      session.user,
-      password,
-      session.authType,
-      session.privateKeyPath,
-      session.allowLegacyAlgorithms,
-    );
-    // "." 로 두면 상위 이동이 불가능하므로 절대경로(홈)로 정규화한다.
-    let start = ".";
-    try {
-      start = await sftpCanonicalize(sftpId, ".");
-    } catch {
-      start = ".";
+    if (existing) {
+      sftpId = existing.sftpId;
+      currentTransfer = existing.transferId;
+      remote.tree.init(["/"]);
+      await remote.go(existing.remoteDir || ".");
+      setStatus(currentTransfer ? "연결됨 · 전송 중" : "연결됨");
+      // 닫혀 있는 동안 진행된 전송이 있으면 진행바를 이어서 보여 준다.
+      if (currentTransfer && existing.total > 0) {
+        showProgress(existing.name, existing.done, existing.total);
+      }
+    } else {
+      sftpId = await sftpConnect(
+        session.host,
+        session.port,
+        session.user,
+        password,
+        session.authType,
+        session.privateKeyPath,
+        session.allowLegacyAlgorithms,
+      );
+      // "." 로 두면 상위 이동이 불가능하므로 절대경로(홈)로 정규화한다.
+      let start = ".";
+      try {
+        start = await sftpCanonicalize(sftpId, ".");
+      } catch {
+        start = ".";
+      }
+      remote.tree.init(["/"]); // 원격 트리 루트
+      await remote.go(start);
+      setStatus("연결됨");
+      hookProgressOnce();
+      liveSftp.set(session.id, {
+        sftpId,
+        localDir: local.path,
+        remoteDir: remote.path,
+        transferId: null,
+        name: "",
+        done: 0,
+        total: 0,
+      });
+      notifyLive();
     }
-    remote.tree.init(["/"]); // 원격 트리 루트
-    await remote.go(start);
-    setStatus("연결됨");
     // 인증이 확인된 뒤에만 저장 제안 등을 수행한다(틀린 비번을 볼트에 넣지 않도록).
     void onAuthenticated?.();
   } catch (e) {

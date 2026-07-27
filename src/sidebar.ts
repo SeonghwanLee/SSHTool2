@@ -9,6 +9,10 @@ interface SidebarCallbacks {
   onEdit: (s: SessionInfo) => void;
   onDelete: (s: SessionInfo) => void;
   onSftp: (s: SessionInfo) => void;
+  /** 살아있는 SFTP 연결 상태(없으면 null). 칩 색·진행률 표시에 쓴다. */
+  sftpLive?: (s: SessionInfo) => { transferring: boolean; percent: number } | null;
+  /** SFTP 칩 우클릭 → 연결 끊기. */
+  onSftpDisconnect?: (s: SessionInfo) => void;
   onNew: () => void;
   onQuick: () => void;
   onDuplicate: (s: SessionInfo) => void;
@@ -146,6 +150,38 @@ export class Sidebar {
       node = node.folders.get(seg)!;
     }
     return node;
+  }
+
+  /**
+   * SFTP 칩에 연결 상태를 입힌다. 모달을 닫아도 연결이 살아 있으므로, 그 사실이 어딘가
+   * 보여야 사용자가 끊을 수 있다. 깜빡임은 쓰지 않는다 — 몇 분씩 지속되는 상태라
+   * 계속 깜빡이면 시선만 뺏기고 정작 중요한 알림을 무시하게 된다.
+   */
+  private paintSftpChip(chip: HTMLElement, s: SessionInfo): boolean {
+    const live = this.cb.sftpLive?.(s) ?? null;
+    chip.classList.toggle("live", live !== null);
+    chip.classList.toggle("busy", live?.transferring === true);
+    if (live?.transferring) {
+      chip.textContent = `SFTP ${live.percent}%`;
+      chip.title = `전송 중 ${live.percent}% · 우클릭하여 연결 끊기`;
+    } else {
+      chip.textContent = "SFTP";
+      chip.title = live ? "연결됨 · 우클릭하여 연결 끊기" : "SFTP 파일 전송";
+    }
+    if (!live) return false;
+    chip.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY, [
+        {
+          label: "SFTP 연결 끊기",
+          accel: "d",
+          danger: true,
+          action: () => this.cb.onSftpDisconnect?.(s),
+        },
+      ]);
+    };
+    return true;
   }
 
   /** 세션 행·최근 접속 행 공용 선택 표시(트리 전체에서 하나만 선택된다). */
@@ -391,8 +427,7 @@ export class Sidebar {
       const sftpAvailable = s.kind !== "local" && s.enableSftp;
       const sftp = document.createElement("button");
       sftp.className = "recent-sftp tree-act sftp-chip";
-      sftp.textContent = "SFTP";
-      sftp.title = "SFTP 파일 전송";
+      this.paintSftpChip(sftp, s);
       sftp.style.display = sftpAvailable ? "" : "none";
       sftp.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -553,7 +588,7 @@ export class Sidebar {
     sftp.style.display = s.kind === "local" || !s.enableSftp ? "none" : "";
     sftp.title = "SFTP 파일 전송";
     sftp.classList.add("sftp-chip");
-    sftp.textContent = "SFTP";
+    const sftpAlive = this.paintSftpChip(sftp, s);
     sftp.addEventListener("click", (e) => {
       e.stopPropagation();
       this.cb.onSftp(s);
@@ -607,6 +642,7 @@ export class Sidebar {
     });
 
     row.append(icon, main, actions);
+    row.classList.toggle("has-sftp", sftpAlive);
     row.dataset.navKind = "session";
     row.dataset.navDepth = String(depth);
     this.registerNav(row, `s:${s.id}`, () => this.cb.onOpen(s));
