@@ -33,6 +33,7 @@ import {
   alertDialog,
   choiceDialog,
   hostKeyPrompt,
+  saveFailureAlert,
 } from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
 import { settingsDialog } from "./settingsdialog";
@@ -82,7 +83,14 @@ async function persist(): Promise<void> {
     console.error("세션 로드 실패 상태 — 데이터 보호를 위해 저장을 건너뜁니다.");
     return;
   }
-  await sessionsSave(sessions);
+  try {
+    await sessionsSave(sessions);
+  } catch (e) {
+    // 파일 암호화 키를 못 읽으면 백엔드가 평문 덮어쓰기를 거부한다 — 조용히 넘기면
+    // 사용자는 저장된 줄 알고 계속 편집하게 된다.
+    console.error("세션 저장 실패", e);
+    await saveFailureAlert("세션 목록", e);
+  }
 }
 
 /** 세션별 글자 크기 저장 — Ctrl+휠 조절 시 세션에 기록해 다음 접속에 복원.

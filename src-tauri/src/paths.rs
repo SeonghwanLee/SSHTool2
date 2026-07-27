@@ -3,7 +3,7 @@
 //! **구 폴더는 그대로 보존**한다(문제 시 기존 데이터가 남아 안전).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
@@ -16,7 +16,12 @@ const MIGRATE: [&str; 4] = ["sessions.json", "settings.json", "vault.json", "kno
 /// `fs::write` 는 대상 파일을 먼저 0바이트로 자르므로, 쓰는 도중 크래시하거나 전원이 나가면
 /// 내용이 통째로 사라진다. 세션 목록·설정·알려진 호스트는 한 파일이 곧 전부여서 그 손실이
 /// 곧바로 데이터 유실이 된다. rename 은 같은 볼륨에서 원자적이라 절단 상태가 생기지 않는다.
-pub fn write_atomic(path: &PathBuf, data: &str) -> Result<(), String> {
+pub fn write_atomic(path: &Path, data: &str) -> Result<(), String> {
+    write_atomic_bytes(path, data.as_bytes())
+}
+
+/// 바이트 버전 — 암호화된 설정 파일(filecrypt)은 UTF-8 이 아니다.
+pub fn write_atomic_bytes(path: &Path, data: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, data).map_err(|e| format!("임시 파일 쓰기 실패({}): {e}", tmp.display()))?;
     // fs::rename 은 Windows 에서도 기존 파일을 덮어쓴다(MOVEFILE_REPLACE_EXISTING).

@@ -1,6 +1,7 @@
 // 앱 설정 모델 + 영속화 + 폰트 목록. 스키마는 프론트 소유(백엔드는 JSON 통째 저장).
 
 import { settingsLoad, settingsSave } from "./ipc";
+import { saveFailureAlert } from "./dialogs";
 import { DEFAULT_THEME_ID, THEMES } from "./themes";
 
 export type CursorStyle = "block" | "underline" | "bar";
@@ -103,5 +104,12 @@ export async function loadSettings(): Promise<Settings> {
 }
 
 export async function saveSettings(s: Settings): Promise<void> {
-  await settingsSave(s);
+  try {
+    await settingsSave(s);
+  } catch (e) {
+    // 저장이 거부되는 대표 원인은 설정 파일 암호화 키를 읽지 못하는 경우다.
+    // 알린 뒤 그대로 던져 기존 호출부의 처리(로그 등)를 바꾸지 않는다.
+    await saveFailureAlert("설정", e);
+    throw e;
+  }
 }

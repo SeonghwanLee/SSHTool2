@@ -1,7 +1,8 @@
-//! 세션 목록 영속화. 앱 설정 디렉터리의 sessions.json 에 평문 JSON 으로 저장한다.
-//! 비밀번호는 여기 담지 않는다 — 자격증명은 별도 볼트(vault.rs, AES-GCM)에 암호화 보관.
+//! 세션 목록 영속화. 앱 설정 디렉터리의 sessions.json 에 JSON 으로 저장한다.
+//! 파일 자체는 filecrypt(AES-256-GCM, OS 자격증명 저장소 키)로 암호화된다 — 구버전 평문
+//! 파일도 그대로 읽고 다음 저장에서 자동 이관된다.
+//! 비밀번호는 여기 담지 않는다 — 자격증명은 별도 볼트(vault.rs)에 마스터로 보관.
 
-use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -103,10 +104,9 @@ fn sessions_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 pub fn load(app: &AppHandle) -> Result<Vec<SessionInfo>, String> {
     let path = sessions_path(app)?;
-    if !path.exists() {
+    let Some(data) = crate::filecrypt::read_text(&path)? else {
         return Ok(Vec::new());
-    }
-    let data = fs::read_to_string(&path).map_err(|e| format!("세션 파일 읽기 실패: {e}"))?;
+    };
     if data.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -117,7 +117,7 @@ pub fn save(app: &AppHandle, sessions: Vec<SessionInfo>) -> Result<(), String> {
     let path = sessions_path(app)?;
     let data =
         serde_json::to_string_pretty(&sessions).map_err(|e| format!("세션 직렬화 실패: {e}"))?;
-    crate::paths::write_atomic(&path, &data)
+    crate::filecrypt::write_text(&path, &data)
 }
 
 // ── 앱 설정(테마·폰트 등). 스키마는 프론트가 소유 → serde_json::Value 로 통째 저장. ──
@@ -128,10 +128,9 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 pub fn load_settings(app: &AppHandle) -> Result<serde_json::Value, String> {
     let path = settings_path(app)?;
-    if !path.exists() {
+    let Some(data) = crate::filecrypt::read_text(&path)? else {
         return Ok(serde_json::Value::Object(Default::default()));
-    }
-    let data = fs::read_to_string(&path).map_err(|e| format!("설정 읽기 실패: {e}"))?;
+    };
     if data.trim().is_empty() {
         return Ok(serde_json::Value::Object(Default::default()));
     }
@@ -141,5 +140,5 @@ pub fn load_settings(app: &AppHandle) -> Result<serde_json::Value, String> {
 pub fn save_settings(app: &AppHandle, value: serde_json::Value) -> Result<(), String> {
     let path = settings_path(app)?;
     let data = serde_json::to_string_pretty(&value).map_err(|e| format!("설정 직렬화 실패: {e}"))?;
-    crate::paths::write_atomic(&path, &data)
+    crate::filecrypt::write_text(&path, &data)
 }

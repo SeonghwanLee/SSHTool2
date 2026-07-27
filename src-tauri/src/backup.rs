@@ -4,6 +4,10 @@
 //! 비밀번호류는 볼트에서 마스터로 암호화된 상태이지만, 세션의 **호스트 IP·사용자명 등은
 //! 평문**이라 번들 전체를 사용자 **패스프레이즈로 암호화한 바이너리**로 저장한다.
 //! (구버전 평문 JSON 백업도 가져오기는 계속 지원 — 매직바이트로 형식 자동 판별)
+//!
+//! 세션·설정 파일은 filecrypt 로 암호화돼 있고 그 키는 **PC마다 다르다**. 암호화된 채로
+//! 담으면 다른 PC 에서 복원할 수 없으므로, 내보낼 때 복호화해 담고 복원할 때 그 PC 의 키로
+//! 다시 암호화한다. 번들 자체는 어차피 패스프레이즈로 암호화되므로 보호 수준은 그대로다.
 
 use std::fs;
 use std::path::PathBuf;
@@ -95,7 +99,9 @@ fn build_encrypted(app: &AppHandle, password: &str) -> Result<(Vec<u8>, usize), 
     let mut files = std::collections::BTreeMap::new();
     for name in FILES {
         let p = dir.join(name);
-        if let Ok(content) = fs::read_to_string(&p) {
+        // 읽기에 실패하면 조용히 건너뛰지 않고 중단한다 — 세션이 빠진 '반쪽 백업'은
+        // 정작 복원할 때가 되어서야 드러난다.
+        if let Some(content) = crate::filecrypt::read_text(&p)? {
             files.insert(name.to_string(), content);
         }
     }
@@ -237,13 +243,23 @@ pub fn import(app: &AppHandle, source: &str, password: &str) -> Result<usize, St
         }
     }
 
+    // 원본을 보관한 뒤 세션·설정 파일을 치운다. 키를 잃어 읽지 못하게 된 암호문이 남아 있으면
+    // 다운그레이드 방지 조건이 저장을 막아 복구 자체가 불가능해진다.
+    crate::filecrypt::clear_managed(&dir);
+
     let mut restored = 0usize;
     for (name, content) in &bundle.files {
         // 번들 안의 파일명은 화이트리스트만 허용(경로 조작 방지).
         if !FILES.contains(&name.as_str()) {
             continue;
         }
-        fs::write(dir.join(name), content).map_err(|e| format!("{name} 복원 실패: {e}"))?;
+        let target = dir.join(name);
+        // 세션·설정은 이 PC 의 파일 키로 다시 암호화한다(번들 안에서는 평문).
+        if crate::filecrypt::MANAGED.contains(&name.as_str()) {
+            crate::filecrypt::write_text(&target, content)?;
+        } else {
+            fs::write(&target, content).map_err(|e| format!("{name} 복원 실패: {e}"))?;
+        }
         restored += 1;
     }
     Ok(restored)

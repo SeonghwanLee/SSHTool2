@@ -301,6 +301,20 @@ export function alertDialog(message: string, title = "알림"): Promise<void> {
   });
 }
 
+/**
+ * 설정 저장이 거부·실패했을 때의 알림.
+ *
+ * 설정 파일 암호화 키를 읽지 못하면 백엔드가 평문 덮어쓰기를 거부한다(다운그레이드 방지).
+ * 저장은 자동으로 여러 번 일어나므로 실행당 한 번만 알린다 — 매번 띄우면 창이 쌓여
+ * 앱을 쓸 수 없다.
+ */
+let saveFailureShown = false;
+export async function saveFailureAlert(what: string, detail: unknown): Promise<void> {
+  if (saveFailureShown) return;
+  saveFailureShown = true;
+  await alertDialog(`${what}을(를) 저장하지 못했습니다.\n\n${String(detail)}`, "저장 실패");
+}
+
 /** 예/아니오 확인. */
 export function confirmDialog(message: string): Promise<boolean> {
   return new Promise((resolve) => {
