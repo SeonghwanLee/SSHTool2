@@ -308,6 +308,24 @@ export function settingsDialog(
       }),
     );
 
+    const sftpDirRow = controlRow("SFTP 기본 로컬 폴더");
+    const sftpDir = document.createElement("input");
+    sftpDir.type = "text";
+    sftpDir.className = "path-input";
+    sftpDir.placeholder = "비워 두면 문서 폴더";
+    sftpDir.value = working.sftpLocalDir;
+    sftpDir.addEventListener("change", () => {
+      working = { ...working, sftpLocalDir: sftpDir.value.trim() };
+      apply();
+    });
+    sftpDirRow.appendChild(sftpDir);
+    gen.appendChild(sftpDirRow);
+    const sftpDirHint = document.createElement("div");
+    sftpDirHint.className = "settings-hint";
+    sftpDirHint.textContent =
+      "SFTP 를 열 때 왼쪽(내 PC) 창이 시작할 폴더입니다. 예: D:\\작업. 없는 경로면 문서 폴더로 엽니다. 연결이 살아 있는 SFTP 를 다시 열 때는 직전에 보던 폴더가 그대로 유지됩니다.";
+    gen.appendChild(sftpDirHint);
+
     gen.appendChild(sectionLabel("데이터"));
 
     const exportRow = controlRow("설정 내보내기 (PC 이전용, 암호화)");

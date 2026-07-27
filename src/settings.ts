@@ -36,6 +36,11 @@ export interface Settings {
   sidebarWidth: number;
   /** 사이드바 접힘 여부. */
   sidebarCollapsed: boolean;
+  /**
+   * SFTP 를 열 때 로컬 창이 시작할 폴더. 빈 값이면 OS 기본(문서/홈)을 쓴다.
+   * 직전에 보던 폴더가 있으면(연결 재사용) 그쪽이 우선 — 하던 일을 끊지 않는 게 먼저다.
+   */
+  sftpLocalDir: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -56,6 +61,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recentLimit: 10,
   sidebarWidth: 240,
   sidebarCollapsed: false,
+  sftpLocalDir: "",
 };
 
 export interface FontChoice {
@@ -100,6 +106,8 @@ export async function loadSettings(): Promise<Settings> {
     if (!Number.isFinite(merged.recentLimit))
       merged.recentLimit = DEFAULT_SETTINGS.recentLimit;
     merged.recentLimit = Math.max(0, Math.min(50, Math.round(merged.recentLimit)));
+    // 구버전 파일이나 손상된 값이 경로 자리에 오면 SFTP 가 열리다 만다 — 문자열만 받는다.
+    if (typeof merged.sftpLocalDir !== "string") merged.sftpLocalDir = "";
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };

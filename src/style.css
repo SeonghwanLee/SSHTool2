@@ -1423,6 +1423,7 @@ button {
   color: var(--fg);
 }
 .num-input,
+.path-input,
 .sel-input {
   background: var(--panel-2);
   color: var(--fg);
@@ -1434,8 +1435,17 @@ button {
   width: 110px;
 }
 .num-input:focus,
+.path-input:focus,
 .sel-input:focus {
   border-color: var(--accent);
+}
+/* 경로는 110px 안에 안 들어간다 — 남는 폭을 쓰되 라벨을 밀어내지 않게 상한을 둔다. */
+.path-input {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 260px;
+  margin-left: 12px;
 }
 /* 드롭다운 목록(옵션)도 어둡게 — 기본은 OS 밝은 배경으로 뜬다. */
 .sel-input option {

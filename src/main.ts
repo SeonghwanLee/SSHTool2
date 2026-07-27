@@ -614,7 +614,12 @@ async function openSftpFor(s: SessionInfo): Promise<void> {
   if (creds === null) return;
   const target = creds.user !== s.user ? { ...s, user: creds.user } : s;
   // 저장은 SFTP 인증이 '성공한 뒤에만' — 틀린 비번을 볼트에 넣지 않는다.
-  await openSftpBrowser(target, creds.password, () => credentials.onConnected(s, creds));
+  await openSftpBrowser(
+    target,
+    creds.password,
+    () => credentials.onConnected(s, creds),
+    settings.sftpLocalDir,
+  );
 }
 
 async function main(): Promise<void> {

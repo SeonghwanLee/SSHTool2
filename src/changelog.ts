@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.45.2",
+    date: "2026-07-27",
+    notes: [
+      "설정 > 일반에 'SFTP 기본 로컬 폴더'가 생겼습니다. SFTP 를 열 때 왼쪽(내 PC) 창이 시작할 폴더를 정해 둘 수 있습니다. 비워 두면 지금까지처럼 문서 폴더로 열리고, 없는 경로를 적어 두면 조용히 문서 폴더로 넘어갑니다",
+      "연결이 살아 있는 SFTP 를 다시 열 때는 기본 폴더가 아니라 직전에 보던 폴더가 그대로 유지됩니다 — 하던 작업을 끊지 않는 쪽이 먼저입니다",
+    ],
+  },
+  {
     version: "0.45.1",
     date: "2026-07-27",
     notes: [

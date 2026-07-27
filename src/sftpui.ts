@@ -192,6 +192,8 @@ export async function openSftpBrowser(
   password: string,
   /** SFTP 인증이 실제로 성공한 뒤에만 호출(자격증명 저장 제안 등). */
   onAuthenticated?: () => void | Promise<void>,
+  /** 설정의 'SFTP 기본 로컬 폴더'. 빈 값이면 OS 기본을 쓴다. */
+  defaultLocalDir?: string,
 ): Promise<void> {
   const overlay = document.createElement("div");
   overlay.className = "sftp-overlay";
@@ -1183,11 +1185,18 @@ export async function openSftpBrowser(
   // 이미 살아있는 연결이 있으면 그대로 재사용한다 — 다시 붙지 않으므로 자격증명도 묻지 않고,
   // 마지막에 보던 폴더로 곧장 돌아간다.
   const existing = liveSftp.get(session.id);
+  // 우선순위: 직전에 보던 폴더 > 설정의 기본 폴더 > OS 기본.
+  // 살아 있는 연결을 다시 열 때 설정값으로 되돌리면 하던 일을 끊는다.
   try {
-    const start = existing?.localDir || (await localDefaultDir());
+    const start = existing?.localDir || defaultLocalDir?.trim() || (await localDefaultDir());
     await local.go(start);
   } catch {
-    await local.go("");
+    // 설정한 폴더가 사라졌거나 권한이 없을 수 있다 — OS 기본으로 한 번 더 시도한다.
+    try {
+      await local.go(await localDefaultDir());
+    } catch {
+      await local.go("");
+    }
   }
   try {
     if (existing) {
