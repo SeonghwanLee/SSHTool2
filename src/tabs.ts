@@ -289,10 +289,14 @@ class TerminalTab {
         void this.copySelection();
       }
     });
-    // 우클릭 = 선택 있으면 복사, 없으면 붙여넣기(PuTTY 관례).
+    // 우클릭 = 붙여넣기. 단, '선택 시 자동 복사' 가 꺼져 있을 때만 선택분을 먼저 복사한다.
+    //
+    // 자동 복사가 켜진 상태에서 선택이 남아 있다고 또 복사하면, 드래그 직후 우클릭이
+    // 붙여넣기로 동작하지 않는다. 이미 클립보드에 들어간 것을 다시 복사할 뿐이라
+    // 화면상 아무 일도 안 일어난 것처럼 보이고, 선택이 풀릴 때까지 붙여넣기가 안 된다.
     this.termHost.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      if (this.term.hasSelection()) void this.copySelection();
+      if (!this.settings.copyOnSelect && this.term.hasSelection()) void this.copySelection();
       else void this.pasteClipboard();
     });
     // Ctrl+휠 zoom.
@@ -987,6 +991,14 @@ export class TabManager {
             ? [{ label: "SFTP 파일 전송", accel: "f", action: () => this.onSftp?.(s) } as const]
             : [];
         showContextMenu(ev.clientX, ev.clientY, [
+          // 같은 세션으로 접속을 하나 더 연다. tab.session 을 그대로 쓰므로 볼트에서
+          // 꺼낸 비밀 값(트리거·시작 명령)이 이미 채워져 있어 다시 묻지 않는다.
+          {
+            label: "세션 하나 더 열기",
+            accel: "d",
+            action: () => void this.openSession(tab.session),
+          },
+          { separator: true },
           ...sftpItem,
           ...(sftpItem.length ? [{ separator: true } as const] : []),
           { label: "닫기", accel: "c", danger: true, action: () => void this.closeTab(tab) },
