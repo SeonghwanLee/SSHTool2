@@ -1078,6 +1078,10 @@ function updateStatusBar(info: StatusInfo): void {
   $("st-charset").textContent = info.encoding;
   $("st-cursor").textContent = info.cursor ? `⌖ ${info.cursor}` : "";
   $("st-size").textContent = info.size;
+  const uptime = $("st-uptime");
+  uptime.textContent = info.uptime ? `⏱ ${info.uptime}` : "";
+  // 끊긴 세션은 최종 유지시간이 멈춘 값이므로 흐리게 — 흘러가는 값과 구분한다.
+  uptime.classList.toggle("stale", info.state === "disconnected");
 }
 
 /** 동시 명령 창: 접속된 모든 세션(또는 활성 탭)에 명령 한 줄을 동시에 전송. */

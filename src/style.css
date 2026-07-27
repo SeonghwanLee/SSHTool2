@@ -1069,6 +1069,10 @@ button {
   opacity: 1;
   color: var(--accent);
 }
+/* 접속 유지시간 — 끊긴 세션은 멈춘 값이므로 흐리게 표시해 흘러가는 값과 구분한다. */
+#st-uptime.stale {
+  color: var(--muted);
+}
 .st-right > span:not(:empty)::before {
   content: "│ ";
   color: var(--border);

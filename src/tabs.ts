@@ -60,6 +60,8 @@ export interface StatusInfo {
   cursor: string;
   encoding: string; // 문자셋(charset)
   cipher: string; // 암호화 방식(원격 SSH 세션에만)
+  /** 접속 유지시간(MM:SS 또는 HH:MM:SS). 접속 전이면 빈 문자열. */
+  uptime: string;
 }
 
 /** 세션 화면 배치: 탭 / 세로 분할 / 가로 분할(WPF 0.20.0). */
@@ -67,6 +69,16 @@ export type ViewMode = "tabs" | "vertical" | "horizontal";
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const LF = new Uint8Array([0x0a]);
+
+/** 접속 유지시간 표기 — 1시간을 넘기면 HH:MM:SS, 그 전까지는 MM:SS. */
+const formatUptime = (ms: number): string => {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const hours = Math.floor(total / 3600);
+  const mins = Math.floor(total / 60) % 60;
+  const secs = total % 60;
+  return hours > 0 ? `${pad(hours)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
+};
 
 /**
  * 트리거 매칭용으로 ANSI 제어 시퀀스를 제거한다. 컬러 프롬프트
@@ -83,6 +95,10 @@ class TerminalTab {
   liveId: string | null = null;
   status: "connecting" | "connected" | "disconnected" = "connecting";
   activity = false; // 비활성 탭에 출력이 도착하면 true(호박색)
+  /** 셸이 열린 시각(ms). null = 아직 접속된 적 없음. 접속 유지시간의 기준점. */
+  connectedAt: number | null = null;
+  /** 끊긴 시각(ms). null = 접속 유지 중. 값이 있으면 유지시간이 여기서 멈춘다. */
+  disconnectedAt: number | null = null;
 
   readonly root: HTMLDivElement;
   private readonly header: HTMLDivElement;
@@ -466,6 +482,12 @@ class TerminalTab {
     if (fired) this.triggerBuf = "";
   }
 
+  /** 상태바용 접속 유지시간. 접속 전이면 빈 문자열, 끊긴 뒤엔 최종값에서 멈춘다. */
+  uptimeText(): string {
+    if (this.connectedAt === null) return "";
+    return formatUptime((this.disconnectedAt ?? Date.now()) - this.connectedAt);
+  }
+
   setConnecting(): void {
     this.status = "connecting";
     this.overlay.style.display = "flex";
@@ -474,12 +496,19 @@ class TerminalTab {
   setConnected(liveId: string): void {
     this.status = "connected";
     this.liveId = liveId;
+    // 유지시간 기준은 셸이 열린 이 시점. 재접속이면 여기서 다시 0 부터 센다.
+    this.connectedAt = Date.now();
+    this.disconnectedAt = null;
     this.overlay.style.display = "none";
     this.overlay.innerHTML = "";
   }
   setDisconnected(message: string, onReconnect: () => void): void {
     this.status = "disconnected";
     this.liveId = null;
+    // 끊긴 시각을 박아 두면 이후 유지시간이 최종값에서 멈춘다.
+    if (this.connectedAt !== null && this.disconnectedAt === null) {
+      this.disconnectedAt = Date.now();
+    }
     this.term.writeln(`\r\n\x1b[33m[세션 종료] ${message}\x1b[0m`);
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = "";
@@ -531,6 +560,13 @@ export class TabManager {
     private readonly onSessionFontSize: (session: SessionInfo, size: number) => void = () => {},
   ) {
     this.settings = settings;
+
+    // 접속 유지시간은 1초마다 값이 바뀌므로 상태바를 주기적으로 다시 내보낸다.
+    // 실제로 흘러가는 경우(활성 탭이 접속 유지 중)에만 emit 해 불필요한 갱신을 막는다.
+    window.setInterval(() => {
+      const t = this.active;
+      if (t && t.connectedAt !== null && t.disconnectedAt === null) this.emitStatus();
+    }, 1000);
 
     void onSshData((e) => {
       const tab = this.byLiveId.get(e.id);
@@ -854,7 +890,15 @@ export class TabManager {
   private emitStatus(): void {
     const tab = this.active;
     if (!tab) {
-      this.onStatus({ label: "", state: "none", size: "", cursor: "", encoding: "", cipher: "" });
+      this.onStatus({
+        label: "",
+        state: "none",
+        size: "",
+        cursor: "",
+        encoding: "",
+        cipher: "",
+        uptime: "",
+      });
       return;
     }
     const s = tab.session;
@@ -872,6 +916,7 @@ export class TabManager {
       encoding: local ? "" : tab.session.charset || "UTF-8",
       // 원격 세션은 SSH-2 로 암호화됨(정확한 협상 cipher 표기는 후속 과제).
       cipher: local || tab.status !== "connected" ? "" : "SSH-2",
+      uptime: tab.uptimeText(),
     });
   }
 
