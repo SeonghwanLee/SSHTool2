@@ -16,7 +16,18 @@ const CHARSETS: Charset[] = [
   "US-ASCII",
 ];
 
-export function sessionDialog(initial: SessionInfo, titleText: string): Promise<SessionInfo | null> {
+/**
+ * 세션 편집 창.
+ *
+ * `folders` 는 지금 존재하는 폴더 경로 목록 — 폴더 칸에서 목록으로 고르거나, 고른 뒤
+ * `기존폴더/새이름` 처럼 이어 적어 하위 폴더를 새로 만들 수 있게 한다. 직접 타이핑도
+ * 그대로 되므로(자유 입력 유지) 기존 사용 방식이 막히지 않는다.
+ */
+export function sessionDialog(
+  initial: SessionInfo,
+  titleText: string,
+  folders: string[] = [],
+): Promise<SessionInfo | null> {
   return new Promise((resolve) => {
     openModal(
       (close) => {
@@ -88,6 +99,24 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
 
         // ── 분류 ──
         const folder = textInput(initial.folder, "폴더 (선택, 예: 운영/DB)");
+        // datalist 로 기존 폴더를 제안한다. select 로 막지 않는 이유 —
+        // 새 폴더를 만들려면 목록에 없는 값을 칠 수 있어야 하기 때문이다.
+        const folderList = document.createElement("datalist");
+        folderList.id = `folder-list-${crypto.randomUUID()}`;
+        folder.setAttribute("list", folderList.id);
+        // 고른 뒤 이어 적기 쉽도록 '기존폴더/' 형태도 함께 제안한다.
+        const suggestions = [...new Set(folders.flatMap((f) => [f, `${f}/`]))].sort((a, b) =>
+          a.localeCompare(b, "ko"),
+        );
+        for (const f of suggestions) {
+          const o = document.createElement("option");
+          o.value = f;
+          folderList.appendChild(o);
+        }
+        folder.title =
+          folders.length > 0
+            ? "목록에서 고르거나 직접 입력. '기존폴더/새이름' 으로 하위 폴더를 새로 만들 수 있습니다."
+            : "예: 운영/DB — '/' 로 하위 폴더를 만듭니다.";
 
         // ── 자동화 ──
         const charset = document.createElement("select");
@@ -257,7 +286,8 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         );
         addTab("trig", "트리거", triggers.render());
 
-        card.append(title, tabbar, body, err, buttons);
+        // datalist 는 화면에 그려지지 않지만 문서 안에 있어야 input[list] 가 인식한다.
+        card.append(title, tabbar, body, err, buttons, folderList);
         selectTab("conn");
 
         // 로컬 셸은 인증 개념이 없어 "인증" 탭을 숨긴다(빈 탭 방지).

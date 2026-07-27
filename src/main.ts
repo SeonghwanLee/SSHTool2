@@ -551,6 +551,25 @@ async function hydrateSecrets(s: SessionInfo): Promise<SessionInfo> {
 }
 
 /**
+ * 지금 존재하는 폴더 경로 전부 — 명시적으로 만든 폴더(settings.folders)와 세션이 실제로
+ * 들어 있는 폴더를 합치고, 중간 경로(`운영/DB` 의 `운영`)까지 펼쳐서 돌려준다.
+ * 세션 편집 창의 폴더 제안 목록으로 쓴다.
+ */
+function allFolderPaths(): string[] {
+  const out = new Set<string>();
+  for (const raw of [...settings.folders, ...sessions.map((s) => s.folder)]) {
+    const path = (raw ?? "").trim();
+    if (!path) continue;
+    let acc = "";
+    for (const seg of path.split("/").filter(Boolean)) {
+      acc = acc ? `${acc}/${seg}` : seg;
+      out.add(acc);
+    }
+  }
+  return [...out].sort((a, b) => a.localeCompare(b, "ko"));
+}
+
+/**
  * 세션 하나에 대해 SFTP 브라우저를 연다. 사이드바(세션·최근 접속)와 세션 탭 우클릭이
  * 같은 경로를 쓰도록 한 곳에 둔다.
  */
@@ -561,7 +580,7 @@ async function hydrateSecrets(s: SessionInfo): Promise<SessionInfo> {
  */
 async function editSessionFlow(s: SessionInfo): Promise<SessionInfo | null> {
   // 편집 창에는 볼트에 있던 값도 채워서 보여 준다(빈 칸으로 열리면 지운 걸로 오해한다).
-  const edited = await sessionDialog(await hydrateSecrets(s), "세션 편집");
+  const edited = await sessionDialog(await hydrateSecrets(s), "세션 편집", allFolderPaths());
   if (!edited) return null;
   const stripped = await extractSecrets(edited);
   if (!stripped) return null; // 볼트 해제 취소 — 평문으로 새지 않도록 저장 자체를 중단
@@ -669,7 +688,7 @@ async function main(): Promise<void> {
       },
       onSftpDisconnect: (s) => void disconnectLiveSftp(s.id),
       onNew: async () => {
-        const created = await sessionDialog(blankSession(), "새 세션");
+        const created = await sessionDialog(blankSession(), "새 세션", allFolderPaths());
         if (!created) return;
         const stripped = await extractSecrets(created);
         if (!stripped) return;
@@ -679,7 +698,7 @@ async function main(): Promise<void> {
       },
       onQuick: async () => {
         // 저장하지 않는 1회성 접속.
-        const temp = await sessionDialog(blankSession(), "빠른 접속 (저장 안 함)");
+        const temp = await sessionDialog(blankSession(), "빠른 접속 (저장 안 함)", allFolderPaths());
         if (!temp) return;
         void tabs.openSession(temp);
       },
