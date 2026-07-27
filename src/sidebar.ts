@@ -73,6 +73,31 @@ const detailText = (s: SessionInfo): string =>
       ? `${s.user}@${s.host}:${s.port}`
       : `${s.host}:${s.port}`;
 
+/** 마지막 접속 시각 표기(툴팁용). 오늘이면 시각만, 아니면 날짜까지. */
+function lastConnectedText(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  const p2 = (n: number): string => String(n).padStart(2, "0");
+  const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  return sameDay ? hm : `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${hm}`;
+}
+
+/**
+ * 행 툴팁 — 세부정보 표시를 꺼 두어도 마우스만 올리면 확인할 수 있게 한다.
+ * 목록을 좁게 쓰는 사람이 세부정보를 끄는데, 그러면 어느 서버인지 알 길이 없어진다.
+ */
+function rowTooltip(s: SessionInfo): string {
+  const lines = [s.name || s.host, detailText(s)];
+  if (s.folder) lines.push(`폴더: ${s.folder}`);
+  if (s.lastConnectedUtc > 0) lines.push(`마지막 접속: ${lastConnectedText(s.lastConnectedUtc)}`);
+  lines.push("더블클릭하여 접속");
+  return lines.join("\n");
+}
+
 export class Sidebar {
   private sessions: SessionInfo[] = [];
   private folders: string[] = [];
@@ -414,7 +439,7 @@ export class Sidebar {
     for (const s of recent) {
       const row = document.createElement("div");
       row.className = "recent-row";
-      row.title = `${detailText(s)} · 더블클릭하여 접속`;
+      row.title = rowTooltip(s);
 
       const icon = document.createElement("span");
       icon.className = "tree-icon";
@@ -449,7 +474,11 @@ export class Sidebar {
         this.cb.onSftp(s);
       });
 
-      row.append(icon, name, detail, sftp, del);
+      // '세션 세부정보 표시' 는 최근 접속에도 같이 적용한다 — 세션 행에만 걸려 있어
+      // 설정을 꺼도 최근 접속에는 계정@호스트가 그대로 남아 있었다.
+      row.append(icon, name);
+      if (this.showDetail) row.append(detail);
+      row.append(sftp, del);
       row.dataset.navKind = "recent";
       this.registerNav(row, `r:${s.id}`, () => this.cb.onOpen(s));
       // 세션 행과 같은 규칙 — 단일 클릭은 선택만, 접속은 더블클릭.
@@ -658,6 +687,7 @@ export class Sidebar {
       }
     });
 
+    row.title = rowTooltip(s);
     row.append(icon, main, actions);
     row.classList.toggle("has-sftp", sftpAlive);
     row.dataset.navKind = "session";
