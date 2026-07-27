@@ -930,11 +930,16 @@ button {
 .term-host .xterm-helper-textarea {
   caret-color: transparent;
 }
-/* IME 조합 미리보기(합성 중 글자)를 테마색으로 — 기본 검정 박스가 튀지 않게. */
+/* IME 조합 미리보기(합성 중 글자).
+   0.28.0 에서 xterm 기본값(검정 박스)을 --panel-2 로 바꿨는데, 그 색이 터미널 배경보다
+   밝아 조합 중인 글자가 회색 박스로 도드라졌다. 배경은 터미널과 같게 두고 밑줄로만
+   조합 중임을 알린다 — IME 조합 표시의 일반 관례이고, 글자가 본문과 같은 줄로 읽힌다. */
 .term-host .xterm .composition-view,
 .term-host .xterm-composition-view {
-  background: var(--panel-2);
+  background: var(--term-bg);
   color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* 앱 전역 토스트(중복 실행 알림 등) — 하단 가운데, 페이드 인/아웃. */
