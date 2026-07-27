@@ -34,10 +34,22 @@ async fn ssh_connect(
     port_forwards: String,
     auth_type: String,
     private_key_path: String,
+    allow_legacy_algorithms: bool,
 ) -> Result<String, String> {
     ssh::connect(
-        app, host, port, user, password, cols, rows, charset, log_name, port_forwards, auth_type,
+        app,
+        host,
+        port,
+        user,
+        password,
+        cols,
+        rows,
+        charset,
+        log_name,
+        port_forwards,
+        auth_type,
         private_key_path,
+        allow_legacy_algorithms,
     )
     .await
 }
@@ -180,8 +192,19 @@ async fn sftp_connect(
     password: String,
     auth_type: String,
     private_key_path: String,
+    allow_legacy_algorithms: bool,
 ) -> Result<String, String> {
-    sftp::connect(app, host, port, user, password, auth_type, private_key_path).await
+    sftp::connect(
+        app,
+        host,
+        port,
+        user,
+        password,
+        auth_type,
+        private_key_path,
+        allow_legacy_algorithms,
+    )
+    .await
 }
 
 #[tauri::command]

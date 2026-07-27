@@ -932,6 +932,7 @@ export async function openSftpBrowser(
       password,
       session.authType,
       session.privateKeyPath,
+      session.allowLegacyAlgorithms,
     );
     // "." 로 두면 상위 이동이 불가능하므로 절대경로(홈)로 정규화한다.
     let start = ".";

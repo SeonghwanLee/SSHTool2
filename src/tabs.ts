@@ -775,6 +775,7 @@ export class TabManager {
             portForwards: tab.session.portForwards,
             authType: tab.session.authType,
             privateKeyPath: tab.session.privateKeyPath,
+            allowLegacyAlgorithms: tab.session.allowLegacyAlgorithms,
           });
       if (tab.disposed) {
         // 접속이 완료되기 전에 탭을 닫은 경우 — 세션이 새지 않도록 즉시 정리.

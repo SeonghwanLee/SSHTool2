@@ -214,8 +214,20 @@ button {
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
+/* 접힌 상태에서는 폭조절바 트랙을 펼치기 버튼 너비(18px)만큼 넓힌다.
+   4px 트랙 위에 18px 버튼을 띄우면 남는 폭이 터미널 위를 덮어 거슬린다. */
 #app.sidebar-collapsed #app-body {
-  grid-template-columns: 0 4px 1fr;
+  grid-template-columns: 0 18px 1fr;
+}
+/* 넓어진 트랙이 굵은 경계선처럼 보이지 않도록 사이드바와 같은 톤으로. */
+/* 접힌 상태에서는 폭 드래그가 막혀 있고 더블클릭 펼치기만 되므로 커서도 그에 맞춘다. */
+#app.sidebar-collapsed #sidebar-resizer {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+}
+#app.sidebar-collapsed #sidebar-resizer:hover {
+  background: var(--panel-2);
 }
 /* display:none 으로 지우면 남은 그리드 아이템이 트랙을 밀어(리사이저=0px) 워크스페이스가
    붕괴한다. 0폭 트랙에 그대로 두고 내용만 클립 — 리사이저(4px)는 남아 더블클릭으로 펼침 가능. */
@@ -340,9 +352,12 @@ button {
   color: var(--fg);
   border-color: var(--accent);
 }
-/* 접힌 상태: 펼치기 버튼을 항상 보이게 해 발견성 확보. */
+/* 접힌 상태: 펼치기 버튼을 항상 보이게 해 발견성 확보.
+   경계선 1px 때문에 트랙 가운데가 반 픽셀 밀리므로, 중앙 정렬 대신 왼쪽에 붙인다. */
 #app.sidebar-collapsed .sidebar-toggle {
   opacity: 0.9;
+  left: 0;
+  transform: translate(0, -50%);
 }
 
 /* ── 사이드바 ─────────────────────────────────────────────────────────────── */

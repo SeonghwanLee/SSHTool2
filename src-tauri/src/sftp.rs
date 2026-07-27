@@ -5,9 +5,8 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use russh::client::{self, Config, Handle};
+use russh::client::{self, Handle};
 use russh::keys::ssh_key;
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
 use std::sync::Arc as StdArc;
@@ -80,13 +79,9 @@ pub async fn connect(
     password: String,
     auth_type: String,
     private_key_path: String,
+    allow_legacy_algorithms: bool,
 ) -> Result<String, String> {
-    let config = Arc::new(Config {
-        inactivity_timeout: None,
-        keepalive_interval: Some(Duration::from_secs(30)),
-        keepalive_max: 3,
-        ..Default::default()
-    });
+    let config = crate::ssh::client_config(allow_legacy_algorithms);
 
     let client = Client {
         app: app.clone(),

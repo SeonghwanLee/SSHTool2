@@ -122,6 +122,21 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
         sftpText.textContent = "SFTP 사용 (끄면 터미널 전용)";
         sftpRow.append(sftpBox, sftpText);
 
+        // 구형 서버 호환 — 기본은 꺼 둔다. 켜면 약한 알고리즘이 협상 목록 맨 뒤에 붙어,
+        // 그것밖에 없는 서버에서만 실제로 쓰인다(최신 서버 접속은 그대로).
+        const legacyRow = document.createElement("label");
+        legacyRow.className = "check-row";
+        const legacyBox = document.createElement("input");
+        legacyBox.type = "checkbox";
+        legacyBox.checked = initial.allowLegacyAlgorithms;
+        const legacyText = document.createElement("span");
+        legacyText.textContent = "구형 서버 호환 (레거시 알고리즘 허용)";
+        legacyRow.title =
+          "CentOS 5·OpenSSH 4.x 등 오래된 서버는 SHA-1 키교환·MAC 과 CBC 암호만 제공합니다.\n" +
+          "이들은 오늘날 안전하지 않아 기본적으로 사용하지 않습니다.\n" +
+          "이 옵션은 해당 알고리즘을 후순위로만 추가하므로, 최신 서버와의 접속에는 영향이 없습니다.";
+        legacyRow.append(legacyBox, legacyText);
+
         const logRow = document.createElement("label");
         logRow.className = "check-row";
         const logBox = document.createElement("input");
@@ -216,7 +231,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
           dirField,
           field("폴더", folder),
         );
-        addTab("auth", "인증", authField, keyField, saveRow);
+        addTab("auth", "인증", authField, keyField, saveRow, legacyRow);
         addTab(
           "auto",
           "자동화",
@@ -274,6 +289,7 @@ export function sessionDialog(initial: SessionInfo, titleText: string): Promise<
             portForwards: forwards.value,
             enableLog: logBox.checked,
             enableSftp: sftpBox.checked,
+            allowLegacyAlgorithms: legacyBox.checked,
             triggers: triggers.value(),
           };
           close();

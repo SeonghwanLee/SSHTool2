@@ -63,6 +63,11 @@ export interface SessionInfo {
   portForwards: string;
   /** 이 세션의 터미널 글자 크기(0 = 전역 설정 따름). Ctrl+휠 조절 시 세션별로 기록. */
   fontSize: number;
+  /**
+   * true 면 구형 서버(CentOS 5·OpenSSH 4.x 등)용 레거시 알고리즘(SHA-1 KEX·MAC, CBC 암호)을
+   * 협상 목록 맨 뒤에 추가한다. 최신 서버와의 협상 결과는 바뀌지 않는다.
+   */
+  allowLegacyAlgorithms: boolean;
 }
 
 /** 새 세션 기본값. */
@@ -89,6 +94,7 @@ export function blankSession(): SessionInfo {
     lastConnectedUtc: 0,
     portForwards: "",
     fontSize: 0,
+    allowLegacyAlgorithms: false,
   };
 }
 

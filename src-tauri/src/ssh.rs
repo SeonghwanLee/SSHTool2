@@ -5,7 +5,7 @@ use std::time::Duration;
 use russh::client::{self, Config, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::ssh_key::{self, HashAlg};
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
-use russh::{ChannelMsg, Disconnect};
+use russh::{cipher, kex, mac, ChannelMsg, Disconnect, Preferred};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -14,6 +14,68 @@ use tokio::sync::mpsc;
 
 use crate::hostkey;
 use crate::portfwd;
+
+/// CentOS 5 / OpenSSH 4.x 같은 구형 서버는 SHA-1 계열 KEX·MAC 과 CBC 암호밖에 제공하지
+/// 않는다. 이들은 오늘날 안전하지 않아 russh 기본 목록에서 빠져 있고, 그래서 접속이
+/// "No common Kex algorithm" 으로 끊긴다.
+///
+/// 세션에서 명시적으로 허용했을 때만 기본 목록 *뒤에* 덧붙인다. 협상은 클라이언트 선호
+/// 순서를 따르므로, 최신 알고리즘을 지원하는 서버와의 결과는 이 옵션과 무관하게 같다.
+/// 즉 약한 알고리즘은 "그것뿐인 서버" 에서만 실제로 쓰인다.
+fn preferred_algorithms(allow_legacy: bool) -> Preferred {
+    let base = Preferred::DEFAULT;
+    if !allow_legacy {
+        return base;
+    }
+    Preferred {
+        kex: [
+            base.kex.as_ref(),
+            &[kex::DH_GEX_SHA1, kex::DH_G14_SHA1, kex::DH_G1_SHA1],
+        ]
+        .concat()
+        .into(),
+        // 3des-cbc 는 넣지 않는다 — russh 의 `des` 피처가 필요한 데다 64비트 블록이라
+        // AES-CBC 보다 약하고, OpenSSH 4.x 는 이미 AES-CBC 를 지원한다.
+        cipher: [
+            base.cipher.as_ref(),
+            &[
+                cipher::AES_256_CBC,
+                cipher::AES_192_CBC,
+                cipher::AES_128_CBC,
+            ],
+        ]
+        .concat()
+        .into(),
+        mac: [base.mac.as_ref(), &[mac::HMAC_SHA1]].concat().into(),
+        key: base.key,
+        compression: base.compression,
+    }
+}
+
+/// 터미널·SFTP 가 공유하는 클라이언트 설정.
+/// 대화형 셸은 오래 유휴 상태일 수 있으므로 inactivity 타임아웃으로 끊지 않는다.
+/// 대신 keepalive 로 죽은 연결(피어 무응답)을 감지해 정리한다.
+pub fn client_config(allow_legacy: bool) -> Arc<Config> {
+    Arc::new(Config {
+        inactivity_timeout: None,
+        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_max: 3,
+        preferred: preferred_algorithms(allow_legacy),
+        ..Default::default()
+    })
+}
+
+/// 알고리즘 불일치로 끊긴 경우, 해결 방법을 실제 화면 문구로 알려 준다.
+/// (russh 는 KEX·암호·MAC 각각 다른 문구를 내므로 공통 키워드로 판별한다.)
+fn algorithm_hint(err: &str, allow_legacy: bool) -> Option<&'static str> {
+    if allow_legacy || !err.contains("No common") {
+        return None;
+    }
+    Some(
+        "\n\n서버가 지원하는 암호 알고리즘이 모두 구형입니다(CentOS 5 등). \
+         세션 편집 → '구형 서버 호환(레거시 알고리즘 허용)' 을 켜고 다시 접속하세요.",
+    )
+}
 
 /// 비밀번호 인증을 시도하고, 서버가 password 방식을 끄고 keyboard-interactive(PAM)만
 /// 허용하는 경우(사내 RHEL/Rocky 등에 흔함) 같은 비밀번호로 대화형 프롬프트에 응답한다.
@@ -196,15 +258,9 @@ pub async fn connect(
     // 인증: "password" | "key". key 면 private_key_path 사용, password 는 자격증명(빈 문자열 가능).
     auth_type: String,
     private_key_path: String,
+    allow_legacy_algorithms: bool,
 ) -> Result<String, String> {
-    // 대화형 셸은 오래 유휴 상태일 수 있으므로 inactivity 타임아웃으로 끊지 않는다.
-    // 대신 keepalive로 죽은 연결(피어 무응답)을 감지해 정리한다.
-    let config = Arc::new(Config {
-        inactivity_timeout: None,
-        keepalive_interval: Some(Duration::from_secs(30)),
-        keepalive_max: 3,
-        ..Default::default()
-    });
+    let config = client_config(allow_legacy_algorithms);
 
     // 포워딩 규칙 미리 파싱 — -R 매핑을 Client(핸들러)에 넘겨야 한다.
     let (fwd_rules, fwd_bad) = portfwd::parse(&port_forwards);
@@ -236,7 +292,9 @@ pub async fn connect(
                      '{host}:{port}' 의 알려진 호스트 항목을 삭제한 뒤 다시 접속하세요."
                 )
             } else {
-                format!("연결 실패: {e}")
+                let msg = e.to_string();
+                let hint = algorithm_hint(&msg, allow_legacy_algorithms).unwrap_or("");
+                format!("연결 실패: {msg}{hint}")
             });
         }
     };

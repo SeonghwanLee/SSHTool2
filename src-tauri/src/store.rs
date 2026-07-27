@@ -76,6 +76,9 @@ pub struct SessionInfo {
     /// 세션별 터미널 글자 크기(0 = 전역 설정).
     #[serde(default)]
     pub font_size: u16,
+    /// true 면 구형 서버용 레거시 알고리즘(SHA-1 KEX·MAC, CBC 암호)까지 협상 목록에 넣는다.
+    #[serde(default)]
+    pub allow_legacy_algorithms: bool,
 }
 
 fn default_kind() -> String {

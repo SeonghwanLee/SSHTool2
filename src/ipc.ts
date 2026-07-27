@@ -23,6 +23,8 @@ export interface ConnectArgs {
   authType: string;
   /** 개인키 경로(authType="key"). */
   privateKeyPath: string;
+  /** true 면 구형 서버용 레거시 알고리즘(SHA-1 KEX·MAC, CBC 암호)까지 협상에 포함. */
+  allowLegacyAlgorithms: boolean;
 }
 
 export const sshConnect = (a: ConnectArgs): Promise<string> =>
@@ -164,8 +166,17 @@ export const sftpConnect = (
   password: string,
   authType: string,
   privateKeyPath: string,
+  allowLegacyAlgorithms: boolean,
 ): Promise<string> =>
-  invoke<string>("sftp_connect", { host, port, user, password, authType, privateKeyPath });
+  invoke<string>("sftp_connect", {
+    host,
+    port,
+    user,
+    password,
+    authType,
+    privateKeyPath,
+    allowLegacyAlgorithms,
+  });
 
 export const sftpList = (id: string, path: string): Promise<SftpEntry[]> =>
   invoke<SftpEntry[]>("sftp_list", { id, path });
