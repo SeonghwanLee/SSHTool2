@@ -41,6 +41,16 @@ export interface Settings {
    * 직전에 보던 폴더가 있으면(연결 재사용) 그쪽이 우선 — 하던 일을 끊지 않는 게 먼저다.
    */
   sftpLocalDir: string;
+  /**
+   * 진단 로그(debug.log) 사용 여부. 터미널이 받은 원시 바이트까지 남기므로 기본은 꺼짐이다 —
+   * 화면에 뜬 설정값·키·토큰이 그대로 파일에 남는다. 문제를 재현하는 동안에만 켠다.
+   */
+  verboseLog: boolean;
+  /**
+   * 내부망 전용 모드. 켜지면 GitHub 로 나가는 UI(업데이트 확인 등)를 감춘다.
+   * 시작 시 업데이트 확인을 다시 켜면 자동으로 풀린다 — "이 PC 는 인터넷이 된다"는 선언이다.
+   */
+  offlineMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -62,6 +72,8 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarWidth: 240,
   sidebarCollapsed: false,
   sftpLocalDir: "",
+  verboseLog: false,
+  offlineMode: false,
 };
 
 export interface FontChoice {

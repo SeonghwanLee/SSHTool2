@@ -13,7 +13,7 @@ import { THEMES } from "./themes";
 import { knownHostsDialog } from "./knownhosts";
 import { save as saveDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { backupExport, backupExportZip, backupImport, factoryReset } from "./ipc";
+import { backupExport, backupExportZip, backupImport, debugLogPath, factoryReset } from "./ipc";
 import {
   alertDialog,
   confirmDialog,
@@ -303,10 +303,20 @@ export function settingsDialog(
 
     gen.appendChild(
       checkRow("시작 시 업데이트 확인 (내부망이면 꺼두세요)", working.checkUpdateOnStartup, (v) => {
-        working = { ...working, checkUpdateOnStartup: v };
+        // 다시 켜는 행위 = "이 PC 는 인터넷이 된다"는 선언. 내부망 모드의 탈출구다 —
+        // 이 항목만은 내부망 모드에서도 늘 보이므로 되돌릴 길이 막히지 않는다.
+        working = { ...working, checkUpdateOnStartup: v, offlineMode: v ? false : working.offlineMode };
+        offlineNote.style.display = working.offlineMode ? "" : "none";
         apply();
       }),
     );
+
+    const offlineNote = document.createElement("div");
+    offlineNote.className = "settings-hint";
+    offlineNote.textContent =
+      "내부망 모드가 켜져 있습니다 — GitHub 관련 메뉴를 감춥니다. 위 '시작 시 업데이트 확인'을 켜면 해제됩니다.";
+    offlineNote.style.display = working.offlineMode ? "" : "none";
+    gen.appendChild(offlineNote);
 
     const sftpDirRow = controlRow("SFTP 기본 로컬 폴더");
     const sftpDir = document.createElement("input");
@@ -325,6 +335,42 @@ export function settingsDialog(
     sftpDirHint.textContent =
       "SFTP 를 열 때 왼쪽(내 PC) 창이 시작할 폴더입니다. 예: D:\\작업. 없는 경로면 문서 폴더로 엽니다. 연결이 살아 있는 SFTP 를 다시 열 때는 직전에 보던 폴더가 그대로 유지됩니다.";
     gen.appendChild(sftpDirHint);
+
+    gen.appendChild(sectionLabel("진단"));
+
+    gen.appendChild(
+      checkRow("진단 로그 기록 (debug.log)", working.verboseLog, (v) => {
+        working = { ...working, verboseLog: v };
+        logNote.style.display = v ? "" : "none";
+        apply();
+      }),
+    );
+    const logHint = document.createElement("div");
+    logHint.className = "settings-hint";
+    logHint.textContent =
+      "접속·끊김과 터미널이 받은 원시 데이터를 파일에 남깁니다. 원인을 알 수 없는 증상을 알릴 때 켜세요. 켜는 순간 파일이 새로 시작되고, 20MB 를 넘으면 잘라냅니다.";
+    gen.appendChild(logHint);
+
+    const logNote = document.createElement("div");
+    logNote.className = "settings-hint settings-warn";
+    logNote.textContent =
+      "⚠ 화면에 뜬 내용이 그대로 남습니다 — 설정값·키·토큰이 파일에 들어갈 수 있으니, 파일을 넘기기 전에 반드시 확인하세요. 평소에는 꺼 두세요.";
+    logNote.style.display = working.verboseLog ? "" : "none";
+    gen.appendChild(logNote);
+
+    const logPathRow = controlRow("로그 파일 위치");
+    logPathRow.appendChild(
+      mkSmallButton("경로 복사", async () => {
+        try {
+          const path = await debugLogPath();
+          await navigator.clipboard.writeText(path);
+          await alertDialog(`클립보드에 복사했습니다.\n\n${path}`, "진단 로그");
+        } catch (e) {
+          await alertDialog(`경로를 확인하지 못했습니다: ${String(e)}`);
+        }
+      }),
+    );
+    gen.appendChild(logPathRow);
 
     gen.appendChild(sectionLabel("데이터"));
 

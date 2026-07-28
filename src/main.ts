@@ -58,6 +58,7 @@ import {
   type ViewModeSetting,
 } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
+import { logLine, setDebugLogging } from "./debuglog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { applyIcon } from "./icons";
@@ -629,6 +630,11 @@ async function main(): Promise<void> {
   // 설정 로드 + 테마 즉시 적용(첫 페인트 전).
   settings = await loadSettings();
   applyAppTheme(themeById(settings.theme));
+  // 진단 로깅은 설정을 읽자마자 붙인다 — 시작 과정에서 나는 문제도 잡으려는 것이다.
+  void setDebugLogging(settings.verboseLog);
+  // 프런트에서 터진 예외는 콘솔에만 남아 사용자 화면에서는 흔적이 없다. 로그로 끌어온다.
+  window.addEventListener("error", (e) => logLine("오류", `${e.message} (${e.filename}:${e.lineno})`));
+  window.addEventListener("unhandledrejection", (e) => logLine("미처리 거부", String(e.reason)));
 
   // 중복 실행 시 백엔드(single-instance)가 기존 창을 앞으로 가져오고 이 이벤트를 보낸다.
   void listen("second-instance", () => appToast("이미 실행 중입니다 — 기존 창을 표시합니다"));
@@ -925,7 +931,7 @@ async function main(): Promise<void> {
   const openAbout = () => {
     if (aboutOpen) return;
     aboutOpen = true;
-    void aboutDialog(() => tabs.connectedCount()).finally(() => {
+    void aboutDialog(() => tabs.connectedCount(), () => settings.offlineMode).finally(() => {
       aboutOpen = false;
     });
   };
@@ -998,6 +1004,8 @@ function wireSettings(tabs: TabManager): void {
     if (saved) {
       // '저장'을 누른 경우에만 디스크에 기록한다.
       applyLive(result);
+      // 켜면 파일을 새로 시작하고, 끄면 남은 줄을 흘려보낸다.
+      void setDebugLogging(settings.verboseLog);
       try {
         await saveSettings(settings);
       } catch (e) {
@@ -1507,6 +1515,43 @@ function wireCommandBar(tabs: TabManager): void {
   });
 }
 
+/**
+ * 업데이트 확인 실패가 '인터넷이 안 되는' 쪽으로 보이는가.
+ *
+ * 프록시·매니페스트 미발행·일시 오류까지 내부망으로 단정하면, 잠깐 끊긴 것뿐인 PC 에
+ * 오프라인 모드를 권하게 된다. 연결 자체가 성립하지 않은 경우만 고른다.
+ */
+function looksOffline(e: unknown): boolean {
+  const m = String(e).toLowerCase();
+  return (
+    m.includes("dns") ||
+    m.includes("failed to lookup") ||
+    m.includes("connection refused") ||
+    m.includes("network") ||
+    m.includes("unreachable") ||
+    m.includes("timed out") ||
+    m.includes("timeout")
+  );
+}
+
+/**
+ * 내부망 PC 로 보이면 오프라인 모드를 제안한다(WPF 이식).
+ *
+ * 묻기 전에 먼저 감추지 않는다 — '아니요'를 골랐는데 UI 가 사라져 있으면 되돌릴 방법이
+ * 없다. 탈출구는 '시작 시 업데이트 확인'을 다시 켜는 것이고, 그 항목만은 늘 남겨 둔다.
+ */
+async function offerOfflineMode(): Promise<void> {
+  if (settings.offlineMode) return; // 이미 켜져 있으면 다시 묻지 않는다
+  const ok = await confirmDialog(
+    "업데이트 확인에 실패했습니다 (인터넷 연결 불가).\n" +
+      "시작 시 업데이트 확인을 끄고 GitHub 관련 메뉴를 감출까요?\n" +
+      "설정 > 일반의 '시작 시 업데이트 확인'을 다시 켜면 원래대로 돌아옵니다.",
+  );
+  if (!ok) return;
+  settings = { ...settings, checkUpdateOnStartup: false, offlineMode: true };
+  await saveSettings(settings).catch(() => {});
+}
+
 async function checkForUpdates(): Promise<void> {
   // 내부망 전용 PC 에서는 아예 시도하지 않는다.
   if (!settings.checkUpdateOnStartup) return;
@@ -1519,6 +1564,9 @@ async function checkForUpdates(): Promise<void> {
     // '인터넷 불가'로 단정하거나 사용자를 방해하지 않는다(WPF 동작).
     // 실패를 눈으로 확인하려면 버전 정보 창의 '업데이트 확인' 버튼을 쓴다.
     console.error("시작 시 업데이트 확인 실패(무시)", e);
+    logLine("업데이트 확인 실패", String(e));
+    // 다만 '연결 자체가 안 되는' 실패라면 내부망일 수 있으므로 한 번 묻는다.
+    if (looksOffline(e)) await offerOfflineMode();
     return;
   }
 

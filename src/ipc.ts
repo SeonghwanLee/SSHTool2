@@ -315,3 +315,12 @@ export const onHostKeyPrompt = (cb: (e: HostKeyPrompt) => void): Promise<Unliste
 
 export const hostKeyAnswer = (id: string, accept: boolean): Promise<void> =>
   invoke("hostkey_answer", { id, accept });
+
+// ── 진단 로그(debug.log) ─────────────────────────────────────────────────────
+/** 모아 둔 줄을 파일 끝에 덧붙인다. */
+export const debugLogAppend = (text: string): Promise<void> =>
+  invoke("debug_log_append", { text });
+/** 파일을 비우고 새로 시작한다(로깅을 켜는 시점). */
+export const debugLogReset = (): Promise<void> => invoke("debug_log_reset");
+/** 로그 파일 경로 — 설정 화면에서 사용자에게 알려 준다. */
+export const debugLogPath = (): Promise<string> => invoke<string>("debug_log_path");

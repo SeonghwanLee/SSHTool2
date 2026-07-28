@@ -1422,6 +1422,12 @@ body.dragging-tab * {
   line-height: 1.5;
   margin: -2px 0 4px;
 }
+
+/* 켜면 위험이 따르는 설정의 안내 — 일반 힌트보다 눈에 띄게.
+   .settings-hint 와 특이도가 같으므로 반드시 그 뒤에 와야 색이 이긴다. */
+.settings-hint.settings-warn {
+  color: var(--error);
+}
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

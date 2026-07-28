@@ -5,6 +5,7 @@
 import { Terminal } from "@xterm/xterm";
 import { applyIcon, iconSpan } from "./icons";
 import { showContextMenu, type MenuItem } from "./contextmenu";
+import { logBytes, logLine } from "./debuglog";
 import { confirmDialog, alertDialog } from "./dialogs";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchDecorationOptions } from "@xterm/addon-search";
@@ -635,6 +636,9 @@ class TerminalTab {
   private lastCtrlEnterLf = 0; // Ctrl+Enter LF 중복(이중 keydown) 방지용 타임스탬프
   writeBytes(data: number[]): void {
     const bytes = new Uint8Array(data);
+    // 서버가 실제로 무엇을 보냈는지 — 화면에 그려진 결과만 보고는 알 수 없는 것들
+    // (커서 이동, 마우스 추적 켜기, 색상 코드)이 여기에 드러난다.
+    logBytes(`RX ${this.session.name || this.session.host}`, bytes);
     this.term.write(bytes);
     if (this.session.triggers.length) this.checkTriggers(bytes);
   }
@@ -712,6 +716,7 @@ class TerminalTab {
     this.overlay.innerHTML = `<div class="overlay-msg">접속 중…</div>`;
   }
   setConnected(liveId: string): void {
+    logLine("접속됨", `${this.session.user}@${this.session.host}:${this.session.port} (${liveId})`);
     this.status = "connected";
     this.liveId = liveId;
     // 유지시간 기준은 셸이 열린 이 시점. 재접속이면 여기서 다시 0 부터 센다.
@@ -723,6 +728,7 @@ class TerminalTab {
     this.overlay.innerHTML = "";
   }
   setDisconnected(message: string, onReconnect: () => void): void {
+    logLine("끊김", `${this.session.name || this.session.host} — ${message}`);
     this.status = "disconnected";
     this.liveId = null;
     // 끊긴 시각을 박아 두면 이후 유지시간이 최종값에서 멈춘다.

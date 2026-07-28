@@ -10,7 +10,11 @@ import { openConfigDir } from "./ipc";
 
 const RECENT = 5;
 
-export function aboutDialog(liveCount: () => number = () => 0): Promise<void> {
+export function aboutDialog(
+  liveCount: () => number = () => 0,
+  /** 내부망 모드인가 — 켜져 있으면 GitHub 로 나가는 버튼을 감춘다. */
+  isOffline: () => boolean = () => false,
+): Promise<void> {
   return new Promise((resolve) => {
     openModal(
       (close) => {
@@ -175,6 +179,17 @@ export function aboutDialog(liveCount: () => number = () => 0): Promise<void> {
             updateBtn.textContent = label;
           }
         });
+
+        // 내부망 모드에서는 눌러도 실패할 버튼을 두지 않는다. 진단 정보 복사는 남긴다 —
+        // 외부로 나가지 않고, 문제를 알릴 때 오히려 그때 필요하다.
+        if (isOffline()) {
+          updateBtn.style.display = "none";
+          const note = document.createElement("div");
+          note.className = "settings-hint";
+          note.textContent =
+            "내부망 모드입니다. 업데이트 확인을 감췄습니다 — 설정 > 일반의 '시작 시 업데이트 확인'을 다시 켜면 돌아옵니다.";
+          status.parentElement?.insertBefore(note, status);
+        }
 
         const diagBtn = document.createElement("button");
         diagBtn.type = "button";

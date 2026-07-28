@@ -10,6 +10,7 @@ mod localfs;
 mod localshell;
 mod paths;
 mod portfwd;
+mod debuglog;
 mod rdp;
 mod sftp;
 mod ssh;
@@ -67,6 +68,24 @@ async fn ssh_probe(
     allow_legacy_algorithms: bool,
 ) -> Result<String, String> {
     ssh::probe(app, host, port, user, allow_legacy_algorithms).await
+}
+
+/// 진단 로그(debug.log)에 모아 둔 줄을 덧붙인다. 프런트가 버퍼링해 호출한다.
+#[tauri::command]
+fn debug_log_append(app: AppHandle, text: String) -> Result<(), String> {
+    debuglog::append(&app, &text)
+}
+
+/// 진단 로그를 비우고 새로 시작한다(로깅을 켜는 시점).
+#[tauri::command]
+fn debug_log_reset(app: AppHandle) -> Result<(), String> {
+    debuglog::reset(&app)
+}
+
+/// 진단 로그 파일 경로.
+#[tauri::command]
+fn debug_log_path(app: AppHandle) -> Result<String, String> {
+    debuglog::path(&app)
 }
 
 /// RDP 세션 접속 — Windows 기본 클라이언트(mstsc.exe)를 별도 창으로 띄운다.
@@ -607,6 +626,9 @@ fn main() {
             ssh_connect,
             ssh_probe,
             rdp_launch,
+            debug_log_append,
+            debug_log_reset,
+            debug_log_path,
             ssh_write,
             ssh_resize,
             ssh_close,
