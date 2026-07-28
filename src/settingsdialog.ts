@@ -329,11 +329,28 @@ export function settingsDialog(
       apply();
     });
     sftpDirRow.appendChild(sftpDir);
+    // 경로를 손으로 치는 것보다 고르는 편이 빠르고 오타도 없다. 직접 입력도 그대로 둔다 —
+    // 네트워크 경로(\\서버\공유)처럼 탐색 창으로 가기 번거로운 자리가 있다.
+    sftpDirRow.appendChild(
+      mkSmallButton("찾아보기…", async () => {
+        const picked = await openFileDialog({
+          directory: true,
+          // 이미 값이 있으면 거기서 시작한다. 없는 경로면 플러그인이 알아서 기본 위치로 연다.
+          defaultPath: sftpDir.value.trim() || undefined,
+        }).catch(() => null);
+        // 취소하면 null — 기존 값을 지우지 않는다.
+        const dir = Array.isArray(picked) ? picked[0] : picked;
+        if (!dir) return;
+        sftpDir.value = dir;
+        working = { ...working, sftpLocalDir: dir };
+        apply();
+      }),
+    );
     gen.appendChild(sftpDirRow);
     const sftpDirHint = document.createElement("div");
     sftpDirHint.className = "settings-hint";
     sftpDirHint.textContent =
-      "SFTP 를 열 때 왼쪽(내 PC) 창이 시작할 폴더입니다. 예: D:\\작업. 없는 경로면 문서 폴더로 엽니다. 연결이 살아 있는 SFTP 를 다시 열 때는 직전에 보던 폴더가 그대로 유지됩니다.";
+      "SFTP 를 열 때 왼쪽(내 PC) 창이 시작할 폴더입니다. '찾아보기…' 로 고르거나 직접 입력할 수 있습니다. 없는 경로면 문서 폴더로 엽니다. 연결이 살아 있는 SFTP 를 다시 열 때는 직전에 보던 폴더가 그대로 유지됩니다.";
     gen.appendChild(sftpDirHint);
 
     gen.appendChild(sectionLabel("진단"));

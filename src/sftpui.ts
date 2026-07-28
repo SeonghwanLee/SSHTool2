@@ -223,49 +223,92 @@ export async function openSftpBrowser(
 
   // ── 크기 조절 손잡이 ──
   //
-  // CSS `resize: both` 를 쓰면 안 된다. 이 패널은 오버레이의 flex 로 가운데 정렬돼 있어,
-  // 끌어서 키우는 동안 패널이 커지는 만큼 다시 가운데로 밀린다 — 잡고 있던 모서리가
-  // 커서에서 도망가고, 커서가 창 밖으로 벗어나면 드래그가 끊긴다.
+  // 창처럼 네 변과 네 모서리에서 모두 잡을 수 있게 한다. 우하단 한 곳뿐이면 창을 키우려고
+  // 매번 그 구석까지 커서를 옮겨야 한다.
   //
-  // 드래그를 시작할 때 패널을 지금 자리에 고정(position: fixed)한 뒤 크기만 키운다.
-  // 기준점이 움직이지 않으므로 손잡이가 커서를 그대로 따라온다.
-  const grip = document.createElement("div");
-  grip.className = "sftp-grip";
-  grip.title = "끌어서 창 크기 조절";
-  panel.appendChild(grip);
+  // CSS `resize: both` 는 쓸 수 없다. 이 패널은 오버레이의 flex 로 가운데 정렬돼 있어,
+  // 끄는 동안 커지는 만큼 다시 가운데로 밀린다 — 잡고 있던 모서리가 커서에서 도망간다.
+  // 드래그를 시작할 때 패널을 지금 자리에 고정(position: fixed)한 뒤 변을 움직인다.
+  // 기준점이 움직이지 않으므로 잡은 자리가 커서를 그대로 따라온다.
+  const EDGES: { dir: string; cursor: string }[] = [
+    { dir: "n", cursor: "ns-resize" },
+    { dir: "s", cursor: "ns-resize" },
+    { dir: "e", cursor: "ew-resize" },
+    { dir: "w", cursor: "ew-resize" },
+    { dir: "ne", cursor: "nesw-resize" },
+    { dir: "nw", cursor: "nwse-resize" },
+    { dir: "se", cursor: "nwse-resize" },
+    { dir: "sw", cursor: "nesw-resize" },
+  ];
 
-  grip.addEventListener("mousedown", (down) => {
-    down.preventDefault();
-    const rect = panel.getBoundingClientRect();
-    // 재정렬을 끊기 위해 현재 위치에 못 박는다.
-    panel.style.position = "fixed";
-    panel.style.left = `${rect.left}px`;
-    panel.style.top = `${rect.top}px`;
-    panel.style.margin = "0";
+  for (const { dir, cursor } of EDGES) {
+    const handle = document.createElement("div");
+    handle.className = `sftp-rs sftp-rs-${dir}`;
+    if (dir === "se") handle.title = "끌어서 창 크기 조절";
+    panel.appendChild(handle);
 
-    const cs = getComputedStyle(panel);
-    const minW = parseFloat(cs.minWidth) || 400;
-    const minH = parseFloat(cs.minHeight) || 300;
-    const startX = down.clientX;
-    const startY = down.clientY;
+    handle.addEventListener("mousedown", (down) => {
+      down.preventDefault();
+      const r = panel.getBoundingClientRect();
+      // 재정렬을 끊기 위해 현재 위치·크기에 못 박는다.
+      panel.style.position = "fixed";
+      panel.style.margin = "0";
+      panel.style.left = `${r.left}px`;
+      panel.style.top = `${r.top}px`;
+      panel.style.width = `${r.width}px`;
+      panel.style.height = `${r.height}px`;
 
-    const onMove = (m: MouseEvent) => {
-      // 화면 밖으로 넘기지 않는다 — 넘기면 닫기 버튼에 닿지 못하는 창이 된다.
-      const maxW = window.innerWidth - rect.left - 8;
-      const maxH = window.innerHeight - rect.top - 8;
-      panel.style.width = `${Math.max(minW, Math.min(maxW, rect.width + (m.clientX - startX)))}px`;
-      panel.style.height = `${Math.max(minH, Math.min(maxH, rect.height + (m.clientY - startY)))}px`;
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.classList.remove("resizing-nwse");
-    };
-    // 드래그 중에는 커서를 고정한다. 커서가 손잡이를 잠깐 벗어나도 모양이 바뀌지 않게.
-    document.body.classList.add("resizing-nwse");
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  });
+      const cs = getComputedStyle(panel);
+      const minW = parseFloat(cs.minWidth) || 400;
+      const minH = parseFloat(cs.minHeight) || 300;
+      const startX = down.clientX;
+      const startY = down.clientY;
+      const right = r.right;
+      const bottom = r.bottom;
+
+      const onMove = (m: MouseEvent) => {
+        const dx = m.clientX - startX;
+        const dy = m.clientY - startY;
+        // 각 변을 따로 움직인다. 화면 밖으로는 못 나가게 막는다 — 넘기면 헤더의 닫기
+        // 버튼에 닿지 못하는 창이 된다.
+        if (dir.includes("e")) {
+          const w = Math.min(window.innerWidth - r.left - 4, Math.max(minW, r.width + dx));
+          panel.style.width = `${w}px`;
+        }
+        if (dir.includes("w")) {
+          const left = Math.max(4, Math.min(right - minW, r.left + dx));
+          panel.style.left = `${left}px`;
+          panel.style.width = `${right - left}px`;
+        }
+        if (dir.includes("s")) {
+          const h = Math.min(window.innerHeight - r.top - 4, Math.max(minH, r.height + dy));
+          panel.style.height = `${h}px`;
+        }
+        if (dir.includes("n")) {
+          const top = Math.max(4, Math.min(bottom - minH, r.top + dy));
+          panel.style.top = `${top}px`;
+          panel.style.height = `${bottom - top}px`;
+        }
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.classList.remove("sftp-resizing");
+      };
+      // 손잡이로 크기를 바꾸면 최대화 상태를 푼다 — '이전 크기'라고 적힌 채 크기가
+      // 최대화가 아니면 버튼이 거짓말을 하게 된다.
+      if (beforeMax !== null) {
+        beforeMax = null;
+        maxBtn.textContent = "최대화";
+      }
+      // 드래그 중에는 커서를 고정한다. 손잡이를 잠깐 벗어나도 모양이 바뀌지 않게.
+      document.body.style.cursor = cursor;
+      document.body.classList.add("sftp-resizing");
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+  }
 
   let sftpId: string | null = null;
   let unlisten: (() => void) | null = null;
@@ -290,11 +333,55 @@ export async function openSftpBrowser(
   dcBtn.className = "sftp-btn sftp-disconnect";
   dcBtn.textContent = "연결 끊기";
   dcBtn.title = "SFTP 연결을 끊습니다(진행 중 전송도 취소).";
+  // 최대화 — 창 안을 꽉 채운다. 파일이 많은 폴더를 훑을 때 매번 모서리를 끌지 않아도 된다.
+  const maxBtn = document.createElement("button");
+  maxBtn.className = "sftp-btn sftp-maximize";
+  maxBtn.textContent = "최대화";
+  maxBtn.title = "창 크기에 맞게 최대화 (되돌리려면 다시 누르세요)";
   const closeBtn = document.createElement("button");
   closeBtn.className = "sftp-close";
   closeBtn.title = "닫기(연결은 유지됩니다)";
   applyIcon(closeBtn, "close");
-  header.append(title, status, dcBtn, closeBtn);
+  header.append(title, status, dcBtn, maxBtn, closeBtn);
+
+  // 최대화 직전의 인라인 스타일을 통째로 기억했다가 되돌린다. 값만 따로 담으면
+  // '한 번도 크기를 안 바꾼 상태'(인라인 스타일 없음)를 되살릴 수 없다.
+  let beforeMax: string | null = null;
+  const applyMaximized = () => {
+    panel.style.position = "fixed";
+    panel.style.margin = "0";
+    // CSS 의 max-width/height(99vw·98vh)가 걸려 있어 그대로 두면 최대화가 창을 다 못 채운다.
+    // 스타일 속성을 통째로 되돌리므로 여기서 풀어도 복원에는 영향이 없다.
+    panel.style.maxWidth = "none";
+    panel.style.maxHeight = "none";
+    panel.style.left = "4px";
+    panel.style.top = "4px";
+    panel.style.width = `${window.innerWidth - 8}px`;
+    panel.style.height = `${window.innerHeight - 8}px`;
+  };
+  const setMaximized = (on: boolean) => {
+    if (on) {
+      beforeMax = panel.getAttribute("style") ?? "";
+      applyMaximized();
+    } else {
+      if (beforeMax === null) return;
+      panel.setAttribute("style", beforeMax);
+      beforeMax = null;
+    }
+    maxBtn.textContent = on ? "이전 크기" : "최대화";
+    maxBtn.title = on ? "최대화 전 크기로 되돌립니다" : "창 크기에 맞게 최대화 (되돌리려면 다시 누르세요)";
+  };
+  maxBtn.addEventListener("click", () => setMaximized(beforeMax === null));
+  // 헤더를 더블클릭해도 토글된다 — 창에서 흔히 쓰는 방식이라 눌러 보게 된다.
+  header.addEventListener("dblclick", (e) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    setMaximized(beforeMax === null);
+  });
+  // 최대화 상태에서 앱 창 크기가 바뀌면 따라간다. 안 그러면 화면 밖으로 삐져나간다.
+  const onWinResize = () => {
+    if (beforeMax !== null) applyMaximized();
+  };
+  window.addEventListener("resize", onWinResize);
 
   const setStatus = (m: string) => {
     status.textContent = m;
@@ -403,6 +490,7 @@ export async function openSftpBrowser(
     disposed = true;
     rememberState();
     unlisten?.(); // 모달 진행바 구독만 해제 — 배경 진행률은 모듈 구독이 계속 받는다
+    window.removeEventListener("resize", onWinResize);
     overlay.remove();
     notifyLive();
   };
@@ -413,6 +501,7 @@ export async function openSftpBrowser(
     cancelled = true;
     if (currentTransfer) void sftpCancel(currentTransfer);
     unlisten?.();
+    window.removeEventListener("resize", onWinResize);
     liveSftp.delete(session.id);
     if (sftpId) void sftpDisconnect(sftpId);
     overlay.remove();
