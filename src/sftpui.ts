@@ -135,8 +135,16 @@ interface LiveSftp {
   /** 진행 중 전송(없으면 null) — 모달이 닫혀 있어도 사이드바에 진행률을 보여 주기 위해 둔다. */
   transferId: string | null;
   name: string;
+  /**
+   * 전송 묶음 전체 기준의 진행량/총량. 파일 하나가 아니라 이번에 옮기기로 한 것 전부다 —
+   * 열 개를 보내는데 파일마다 0%→100% 를 반복하면 얼마나 남았는지 알 수 없다.
+   */
   done: number;
   total: number;
+  /** 지금 파일이 시작되기 전까지 끝난 바이트. 진행 이벤트에 더해 전체 진행량을 만든다. */
+  baseDone: number;
+  /** 묶음 전체 바이트. 0 이면 미리 재지 못한 경우로, 파일 단위 진행률로 되돌아간다. */
+  grandTotal: number;
 }
 
 /** 열 너비(px) — 모달을 닫았다 열어도 유지한다. 앱을 껐다 켜면 기본값으로 돌아간다. */
@@ -183,8 +191,15 @@ function hookProgressOnce(): void {
     for (const live of liveSftp.values()) {
       if (live.transferId !== e.transferId) continue;
       live.name = e.name;
-      live.done = e.done;
-      live.total = e.total;
+      // 총량을 미리 잰 경우에만 묶음 기준으로 환산한다. 못 잰 경우(폴더 목록 조회 실패 등)
+      // 억지로 합치면 100% 를 넘거나 뒤로 가는 수가 있어 파일 단위로 둔다.
+      if (live.grandTotal > 0) {
+        live.done = Math.min(live.grandTotal, live.baseDone + e.done);
+        live.total = live.grandTotal;
+      } else {
+        live.done = e.done;
+        live.total = e.total;
+      }
       notifyLive();
       return;
     }
@@ -206,11 +221,60 @@ export async function openSftpBrowser(
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 
+  // ── 크기 조절 손잡이 ──
+  //
+  // CSS `resize: both` 를 쓰면 안 된다. 이 패널은 오버레이의 flex 로 가운데 정렬돼 있어,
+  // 끌어서 키우는 동안 패널이 커지는 만큼 다시 가운데로 밀린다 — 잡고 있던 모서리가
+  // 커서에서 도망가고, 커서가 창 밖으로 벗어나면 드래그가 끊긴다.
+  //
+  // 드래그를 시작할 때 패널을 지금 자리에 고정(position: fixed)한 뒤 크기만 키운다.
+  // 기준점이 움직이지 않으므로 손잡이가 커서를 그대로 따라온다.
+  const grip = document.createElement("div");
+  grip.className = "sftp-grip";
+  grip.title = "끌어서 창 크기 조절";
+  panel.appendChild(grip);
+
+  grip.addEventListener("mousedown", (down) => {
+    down.preventDefault();
+    const rect = panel.getBoundingClientRect();
+    // 재정렬을 끊기 위해 현재 위치에 못 박는다.
+    panel.style.position = "fixed";
+    panel.style.left = `${rect.left}px`;
+    panel.style.top = `${rect.top}px`;
+    panel.style.margin = "0";
+
+    const cs = getComputedStyle(panel);
+    const minW = parseFloat(cs.minWidth) || 400;
+    const minH = parseFloat(cs.minHeight) || 300;
+    const startX = down.clientX;
+    const startY = down.clientY;
+
+    const onMove = (m: MouseEvent) => {
+      // 화면 밖으로 넘기지 않는다 — 넘기면 닫기 버튼에 닿지 못하는 창이 된다.
+      const maxW = window.innerWidth - rect.left - 8;
+      const maxH = window.innerHeight - rect.top - 8;
+      panel.style.width = `${Math.max(minW, Math.min(maxW, rect.width + (m.clientX - startX)))}px`;
+      panel.style.height = `${Math.max(minH, Math.min(maxH, rect.height + (m.clientY - startY)))}px`;
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("resizing-nwse");
+    };
+    // 드래그 중에는 커서를 고정한다. 커서가 손잡이를 잠깐 벗어나도 모양이 바뀌지 않게.
+    document.body.classList.add("resizing-nwse");
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+
   let sftpId: string | null = null;
   let unlisten: (() => void) | null = null;
   let currentTransfer: string | null = null;
   let cancelled = false;
   let transferring = false; // 동시 전송 방지(진행바·취소 대상이 뒤섞이지 않게)
+  // 이번 전송 묶음 전체의 바이트. 0 이면 미리 재지 못한 경우로 파일 단위 진행률로 돌아간다.
+  let bundleTotal = 0;
+  let bundleDone = 0;
   let disposed = false;     // 창이 닫힌 뒤의 후속 작업 차단
 
   // ── 헤더 ──
@@ -292,7 +356,11 @@ export async function openSftpBrowser(
   const hideProgress = () => strip.classList.add("hidden");
 
   onSftpProgress((e) => {
-    if (!disposed && e.transferId === currentTransfer) showProgress(e.name, e.done, e.total);
+    if (disposed || e.transferId !== currentTransfer) return;
+    // 파일 하나가 아니라 묶음 전체 기준으로 보여 준다 — 열 개를 보내는데 파일마다
+    // 0%→100% 를 반복하면 얼마나 남았는지 알 수 없다.
+    if (bundleTotal > 0) showProgress(e.name, Math.min(bundleTotal, bundleDone + e.done), bundleTotal);
+    else showProgress(e.name, e.done, e.total);
   }).then((fn) => {
     // listen() 이 해결되기 전에 창이 닫혔으면 즉시 해제(리스너 누수 방지).
     if (disposed) fn();
@@ -1176,6 +1244,15 @@ export async function openSftpBrowser(
 
     transferring = true;
     cancelled = false;
+
+    // 총량을 먼저 잰다. 폴더는 목록을 훑어야 알 수 있어 잠깐 걸린다 — 그 사이 상태를 밝힌다.
+    // 실패하면 0 으로 두고 파일 단위 진행률로 돌아간다(멈추지는 않는다).
+    setStatus("전송할 크기 계산 중…");
+    bundleTotal = await measureTotal(src.side, items).catch(() => 0);
+    bundleDone = 0;
+    setBundle();
+    setStatus(bundleTotal > 0 ? `전송 시작 (${fmtSize(bundleTotal)})` : "전송 시작");
+
     let applied: ConflictChoice | null = null;
     let failed = 0;
 
@@ -1210,6 +1287,9 @@ export async function openSftpBrowser(
     setOverall("");
     setTransfer(null);
     transferring = false;
+    bundleTotal = 0;
+    bundleDone = 0;
+    setBundle();
     setStatus(
       cancelled
         ? "전송 취소됨"
@@ -1218,6 +1298,42 @@ export async function openSftpBrowser(
           : "전송 완료",
     );
     if (!disposed) await dest.reload();
+  }
+
+  /**
+   * 옮길 것의 총 바이트를 미리 잰다. 폴더는 목록을 훑어 합산한다.
+   * 한 곳이라도 조회에 실패하면 전체를 포기하고 0 을 돌려준다 — 반쪽 총량으로 계산하면
+   * 진행률이 100% 를 넘거나 뒤로 가서, 아예 파일 단위로 보여 주는 편이 낫다.
+   */
+  async function measureTotal(from: Side, items: Entry[]): Promise<number> {
+    let sum = 0;
+    for (const item of items) {
+      if (cancelled) return 0;
+      if (!item.isDir) {
+        sum += item.size;
+        continue;
+      }
+      const kids = ((await (from === "local"
+        ? localList(item.path)
+        : sftpList(sftpId!, item.path))) as Entry[]).filter(
+        (k) => k.name !== "." && k.name !== "..",
+      );
+      sum += await measureTotal(from, kids);
+    }
+    return sum;
+  }
+
+  /** 묶음 진행 상태를 레지스트리에 반영한다(모달을 닫아도 칩이 전체 진행률을 보여 주도록). */
+  function setBundle(): void {
+    const live = liveSftp.get(session.id);
+    if (!live) return;
+    live.baseDone = bundleDone;
+    live.grandTotal = bundleTotal;
+    if (bundleTotal > 0) {
+      live.done = Math.min(bundleTotal, bundleDone);
+      live.total = bundleTotal;
+    }
+    notifyLive();
   }
 
   /** 파일 하나 또는 폴더 하나(재귀)를 옮긴다. */
@@ -1233,10 +1349,14 @@ export async function openSftpBrowser(
     if (!entry.isDir) {
       const transferId = crypto.randomUUID();
       setTransfer(transferId);
-      showProgress(entry.name, 0, entry.size);
+      if (bundleTotal > 0) showProgress(entry.name, bundleDone, bundleTotal);
+      else showProgress(entry.name, 0, entry.size);
       if (from === "local") await sftpUpload(sftpId!, entry.path, destPath, transferId);
       else await sftpDownload(sftpId!, entry.path, destPath, transferId);
       setTransfer(null);
+      // 이 파일 몫을 누적한다. 다음 파일의 진행 이벤트는 여기에 더해져 전체 진행이 된다.
+      bundleDone = Math.min(bundleTotal || Number.MAX_SAFE_INTEGER, bundleDone + entry.size);
+      setBundle();
       return;
     }
 
@@ -1321,6 +1441,8 @@ export async function openSftpBrowser(
         name: "",
         done: 0,
         total: 0,
+        baseDone: 0,
+        grandTotal: 0,
       });
       notifyLive();
     }

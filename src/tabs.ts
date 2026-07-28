@@ -103,6 +103,9 @@ const LOCKED_HINT = "세션 잠김 — 탭 우클릭 → 세션 잠금 해제";
  * 트리거 발동 허용 창(ms). 접속 직후에만 발동시켜, 한참 뒤에 나타난 패턴 출력에는
  * 반응하지 않게 한다. 로그인·sudo 프롬프트는 접속 직후에 나오므로 정상 용도는 이 안에 든다.
  */
+/** 확대/축소 배율 표시가 떠 있는 시간(ms). */
+const ZOOM_BADGE_MS = 900;
+
 const TRIGGER_WINDOW_MS = 10_000;
 
 /** "#RRGGBB" 를 [r,g,b] 로. 형식이 아니면 null. */
@@ -189,6 +192,11 @@ class TerminalTab {
   private readonly toast: HTMLDivElement;
   /** 잠긴 동안 늘 떠 있는 표시 — 입력이 안 먹는 이유를 화면에서 바로 알 수 있게 한다. */
   private readonly lockBadge: HTMLDivElement;
+  /** 확대/축소 배율 표시와 그 자동 숨김 타이머. */
+  private readonly zoomBadge: HTMLDivElement;
+  private zoomTimer: number | null = null;
+  /** 끊긴 뒤 떠 있는 재접속 버튼 — 엔터로도 누를 수 있게 포커스 대상이 된다. */
+  private reconnectBtn: HTMLButtonElement | null = null;
   private readonly searchBar: HTMLDivElement;
   private readonly searchInput: HTMLInputElement;
   readonly term: Terminal;
@@ -231,6 +239,9 @@ class TerminalTab {
     this.lockBadge = el("div", "term-lock-badge");
     this.lockBadge.append(iconSpan("lock"), document.createTextNode("잠김"));
     this.lockBadge.style.display = "none";
+    // 확대/축소 배율 — 바꾼 직후 화면 가운데에 잠깐 떴다 사라진다.
+    this.zoomBadge = el("div", "term-zoom-badge");
+    this.zoomBadge.style.display = "none";
     this.searchBar = el("div", "term-search");
     this.searchBar.style.display = "none";
     this.searchInput = document.createElement("input");
@@ -242,6 +253,7 @@ class TerminalTab {
       this.overlay,
       this.toast,
       this.lockBadge,
+      this.zoomBadge,
       this.searchBar,
     );
     this.headerLabel.textContent = session.name || `${session.user}@${session.host}`;
@@ -461,12 +473,14 @@ class TerminalTab {
   private bumpZoom(d: number): void {
     this.sessionFontSize = clamp(this.effectiveFontSize() + d, 6, 40);
     this.applyFont();
+    this.flashZoom();
     this.onFontSize(this.sessionFontSize); // 세션에 저장
   }
   private setZoom(v: number): void {
     // Ctrl+0 = 세션 지정 해제(전역 설정으로 복귀).
     this.sessionFontSize = v > 0 ? v : 0;
     this.applyFont();
+    this.flashZoom();
     this.onFontSize(this.sessionFontSize);
   }
   private applyFont(): void {
@@ -474,6 +488,27 @@ class TerminalTab {
     this.term.options.fontSize = this.effectiveFontSize();
     this.fitNow();
     this.onActive();
+  }
+
+  /**
+   * 지금 배율을 화면 가운데에 잠깐 띄운다. 기준은 설정의 전역 글자 크기 —
+   * Ctrl+0 으로 돌아오는 지점이 100% 여야 "원래대로" 가 눈에 보인다.
+   */
+  private flashZoom(): void {
+    const base = this.settings.fontSize;
+    if (base <= 0) return;
+    const pct = Math.round((this.effectiveFontSize() / base) * 100);
+    this.zoomBadge.textContent = `${pct}%`;
+    this.zoomBadge.style.display = "block";
+    // 다시 그리기 전에 클래스를 떼야 연속으로 돌릴 때 애니메이션이 처음부터 다시 돈다.
+    this.zoomBadge.classList.remove("fading");
+    void this.zoomBadge.offsetWidth;
+    this.zoomBadge.classList.add("fading");
+    if (this.zoomTimer !== null) clearTimeout(this.zoomTimer);
+    this.zoomTimer = window.setTimeout(() => {
+      this.zoomBadge.style.display = "none";
+      this.zoomTimer = null;
+    }, ZOOM_BADGE_MS);
   }
 
   // ── 검색 ──
@@ -583,6 +618,10 @@ class TerminalTab {
     }
   }
   focus(): void {
+    if (this.status === "disconnected" && this.reconnectBtn) {
+      this.reconnectBtn.focus();
+      return;
+    }
     this.term.focus();
     // 세션 첫 시작(첫 포커스) 시 1회만 IME 를 영문으로 전환한다(사용자 요청).
     // 이후 사용자가 한글로 바꾸면 그대로 존중 — 매 포커스마다 강제하지 않는다.
@@ -668,6 +707,7 @@ class TerminalTab {
 
   setConnecting(): void {
     this.status = "connecting";
+    this.reconnectBtn = null;
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="overlay-msg">접속 중…</div>`;
   }
@@ -700,10 +740,14 @@ class TerminalTab {
     msg.textContent = message;
     const btn = document.createElement("button");
     btn.className = "btn-accent";
-    btn.textContent = "재접속";
+    btn.textContent = "재접속 (Enter)";
     btn.addEventListener("click", onReconnect);
     box.append(msg, btn);
     this.overlay.appendChild(box);
+    // 버튼에 포커스를 준다 — 엔터·스페이스로 바로 재접속된다. 끊긴 터미널에 대고
+    // 엔터를 쳐도 아무 일이 없어(liveId 가 없어 입력이 버려진다) 멈춘 것처럼 보였다.
+    this.reconnectBtn = btn;
+    btn.focus();
   }
 
   /** 닫힌 뒤 뒤늦게 도착한 접속 결과를 무시하기 위한 표시. */
@@ -729,6 +773,8 @@ export class TabManager {
   private settings: Settings;
   private viewMode: ViewMode = "tabs";
   private refitPending = false;
+  /** 탭을 끄는 중이었는지 — 놓은 직후의 click 을 걸러내기 위해 잠깐 남긴다. */
+  private dragMoved = false;
   /** 동시 명령이 겨눈 탭 키(null = 표시 안 함). 탭바 강조에만 쓴다. */
   private bcastKeys: ReadonlySet<string> | null = null;
   /** 탭 구성·접속 상태가 바뀔 때 알림받을 구독자(동시 명령 창 세션 수 등). */
@@ -1354,6 +1400,78 @@ export class TabManager {
     return items;
   }
 
+  /**
+   * 탭을 끌어 순서를 바꾼다.
+   *
+   * HTML5 드래그앤드롭 대신 마우스 이벤트로 처리한다. 탭바는 폭이 좁고 항목이 촘촘해
+   * 놓을 자리를 픽셀 단위로 보여 줘야 하는데, dragover 는 자식 요소를 지날 때마다
+   * 들락거려 표시가 깜빡인다. 좌표를 직접 보면 그 문제가 없다.
+   *
+   * 5px 을 넘겨야 드래그로 친다 — 그 전에는 그냥 클릭(탭 전환)이다.
+   */
+  private beginTabDrag(tab: TerminalTab, item: HTMLElement, down: MouseEvent): void {
+    if (this.tabs.length < 2) return;
+    const startX = down.clientX;
+    this.dragMoved = false;
+    let dropAt = -1; // 삽입될 위치(this.tabs 기준 인덱스)
+
+    const clearMarks = () => {
+      for (const el of this.tabbar.children) el.classList.remove("drop-before", "drop-after");
+    };
+
+    const onMove = (m: MouseEvent) => {
+      if (!this.dragMoved) {
+        if (Math.abs(m.clientX - startX) < 5) return;
+        this.dragMoved = true;
+        item.classList.add("dragging");
+        document.body.classList.add("dragging-tab");
+      }
+      clearMarks();
+      // 커서가 어느 탭의 어느 쪽에 있는지로 삽입 위치를 정한다.
+      const items = [...this.tabbar.children] as HTMLElement[];
+      dropAt = items.length; // 기본값 = 맨 끝
+      for (let i = 0; i < items.length; i++) {
+        const r = items[i].getBoundingClientRect();
+        if (m.clientX < r.left + r.width / 2) {
+          dropAt = i;
+          break;
+        }
+      }
+      const from = this.tabs.indexOf(tab);
+      // 제자리(자기 앞/뒤)면 표시하지 않는다 — 옮겨지지 않는데 선이 보이면 헷갈린다.
+      if (dropAt === from || dropAt === from + 1) {
+        dropAt = -1;
+        return;
+      }
+      if (dropAt < items.length) items[dropAt].classList.add("drop-before");
+      else items[items.length - 1].classList.add("drop-after");
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("dragging-tab");
+      item.classList.remove("dragging");
+      clearMarks();
+      if (this.dragMoved && dropAt >= 0) {
+        const from = this.tabs.indexOf(tab);
+        this.tabs.splice(from, 1);
+        // 앞쪽에서 빼냈으면 목표 인덱스가 하나 당겨진다.
+        this.tabs.splice(dropAt > from ? dropAt - 1 : dropAt, 0, tab);
+        this.renderTabbar();
+        // 타일 모드에서는 탭 순서가 곧 화면 배치 순서라 다시 깔아야 한다.
+        if (this.viewMode !== "tabs") this.layout(false);
+      }
+      // click 은 mouseup 뒤에 온다 — 다음 프레임에 풀어야 그 클릭을 걸러낼 수 있다.
+      setTimeout(() => {
+        this.dragMoved = false;
+      }, 0);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   private renderTabbar(): void {
     this.tabbar.innerHTML = "";
     for (const tab of this.tabs) {
@@ -1387,12 +1505,19 @@ export class TabManager {
         item.append(lock);
       }
       item.append(label, close);
-      item.addEventListener("click", () => this.activate(tab));
+      item.addEventListener("click", () => {
+        // 방금 끌어서 옮긴 것이면 활성화하지 않는다 — 놓는 순간 탭이 바뀌면
+        // 옮기려던 것인지 고르려던 것인지 알 수 없게 된다.
+        if (this.dragMoved) return;
+        this.activate(tab);
+      });
       item.addEventListener("mousedown", (ev) => {
         if (ev.button === 1) {
           ev.preventDefault();
           void this.closeTab(tab);
+          return;
         }
+        if (ev.button === 0) this.beginTabDrag(tab, item, ev);
       });
       item.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
