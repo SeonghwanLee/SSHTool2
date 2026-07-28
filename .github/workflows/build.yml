@@ -67,10 +67,32 @@ jobs:
           # Windows NSIS 인스톨러 타겟. 서명된 .nsis.zip + latest.json 이 릴리스에 업로드됨.
           args: --target x86_64-pc-windows-msvc --bundles nsis
 
-      # LTO 를 끄면서 크기를 대가로 내줬다. 매 실행마다 실제 크기를 남겨 추세를 본다.
+      # 산출물 크기를 매 실행마다 남겨 추세를 본다(빌드 옵션을 만질 때 대가를 보려는 것).
+      #
+      # 경로를 박아 두지 않고 target 아래에서 찾는다 — --target 을 붙이면 산출물이
+      # target/<트리플>/release/bundle 로, 빼면 target/release/bundle 로 간다. 한쪽으로
+      # 적어 두면 옵션을 바꾼 날 조용히 빈 결과가 나온다(실제로 그랬다).
+      #
+      # 실패해도 릴리스를 막지 않는다. 이건 보고용이지 빌드의 일부가 아니다.
       - name: 산출물 크기
-        shell: pwsh
+        if: always()
+        continue-on-error: true
+        shell: bash
         run: |
-          Get-ChildItem -Recurse -File src-tauri/target/x86_64-pc-windows-msvc/release/bundle |
-            Where-Object { $_.Extension -in '.exe', '.zip' } |
-            ForEach-Object { '{0,-46} {1,8:N2} MB' -f $_.Name, ($_.Length / 1MB) }
+          found=$(find src-tauri/target -type f -path '*/bundle/*' \
+                    \( -name '*.exe' -o -name '*.zip' \) 2>/dev/null | sort)
+          if [ -z "$found" ]; then
+            echo "번들 산출물을 찾지 못했습니다."
+            echo "target 아래 bundle 디렉터리:"
+            find src-tauri/target -type d -name bundle 2>/dev/null | sed 's/^/  /' || true
+            exit 0
+          fi
+          {
+            echo "| 파일 | 크기 |"
+            echo "|---|---:|"
+            while IFS= read -r f; do
+              sz=$(stat -c%s "$f")
+              printf '| %s | %s MB |\n' "$(basename "$f")" \
+                "$(awk -v b="$sz" 'BEGIN{printf "%.2f", b/1048576}')"
+            done <<< "$found"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
