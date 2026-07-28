@@ -1,7 +1,8 @@
 // 좌측 세션 사이드바. 폴더 경로로 트리를 구성하고, 세션 열기/편집/삭제/새로만들기를 제공.
 
 import type { SessionInfo } from "./types";
-import { showContextMenu } from "./contextmenu";
+import type { FolderSort } from "./settings";
+import { showContextMenu, type MenuItem } from "./contextmenu";
 import { applyIcon } from "./icons";
 
 interface SidebarCallbacks {
@@ -34,6 +35,8 @@ interface SidebarCallbacks {
   onDropSession: (sourceId: string, target: DropTarget) => void;
   /** 폴더를 다른 폴더 안(또는 루트)으로 이동 — 하위 폴더·세션까지 함께 옮긴다. */
   onMoveFolder: (sourcePath: string, destParent: string) => void;
+  /** 폴더별 정렬 방식 변경("" = 루트). */
+  onFolderSort?: (path: string, mode: FolderSort) => void;
 }
 
 /** 드롭 위치 — 세션 앞/뒤에 끼우기, 또는 폴더로 이동. */
@@ -107,6 +110,8 @@ export class Sidebar {
   private filter = "";
   /** 표시 옵션(설정에서 주입). */
   private sortByRecent = false;
+  /** 폴더별 정렬 방식("" = 루트). 없으면 전역 규칙. */
+  private folderSort: Record<string, FolderSort> = {};
   private showDetail = true;
   private recentLimit = 10;
   /** 키보드 포커스가 놓인 행의 식별자. 다시 그려도 같은 행으로 돌아가기 위해 값으로 들고 있다. */
@@ -159,6 +164,9 @@ export class Sidebar {
       showContextMenu(e.clientX, e.clientY, [
         { label: "새 세션", accel: "s", action: () => this.cb.onNew() },
         { label: "새 폴더", accel: "n", action: () => this.cb.onNewFolder("") },
+        { separator: true },
+        // 루트에 바로 놓인 세션들의 정렬. 폴더 안은 각 폴더 메뉴에서 따로 정한다.
+        ...this.sortItems(""),
         { separator: true },
         { label: "다른 클라이언트에서 가져오기…", accel: "i", action: () => this.cb.onImport() },
         { separator: true },
@@ -347,6 +355,11 @@ export class Sidebar {
   }
 
   /** 설정 변경 시 표시 옵션을 반영한다. */
+  /** 폴더별 정렬 방식을 갈아 끼운다(설정에서 읽어 넘긴다). */
+  setFolderSort(map: Record<string, FolderSort>): void {
+    this.folderSort = { ...map };
+  }
+
   setDisplayOptions(sortByRecent: boolean, showDetail: boolean, recentLimit = 10): void {
     this.sortByRecent = sortByRecent;
     this.showDetail = showDetail;
@@ -569,6 +582,8 @@ export class Sidebar {
             },
           },
           { separator: true },
+          ...this.sortItems(f.path),
+          { separator: true },
           { label: "하위 새 폴더", accel: "n", action: () => this.cb.onNewFolder(f.path) },
           { label: "폴더 이름 변경", accel: "r", action: () => this.cb.onRenameFolder(f.path) },
           { separator: true },
@@ -608,15 +623,50 @@ export class Sidebar {
       if (!isCollapsed) this.renderNode(f, parent, depth + 1);
     }
 
-    // 최근 접속순이 켜져 있으면 그 기준, 아니면 수동 정렬(sortOrder) → 이름순.
-    const sessions = [...node.sessions].sort((a, b) =>
-      this.sortByRecent
-        ? b.lastConnectedUtc - a.lastConnectedUtc || a.name.localeCompare(b.name, "ko")
-        : a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ko"),
-    );
+    const sessions = [...node.sessions].sort(this.comparator(node.path));
     for (const s of sessions) {
       parent.appendChild(this.sessionRow(s, depth));
     }
+  }
+
+  /**
+   * 이 폴더의 세션 비교기. 폴더에 지정된 방식이 있으면 그것을, 없으면 전역 규칙을 쓴다
+   * (최근 접속순 설정 → 그 기준, 아니면 끌어서 정한 순서).
+   *
+   * 어느 방식이든 마지막에는 이름으로 한 번 더 가른다 — 값이 같을 때 순서가 매번 달라지면
+   * 목록이 이유 없이 흔들린다.
+   */
+  private comparator(path: string): (a: SessionInfo, b: SessionInfo) => number {
+    const name = (a: SessionInfo, b: SessionInfo) =>
+      (a.name || a.host).localeCompare(b.name || b.host, "ko");
+    const mode = this.folderSort[path] ?? (this.sortByRecent ? "recent" : "manual");
+    switch (mode) {
+      case "name-asc":
+        return name;
+      case "name-desc":
+        return (a, b) => -name(a, b);
+      case "recent":
+        return (a, b) => b.lastConnectedUtc - a.lastConnectedUtc || name(a, b);
+      default:
+        return (a, b) => a.sortOrder - b.sortOrder || name(a, b);
+    }
+  }
+
+  /** 폴더 우클릭 메뉴의 정렬 항목("" = 루트). */
+  private sortItems(path: string): MenuItem[] {
+    const cur = this.folderSort[path] ?? (this.sortByRecent ? "recent" : "manual");
+    const pick = (label: string, mode: FolderSort, accel: string): MenuItem => ({
+      // 지금 무엇이 걸려 있는지 표시가 없으면 눌러 보기 전에는 알 수 없다.
+      label: (cur === mode ? "● " : "○ ") + label,
+      accel,
+      action: () => this.cb.onFolderSort?.(path, mode),
+    });
+    return [
+      pick("정렬: 이름 오름차순", "name-asc", "a"),
+      pick("정렬: 이름 내림차순", "name-desc", "z"),
+      pick("정렬: 최근 접속순", "recent", "t"),
+      pick("정렬: 수동(끌어서 배치)", "manual", "m"),
+    ];
   }
 
   private sessionRow(s: SessionInfo, depth: number): HTMLElement {

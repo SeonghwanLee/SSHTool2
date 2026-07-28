@@ -51,7 +51,17 @@ export interface Settings {
    * 시작 시 업데이트 확인을 다시 켜면 자동으로 풀린다 — "이 PC 는 인터넷이 된다"는 선언이다.
    */
   offlineMode: boolean;
+  /**
+   * 폴더별 세션 정렬 방식. 키는 폴더 경로("" = 루트), 값이 없으면 전역 규칙을 따른다
+   * (최근 접속순 설정이 켜져 있으면 그 기준, 아니면 끌어서 정한 순서).
+   * 폴더마다 성격이 달라서 — 운영 서버는 이름순이 편하고 임시 작업 폴더는 손으로
+   * 배치하는 게 편하다 — 전역 하나로는 부족했다.
+   */
+  folderSort: Record<string, FolderSort>;
 }
+
+/** 폴더 정렬 방식. `manual` = 끌어서 정한 순서(sortOrder). */
+export type FolderSort = "manual" | "name-asc" | "name-desc" | "recent";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: DEFAULT_THEME_ID,
@@ -74,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sftpLocalDir: "",
   verboseLog: false,
   offlineMode: false,
+  folderSort: {},
 };
 
 export interface FontChoice {
@@ -120,6 +131,8 @@ export async function loadSettings(): Promise<Settings> {
     merged.recentLimit = Math.max(0, Math.min(50, Math.round(merged.recentLimit)));
     // 구버전 파일이나 손상된 값이 경로 자리에 오면 SFTP 가 열리다 만다 — 문자열만 받는다.
     if (typeof merged.sftpLocalDir !== "string") merged.sftpLocalDir = "";
+    // 구버전 파일에는 없던 항목 — 형식이 깨져 있으면 트리 정렬이 통째로 멈춘다.
+    if (!merged.folderSort || typeof merged.folderSort !== "object") merged.folderSort = {};
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };

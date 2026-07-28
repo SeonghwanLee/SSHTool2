@@ -786,9 +786,32 @@ async function main(): Promise<void> {
       },
       onImport: () => void runImport(),
       onDropSession: async (sourceId, target) => {
+        // 정렬이 걸린 폴더에서 끌어 순서를 바꾸면 화면이 꿈쩍도 하지 않는다 — 정렬이
+        // 다시 제자리로 돌려놓기 때문이다. 끌어서 옮겼다는 것 자체가 "내가 직접
+        // 배치하겠다"는 뜻이므로 그 폴더를 수동으로 되돌리고 그 사실을 알린다.
+        if (target.kind === "session") {
+          const moved = sessions.find((x) => x.id === sourceId);
+          const path = moved?.folder ?? "";
+          const mode = settings.folderSort[path];
+          if (mode && mode !== "manual") {
+            settings = {
+              ...settings,
+              folderSort: { ...settings.folderSort, [path]: "manual" },
+            };
+            sidebar.setFolderSort(settings.folderSort);
+            void saveSettings(settings).catch(() => {});
+            appToast(`'${path || "루트"}' 정렬을 '수동'으로 바꿨습니다`);
+          }
+        }
         sessions = applyDrop(sessions, sourceId, target);
         await persist();
         redraw();
+      },
+      onFolderSort: async (path, mode) => {
+        settings = { ...settings, folderSort: { ...settings.folderSort, [path]: mode } };
+        sidebar.setFolderSort(settings.folderSort);
+        redraw();
+        await saveSettings(settings).catch(() => {});
       },
       onMoveFolder: async (sourcePath, destParent) => {
         await moveFolder(sourcePath, destParent);
@@ -888,8 +911,10 @@ async function main(): Promise<void> {
 
   // 사이드바 재그리기(세션 + 빈 폴더).
   redraw = () => sidebar.render(sessions, settings.folders);
-  applyDisplayOptions = (s) =>
+  applyDisplayOptions = (s) => {
     sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail, s.recentLimit);
+    sidebar.setFolderSort(s.folderSort);
+  };
   applyDisplayOptions(settings);
   // 저장돼 있던 폴더 접힘 상태 복원(설정 로드 후 첫 렌더에 반영).
   sidebar.setCollapsed(settings.collapsedFolders ?? []);
