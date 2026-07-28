@@ -80,12 +80,15 @@
           <div id="cmdbar" class="hidden">
             <span class="cmd-label">동시 명령</span>
             <input id="cmd-input" placeholder="명령 입력 후 Enter — 접속된 세션에 동시 전송" />
-            <label class="cmd-target">
-              <input type="checkbox" id="cmd-all" checked />
-              <span>전체 세션</span>
-            </label>
+            <select id="cmd-mode" class="sel-input cmd-mode" title="명령을 보낼 대상">
+              <option value="all">전체 세션</option>
+              <option value="active">활성 세션</option>
+              <option value="pick">선택한 세션</option>
+            </select>
+            <button id="cmd-pick" class="cmd-pick hidden">대상 고르기…</button>
             <button id="cmd-send" class="btn-accent">전송</button>
             <span id="cmd-status"></span>
+            <div id="cmd-picker" class="hidden"></div>
           </div>
         </main>
       </div>

@@ -184,6 +184,8 @@ export interface SftpEntry {
   isDir: boolean;
   size: number;
   modified: number;
+  /** 심볼릭 링크 여부(원격 전용). 로컬 목록은 보내지 않는다. */
+  isSymlink?: boolean;
 }
 
 export const sftpConnect = (

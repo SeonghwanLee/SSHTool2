@@ -33,6 +33,9 @@ pub struct SftpEntry {
     pub size: u64,
     /// 수정 시각(unix 초, 없으면 0).
     pub modified: u32,
+    /// 심볼릭 링크 여부. READDIR 은 lstat 기준이라 링크는 링크로 온다 — 즉 디렉터리를
+    /// 가리키는 링크도 `is_dir` 은 false 다. 목록에서 색으로만 구분하고 취급은 바꾸지 않는다.
+    pub is_symlink: bool,
 }
 
 /// 셸 세션과 완전히 같은 호스트키 검증을 적용한다(첫 접속은 지문 확인 후에만 수락).
@@ -169,6 +172,7 @@ pub async fn list(state: &SftpMap, id: &str, path: &str) -> Result<Vec<SftpEntry
                 path: join_path(dir, &name),
                 name,
                 is_dir: meta.is_dir(),
+                is_symlink: meta.file_type().is_symlink(),
                 size: meta.size.unwrap_or(0),
                 modified: meta.mtime.unwrap_or(0),
             }

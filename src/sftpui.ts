@@ -42,6 +42,8 @@ interface Entry {
   isDir: boolean;
   size: number;
   modified: number;
+  /** 심볼릭 링크(원격 전용). 로컬 목록에는 없다. */
+  isSymlink?: boolean;
 }
 
 type Side = "local" | "remote";
@@ -108,6 +110,8 @@ function isExecutable(name: string): boolean {
 
 /** 파일유형 열 텍스트. */
 function entryType(e: Entry): string {
+  // 색은 놓칠 수 있다(색약·고대비 테마) — 글자로도 남긴다.
+  if (e.isSymlink) return "링크";
   if (e.isDir) return "폴더";
   const dot = e.name.lastIndexOf(".");
   const x = dot > 0 ? e.name.slice(dot + 1).toUpperCase() : "";
@@ -990,7 +994,14 @@ export async function openSftpBrowser(
       el.className =
         "sftp-row" +
         (this.selected.has(entry.path) ? " selected" : "") +
-        (entry.isDir ? " is-dir" : isExecutable(entry.name) ? " is-exec" : "");
+        // 링크는 폴더·실행파일보다 앞선다 — 링크라는 사실이 확장자보다 중요한 정보다.
+        (entry.isSymlink
+          ? " is-link"
+          : entry.isDir
+            ? " is-dir"
+            : isExecutable(entry.name)
+              ? " is-exec"
+              : "");
       el.dataset.path = entry.path;
       el.draggable = true;
 

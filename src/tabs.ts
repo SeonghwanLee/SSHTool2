@@ -729,6 +729,8 @@ export class TabManager {
   private settings: Settings;
   private viewMode: ViewMode = "tabs";
   private refitPending = false;
+  /** 동시 명령이 겨눈 탭 키(null = 표시 안 함). 탭바 강조에만 쓴다. */
+  private bcastKeys: ReadonlySet<string> | null = null;
   /** 탭 구성·접속 상태가 바뀔 때 알림받을 구독자(동시 명령 창 세션 수 등). */
   private readonly tabsChanged: Array<() => void> = [];
 
@@ -927,22 +929,66 @@ export class TabManager {
     await this.doConnect(tab, creds);
   }
 
-  broadcast(data: Uint8Array): number {
-    let n = 0;
-    for (const t of this.tabs) {
-      if (t.liveId) {
-        void writeTo(t.session, t.liveId, data);
-        n++;
-      }
-    }
-    return n;
+  /**
+   * 동시 명령 대상 후보 — 접속 중인 탭만. 잠긴 탭도 목록에는 넣되 잠겼다고 알린다
+   * (숨기면 "왜 저 세션엔 안 갔지"를 알 길이 없다).
+   */
+  broadcastTargets(): { key: string; label: string; locked: boolean }[] {
+    return this.tabs
+      .filter((t) => t.liveId)
+      .map((t) => ({
+        key: t.key,
+        label: t.session.name || `${t.session.user}@${t.session.host}`,
+        locked: t.locked,
+      }));
   }
-  sendActive(data: Uint8Array): boolean {
-    if (this.active?.liveId) {
-      void writeTo(this.active.session, this.active.liveId, data);
-      return true;
+
+  /**
+   * 여러 세션에 같은 입력을 보낸다. `keys` 를 주면 그 탭들만, 없으면 접속된 전부.
+   *
+   * 잠긴 탭은 건너뛴다. 잠금은 '실수로 명령이 들어가는 것'을 막는 장치인데, 동시 명령은
+   * 그 사고가 가장 크게 번지는 경로다(운영 서버 10개에 한 줄). 몇 개를 건너뛰었는지
+   * 돌려줘 호출부가 조용히 넘기지 않게 한다.
+   */
+  broadcast(data: Uint8Array, keys?: ReadonlySet<string>): { sent: number; locked: number } {
+    let sent = 0;
+    let locked = 0;
+    for (const t of this.tabs) {
+      if (!t.liveId) continue;
+      if (keys && !keys.has(t.key)) continue;
+      if (t.locked) {
+        locked++;
+        continue;
+      }
+      void writeTo(t.session, t.liveId, data);
+      sent++;
     }
-    return false;
+    return { sent, locked };
+  }
+
+  sendActive(data: Uint8Array): "sent" | "none" | "locked" {
+    if (!this.active?.liveId) return "none";
+    if (this.active.locked) return "locked";
+    void writeTo(this.active.session, this.active.liveId, data);
+    return "sent";
+  }
+
+  /**
+   * 동시 명령이 겨눈 탭을 탭바에 표시한다(null = 표시 없음). 열 개가 열려 있으면 어디로
+   * 나가는지가 목록 안에서만 보여선 안 된다 — 보내기 직전에 탭바에서 확인되어야 한다.
+   */
+  markBroadcast(keys: ReadonlySet<string> | null): void {
+    this.bcastKeys = keys;
+    // renderTabbar() 를 쓰면 안 된다 — 그 끝에서 tabsChanged 를 알리는데, 구독자(동시 명령
+    // 창)가 다시 markBroadcast 를 불러 무한 재귀에 빠진다. 클래스만 제자리에서 갈아 끼운다.
+    const items = this.tabbar.children;
+    this.tabs.forEach((t, i) => items[i]?.classList.toggle("bcast", keys?.has(t.key) === true));
+  }
+
+  /** 닫힌 탭의 키를 걸러낸다 — 대상 집합이 유령 키를 들고 있지 않게. */
+  pruneKeys(keys: ReadonlySet<string>): Set<string> {
+    const live = new Set<string>(this.tabs.filter((t) => t.liveId).map((t) => t.key));
+    return new Set([...keys].filter((k) => live.has(k)));
   }
   /** 활성 탭의 찾기 창을 연다(타이틀바 버튼용). 열린 탭이 없으면 아무 일도 하지 않는다. */
   openSearch(): void {
@@ -1315,7 +1361,8 @@ export class TabManager {
         "tab" +
         (tab === this.active ? " active" : "") +
         (tab.locked ? " locked" : "") +
-        (tab.status === "disconnected" ? " dead" : tab.activity ? " activity" : "");
+        (tab.status === "disconnected" ? " dead" : tab.activity ? " activity" : "") +
+        (this.bcastKeys?.has(tab.key) ? " bcast" : "");
       const item = el("div", cls);
 
       const dot = el("span", "tab-dot " + tab.status);
