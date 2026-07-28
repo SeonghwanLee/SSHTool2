@@ -326,6 +326,19 @@ class TerminalTab {
         return false;
       };
 
+      // Ctrl+1~9 = 탭 전환. xterm 에 넘기지 않고 흘려보내 문서 단위 핸들러가 받게 한다.
+      //
+      // 이걸 빼면 Ctrl+3~7 이 죽는다. xterm 은 keyCode 51~55(숫자 3~7)를 제어문자
+      // ESC·FS·GS·RS·US 로 바꿔 보내면서 stopPropagation 까지 하기 때문이다. 그래서
+      // Ctrl+1·2·8·9 는 되는데 3~7 만 안 먹는, 원인을 짐작하기 어려운 모양이 된다.
+      //
+      // false 를 돌려주면 xterm 은 그 자리에서 손을 떼고 preventDefault 도 하지 않으므로,
+      // 이벤트가 그대로 위로 올라가 탭 전환이 걸린다. 잃는 것은 Ctrl+3~7 로 제어문자를
+      // 보내는 길인데, ESC 는 Esc 키가 있고 나머지(FS·GS·RS·US)는 쓸 일이 거의 없다.
+      if (ctrl && !e.altKey && !e.shiftKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
+        return false;
+      }
+
       // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
       if (ctrl && e.key === "Enter") {
         if (e.isComposing || e.keyCode === 229) {

@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.48.1",
+    date: "2026-07-28",
+    notes: [
+      "Ctrl+3 ~ Ctrl+7 로 탭이 전환되지 않던 문제를 고쳤습니다. 터미널이 이 조합을 제어문자(ESC 등)로 먼저 가로채 탭 전환까지 신호가 오지 않았습니다. Ctrl+1·2·8·9 는 그 범위 밖이라 멀쩡했고, 그래서 탭이 셋 이상일 때만 갑자기 안 되는 것처럼 보였습니다",
+      "이 변경으로 Ctrl+3 ~ Ctrl+7 이 터미널에 제어문자(ESC·FS·GS·RS·US)를 보내지 않게 됩니다. ESC 는 Esc 키를 쓰면 되고 나머지는 쓸 일이 거의 없어, 탭 전환 쪽을 택했습니다",
+    ],
+  },
+  {
     version: "0.48.0",
     date: "2026-07-28",
     notes: [
