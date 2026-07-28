@@ -7,3 +7,6 @@ src-tauri/gen/
 # 업데이터 개인키는 절대 커밋 금지 (GitHub Secret으로만)
 *.key
 updater-private-key*
+
+# Windows 점검 스크립트가 만든 보고서 — 장비 정보가 담기므로 커밋하지 않는다.
+tools/win-check-*.txt
