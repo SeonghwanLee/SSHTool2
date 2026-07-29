@@ -150,6 +150,13 @@ interface LiveSftp {
 /** 열 너비(px) — 모달을 닫았다 열어도 유지한다. 앱을 껐다 켜면 기본값으로 돌아간다. */
 const colWidths: Record<string, number> = {};
 
+/**
+ * 창 크기(px) — 열 너비와 같은 수명. 위치는 기억하지 않는다 — 크기만 인라인으로 주면
+ * 오버레이의 flex 가 늘 가운데에 놓아 주므로, 앱 창이 줄었을 때 화면 밖에 뜨는 문제가
+ * 아예 생기지 않는다.
+ */
+let savedPanelSize: { w: number; h: number } | null = null;
+
 /** 타입어헤드 입력이 이어진 것으로 볼 시간(ms). 넘으면 처음부터 다시 친 것으로 본다. */
 const TYPEAHEAD_RESET_MS = 900;
 
@@ -218,6 +225,11 @@ export async function openSftpBrowser(
   overlay.className = "sftp-overlay";
   const panel = document.createElement("div");
   panel.className = "sftp-panel sftp-dual";
+  if (savedPanelSize) {
+    // 지난번 크기를 이어받는다. 앱 창보다 크면 그만큼 줄인다(최소치는 CSS min-* 가 지킨다).
+    panel.style.width = `${Math.min(savedPanelSize.w, window.innerWidth - 8)}px`;
+    panel.style.height = `${Math.min(savedPanelSize.h, window.innerHeight - 8)}px`;
+  }
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 
@@ -315,6 +327,8 @@ export async function openSftpBrowser(
   let currentTransfer: string | null = null;
   let cancelled = false;
   let transferring = false; // 동시 전송 방지(진행바·취소 대상이 뒤섞이지 않게)
+  /** 이번 묶음의 측정 단계에서 읽어 둔 폴더 목록(경로 → 자식). 전송이 재사용한다. */
+  let listedCache = new Map<string, Entry[]>();
   // 이번 전송 묶음 전체의 바이트. 0 이면 미리 재지 못한 경우로 파일 단위 진행률로 돌아간다.
   let bundleTotal = 0;
   let bundleDone = 0;
@@ -472,6 +486,19 @@ export async function openSftpBrowser(
     notifyLive();
   };
 
+  /** 창 크기를 기억한다(다음에 열 때 이어받도록). 최대화 상태면 그 직전 크기를 남긴다. */
+  const rememberSize = () => {
+    if (beforeMax !== null) {
+      // 최대화 중 — 되돌릴 크기(인라인 width/height)를 파싱해 남긴다. 없으면 기본 크기였다.
+      const w = /width:\s*([\d.]+)px/.exec(beforeMax);
+      const h = /height:\s*([\d.]+)px/.exec(beforeMax);
+      savedPanelSize = w && h ? { w: parseFloat(w[1]), h: parseFloat(h[1]) } : null;
+      return;
+    }
+    const r = panel.getBoundingClientRect();
+    savedPanelSize = { w: Math.round(r.width), h: Math.round(r.height) };
+  };
+
   /** 마지막 화면 위치를 레지스트리에 남긴다(다시 열 때 그 자리로 돌아가기 위해). */
   const rememberState = () => {
     if (!sftpId) return;
@@ -488,6 +515,7 @@ export async function openSftpBrowser(
    */
   const closeKeepAlive = () => {
     disposed = true;
+    rememberSize();
     rememberState();
     unlisten?.(); // 모달 진행바 구독만 해제 — 배경 진행률은 모듈 구독이 계속 받는다
     window.removeEventListener("resize", onWinResize);
@@ -498,6 +526,7 @@ export async function openSftpBrowser(
   /** 실제로 끊는다 — 진행 중 전송도 취소된다. */
   const disconnectNow = () => {
     disposed = true;
+    rememberSize();
     cancelled = true;
     if (currentTransfer) void sftpCancel(currentTransfer);
     unlisten?.();
@@ -1337,7 +1366,10 @@ export async function openSftpBrowser(
     // 총량을 먼저 잰다. 폴더는 목록을 훑어야 알 수 있어 잠깐 걸린다 — 그 사이 상태를 밝힌다.
     // 실패하면 0 으로 두고 파일 단위 진행률로 돌아간다(멈추지는 않는다).
     setStatus("전송할 크기 계산 중…");
-    bundleTotal = await measureTotal(src.side, items).catch(() => 0);
+    // 수천 파일 폴더에서 측정(전체 목록 순회)이 공짜가 아니다 — 읽은 목록을 담아 두었다가
+    // 전송에서 그대로 쓴다. 측정이 실패해 비면 전송이 직접 조회한다(기존 경로).
+    listedCache = new Map();
+    bundleTotal = await measureTotal(src.side, items, listedCache).catch(() => 0);
     bundleDone = 0;
     setBundle();
     setStatus(bundleTotal > 0 ? `전송 시작 (${fmtSize(bundleTotal)})` : "전송 시작");
@@ -1378,6 +1410,7 @@ export async function openSftpBrowser(
     transferring = false;
     bundleTotal = 0;
     bundleDone = 0;
+    listedCache = new Map();
     setBundle();
     setStatus(
       cancelled
@@ -1394,7 +1427,12 @@ export async function openSftpBrowser(
    * 한 곳이라도 조회에 실패하면 전체를 포기하고 0 을 돌려준다 — 반쪽 총량으로 계산하면
    * 진행률이 100% 를 넘거나 뒤로 가서, 아예 파일 단위로 보여 주는 편이 낫다.
    */
-  async function measureTotal(from: Side, items: Entry[]): Promise<number> {
+  async function measureTotal(
+    from: Side,
+    items: Entry[],
+    /** 측정하며 읽은 폴더 목록. 전송이 재사용해 같은 폴더를 두 번 조회하지 않는다. */
+    listed?: Map<string, Entry[]>,
+  ): Promise<number> {
     let sum = 0;
     for (const item of items) {
       if (cancelled) return 0;
@@ -1407,7 +1445,8 @@ export async function openSftpBrowser(
         : sftpList(sftpId!, item.path))) as Entry[]).filter(
         (k) => k.name !== "." && k.name !== "..",
       );
-      sum += await measureTotal(from, kids);
+      listed?.set(item.path, kids);
+      sum += await measureTotal(from, kids, listed);
     }
     return sum;
   }
@@ -1453,9 +1492,12 @@ export async function openSftpBrowser(
     if (from === "local") await sftpMkdir(sftpId!, destPath).catch(() => undefined);
     else await localMkdir(destPath).catch(() => undefined);
 
-    const children = (
-      from === "local" ? await localList(entry.path) : await sftpList(sftpId!, entry.path)
-    ) as Entry[];
+    // 측정 단계에서 이미 읽은 폴더면 다시 조회하지 않는다.
+    const children =
+      listedCache.get(entry.path) ??
+      ((from === "local"
+        ? await localList(entry.path)
+        : await sftpList(sftpId!, entry.path)) as Entry[]);
     for (const child of children) {
       if (cancelled) return;
       if (child.name === "." || child.name === "..") continue;

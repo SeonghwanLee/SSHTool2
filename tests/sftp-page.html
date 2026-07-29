@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- SFTP 모달 단독 구동 페이지 — 회귀 검사 전용.
+     앱 본체를 거치면 자격증명 흐름을 매번 통과해야 해서, 모달만 바로 띄운다. -->
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/node_modules/@xterm/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="modal-root"></div>
+    <script type="module">
+      import { openSftpBrowser } from "/src/sftpui.ts";
+      window.__open = () =>
+        openSftpBrowser(
+          { id: "t1", name: "테스트", kind: "ssh", host: "h", port: 22, user: "u", enableSftp: true },
+          "pw",
+          undefined,
+          "C:\\작업",
+        );
+    </script>
+  </body>
+</html>

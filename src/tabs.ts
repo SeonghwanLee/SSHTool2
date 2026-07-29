@@ -248,6 +248,12 @@ class TerminalTab {
     this.searchInput = document.createElement("input");
     this.searchInput.placeholder = "검색 (Enter/F3, Shift+F3 역방향, Esc 닫기)";
     this.searchBar.appendChild(this.searchInput);
+    // 끊긴 화면(오버레이)의 빈 곳을 눌러도 포커스를 재접속 버튼으로 되돌린다. 남은 출력을
+    // 복사하려고 클릭하면 포커스가 떠나 엔터가 다시 죽는다 — 그 자리에서 곧장 복구한다.
+    // setTimeout 0: 브라우저의 기본 포커스 이동이 끝난 뒤에 되돌려야 이긴다.
+    this.overlay.addEventListener("mousedown", () => {
+      if (this.status === "disconnected") setTimeout(() => this.reconnectBtn?.focus(), 0);
+    });
     this.root.append(
       this.header,
       this.termHost,

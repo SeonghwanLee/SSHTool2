@@ -1,13 +1,15 @@
 {
   "name": "sshtool2",
   "private": true,
-  "version": "0.50.0",
+  "version": "0.51.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check:ui": "node tests/ui-regression.mjs",
+    "bump": "node scripts/bump.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "playwright-core": "^1.61.1",
     "typescript": "^5.6",
     "vite": "^6"
   }

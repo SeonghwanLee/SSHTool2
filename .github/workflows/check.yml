@@ -1,0 +1,63 @@
+name: check
+
+# master 에 push 될 때마다 컴파일만 확인한다(릴리스 없음).
+#
+# 릴리스 워크플로(build.yml)는 태그에만 반응하므로, 이게 없으면 Rust 가 깨진 코드도
+# 태그를 붙인 뒤에야 드러난다 — "태그 → 12분 대기 → 실패 → 수정 → 또 12분"이 된다.
+# 개발 장비가 리눅스라 Windows 타깃을 로컬에서 컴파일할 수 없어서 특히 그렇다.
+#
+# cargo check 는 코드 생성을 건너뛰어 릴리스 빌드보다 훨씬 빠르면서 타입·차용 오류를
+# 전부 잡는다. NSIS 번들·서명은 하지 않는다 — 그건 릴리스의 일이다.
+on:
+  push:
+    branches:
+      - master
+    # 문서·테스트만 바뀐 push 는 러너를 태울 이유가 없다.
+    paths-ignore:
+      - '**.md'
+      - 'tests/**'
+      - 'tools/**'
+
+permissions:
+  contents: read
+
+# 같은 브랜치에 연달아 push 하면 이전 검사는 의미가 없다 — 최신 것만 돌린다.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # 프런트 타입 검사 + 번들 — tsc --noEmit 이 여기 포함된다.
+      - name: Frontend build
+        run: npm run build
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          # 릴리스 빌드(build.yml)와 캐시를 섞지 않는다 — check 는 debug 프로파일이라
+          # 산출물이 달라, 섞이면 서로의 캐시만 밀어낸다.
+          prefix-key: check
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --target x86_64-pc-windows-msvc --message-format short
