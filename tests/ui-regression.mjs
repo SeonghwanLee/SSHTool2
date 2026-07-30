@@ -387,6 +387,19 @@ try {
       expect(off.recent !== null && off.recent === off.session, `세부정보 OFF: 최근 ${off.recent} ≠ 세션 ${off.session}`);
     });
 
+    await t.test("버전정보 창 — 설정창 높이 고정을 물려받지 않고 내용만큼 커진다", async () => {
+      await dismissModals(page);
+      await page.click("#open-about");
+      await page.waitForTimeout(400);
+      const h = await page.evaluate(
+        () => document.querySelector(".about-card")?.getBoundingClientRect().height ?? 0,
+      );
+      // 릴리스 노트가 길어 84vh 까지 커져야 한다 — 620px(설정창 고정값)에 눌리면 회귀.
+      expect(h > 640, `버전정보 창이 눌려 있다: ${Math.round(h)}px`);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    });
+
     await t.test("설정·세션편집 창 — 탭을 바꿔도 창 위치·크기가 고정", async () => {
       const rectOf = (sel) =>
         page.evaluate((q) => {

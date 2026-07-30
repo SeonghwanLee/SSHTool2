@@ -1647,6 +1647,13 @@ body.dragging-tab * {
 }
 /* 버튼 4개를 2×2 그리드로 고정 — 글자 폭이 바뀌어도(예: "업데이트 확인"→"확인 중…")
    줄바꿈·재배치 없이 자리가 유지된다(flex-wrap 은 폭 경계에서 3+1 로 접혔음). */
+/* 버전정보 창 — 설정창의 높이 고정(0.52.1, 탭 전환 튐 방지)을 물려받지 않는다.
+   여긴 탭이 없어 튈 일이 없고, 릴리스 노트 목록이 길어 예전처럼 내용만큼(최대 84vh)
+   커지는 편이 맞다. 고정 높이에 눌려 '엄청 작아졌다'는 보고로 되돌린다. */
+.settings-card.about-card {
+  height: auto;
+  max-height: 84vh;
+}
 .settings-card .about-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

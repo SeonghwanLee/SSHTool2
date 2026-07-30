@@ -19,7 +19,7 @@ export function aboutDialog(
     openModal(
       (close) => {
         const card = document.createElement("div");
-        card.className = "settings-card";
+        card.className = "settings-card about-card";
 
         // ── 배너 ──
         const banner = document.createElement("div");

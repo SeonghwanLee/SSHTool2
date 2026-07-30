@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.53.3",
+    date: "2026-07-30",
+    notes: [
+      "버전정보 창이 작아졌던 것을 되돌렸습니다. 설정창의 '탭 전환 시 위치 고정'(0.52.1)이 높이를 고정하면서 같은 틀을 쓰는 버전정보 창까지 눌렀습니다 — 버전정보는 탭이 없어 고정할 이유가 없으므로 예전처럼 내용만큼 커집니다",
+    ],
+  },
+  {
     version: "0.53.2",
     date: "2026-07-30",
     notes: [
