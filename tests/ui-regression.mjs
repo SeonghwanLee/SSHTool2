@@ -217,6 +217,43 @@ try {
       expect(off.recent !== null && off.recent === off.session, `세부정보 OFF: 최근 ${off.recent} ≠ 세션 ${off.session}`);
     });
 
+    await t.test("설정·세션편집 창 — 탭을 바꿔도 창 위치·크기가 고정", async () => {
+      const rectOf = (sel) =>
+        page.evaluate((q) => {
+          const r = document.querySelector(q).getBoundingClientRect();
+          return { l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+        }, sel);
+      const walkTabs = async (cardSel) => {
+        const first = await rectOf(cardSel);
+        const n = await page.locator(".settings-tab:visible").count();
+        for (let i = 0; i < n; i++) {
+          await page.locator(".settings-tab:visible").nth(i).click();
+          await page.waitForTimeout(120);
+          const now = await rectOf(cardSel);
+          expect(
+            now.l === first.l && now.t === first.t && now.w === first.w && now.h === first.h,
+            `${cardSel} 탭 ${i} 전환 후 ${JSON.stringify(now)} ≠ ${JSON.stringify(first)}`,
+          );
+        }
+      };
+      // 설정창
+      await page.click("#open-settings");
+      await page.waitForTimeout(300);
+      await walkTabs(".settings-card");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+      // 세션 편집창 — 탭(연결/인증/자동화/트리거/서비스)이 같은 구조라 같은 회귀가 생긴다.
+      await page.locator(".tree-session").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")].find((e) => e.textContent.includes("편집"))?.click(),
+      );
+      await page.waitForTimeout(350);
+      await walkTabs(".session-card");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    });
+
     await t.test("설정 경고문(.settings-warn)이 --error 색이다 (.settings-hint 에 지면 안 됨)", async () => {
       await page.click("#open-settings");
       await page.waitForTimeout(300);

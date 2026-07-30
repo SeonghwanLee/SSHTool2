@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.52.1",
+    date: "2026-07-29",
+    notes: [
+      "설정 창과 세션 편집 창에서 탭(모양/터미널/… , 연결/인증/…)을 바꿀 때 창 위치가 위아래로 튀던 것을 고쳤습니다. 탭마다 내용 높이가 달라 창 크기가 변하면서 가운데 정렬이 매번 다시 자리를 잡았습니다 — 이제 창 높이가 고정되고, 내용이 넘치면 안쪽이 스크롤됩니다",
+    ],
+  },
+  {
     version: "0.52.0",
     date: "2026-07-29",
     notes: [
