@@ -434,7 +434,10 @@ export function settingsDialog(
           }
           return;
         }
-        const target = await saveDialog({ defaultPath: "sshtool2-backup.stbak" });
+        const target = await saveDialog({
+          defaultPath: "sshtool2-backup.stbak",
+          filters: [{ name: "SSHTool2 백업 (*.stbak)", extensions: ["stbak"] }],
+        });
         if (!target) return;
         try {
           const n = await backupExport(target, pass);
@@ -451,7 +454,16 @@ export function settingsDialog(
     const importRow = controlRow("설정 가져오기");
     importRow.appendChild(
       mkSmallButton("가져오기…", async () => {
-        const picked = await openFileDialog({ multiple: false });
+        const picked = await openFileDialog({
+          multiple: false,
+          // 기본은 .stbak 만 보이게(사용자 요청). 구버전 평문 JSON 백업도 가져올 수 있으므로
+          // 드롭다운에 남겨 둔다 — 필터 순서가 곧 탐색기 기본값이다.
+          filters: [
+            { name: "SSHTool2 백업 (*.stbak)", extensions: ["stbak"] },
+            { name: "구버전 백업 (*.json)", extensions: ["json"] },
+            { name: "모든 파일", extensions: ["*"] },
+          ],
+        });
         const source = Array.isArray(picked) ? picked[0] : picked;
         if (!source) return;
         const ok = await confirmDialog(

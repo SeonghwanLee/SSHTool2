@@ -122,6 +122,24 @@ try {
       );
     });
 
+    await t.test("터미널 검색창 — 밖을 클릭하면 자동으로 닫히고 강조도 걷힌다", async () => {
+      await page.evaluate(() => window.__tm.openSearch());
+      await page.waitForTimeout(200);
+      const bar = () =>
+        page.evaluate(() => {
+          const tab = window.__tm.active;
+          const b = tab.root.querySelector(".term-search");
+          return getComputedStyle(b).display !== "none";
+        });
+      expect(await bar(), "검색창이 열리지 않았다");
+      // 터미널(검색창 밖)을 클릭 → 닫혀야 한다.
+      await page.evaluate(() => {
+        window.__tm.active.root.querySelector(".xterm textarea")?.focus();
+      });
+      await page.waitForTimeout(200);
+      expect(!(await bar()), "검색창 밖으로 나갔는데 계속 열려 있다");
+    });
+
     await t.test("Ctrl+Tab — 터미널 포커스에서도 탭 순환이 걸린다 (xterm 삼킴 회귀)", async () => {
       const active = () =>
         page.evaluate(() => document.querySelector("#tabbar .tab.active .tab-label")?.textContent);
@@ -163,6 +181,31 @@ try {
         (await page.locator("#tabbar .tab").count()) === 2,
         "'아니오'를 골랐는데 탭이 닫혔다",
       );
+    });
+
+    await t.test("모든 입력칸 — 포커스 시 자동완성·맞춤법이 꺼진다 (흰 목록 전역 차단)", async () => {
+      // 개별 지정이 아니라 위임이므로, 대표로 성격이 다른 세 곳을 찍어 본다.
+      const stamped = async (sel) => {
+        await page.locator(sel).focus();
+        await page.waitForTimeout(80);
+        return page.evaluate((q) => {
+          const el = document.querySelector(q);
+          return el.getAttribute("autocomplete") === "off" && el.spellcheck === false;
+        }, sel);
+      };
+      await page.click("#cmd-toggle"); // 동시 명령 줄 열기
+      await page.waitForTimeout(200);
+      expect(await stamped("#cmd-input"), "동시 명령 입력칸이 안 덮였다");
+      expect(await stamped("#session-search"), "세션 검색이 안 덮였다");
+      await page.keyboard.press("Escape"); // 명령줄 닫기
+      await page.waitForTimeout(150);
+      // xterm 의 IME textarea 는 건드리면 안 된다.
+      const xtermUntouched = await page.evaluate(() => {
+        const ta = document.querySelector(".xterm textarea");
+        ta?.focus();
+        return ta ? ta.spellcheck !== false || !ta.closest(".xterm") === false : true;
+      });
+      expect(xtermUntouched, "xterm textarea 까지 건드렸다");
     });
 
     await t.test("세션 목록 타입어헤드 — 글자를 치면 그 이름의 행으로 이동", async () => {

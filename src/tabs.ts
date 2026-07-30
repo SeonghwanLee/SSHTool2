@@ -248,6 +248,15 @@ class TerminalTab {
     this.searchInput = document.createElement("input");
     this.searchInput.placeholder = "검색 (Enter/F3, Shift+F3 역방향, Esc 닫기)";
     this.searchBar.appendChild(this.searchInput);
+    // 검색창을 떠나면(터미널 클릭 등) 자동으로 닫는다 — 열어 두고 잊으면 계속 화면을
+    // 가리고, 강조 표시도 남아 있어 거슬린다(사용자 보고). 강조까지 함께 걷힌다.
+    // focusout 은 검색창 안에서의 이동(input↔버튼)에도 발생하므로, 포커스가 정말
+    // 바깥으로 나갔는지 relatedTarget 으로 확인한다. relatedTarget 이 null 인 경우
+    // (창 자체가 비활성화 등)는 닫지 않는다 — 앱을 오갔다고 검색이 사라지면 그것대로 성가시다.
+    this.searchBar.addEventListener("focusout", (e) => {
+      const to = e.relatedTarget as Node | null;
+      if (to && !this.searchBar.contains(to)) this.closeSearch();
+    });
     // 끊긴 화면(오버레이)의 빈 곳을 눌러도 포커스를 재접속 버튼으로 되돌린다. 남은 출력을
     // 복사하려고 클릭하면 포커스가 떠나 엔터가 다시 죽는다 — 그 자리에서 곧장 복구한다.
     // setTimeout 0: 브라우저의 기본 포커스 이동이 끝난 뒤에 되돌려야 이긴다.

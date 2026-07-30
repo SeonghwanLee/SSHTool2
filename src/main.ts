@@ -432,6 +432,20 @@ function wireNavigationGuard(): void {
   //     입력란 붙여넣기는 Ctrl+V 로 계속 된다.
   window.addEventListener("contextmenu", (e) => e.preventDefault(), { capture: true });
 
+  // (1b) 모든 입력칸에서 웹뷰 자동완성(흰색 목록)·맞춤법 밑줄을 끈다.
+  //     세션 검색·세션 편집 두 곳만 막았더니 나머지 26곳(빠른 접속 호스트, 동시 명령,
+  //     터미널 검색, SFTP 경로 등)에서 같은 흰 목록이 떴다 — 개별 지정은 새 입력칸을
+  //     만들 때마다 빠뜨린다. 포커스 위임으로 현재·미래의 입력칸을 전부 덮는다.
+  //     datalist(폴더 선택)는 autocomplete=off 와 무관하게 동작하므로 기능 손실이 없고,
+  //     xterm 의 IME 경로(textarea)는 건드리지 않는다.
+  document.addEventListener("focusin", (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) return;
+    if (t.closest(".xterm")) return;
+    if (!t.hasAttribute("autocomplete")) t.setAttribute("autocomplete", "off");
+    t.spellcheck = false;
+  });
+
   // (2) 탐색기에서 창으로 파일을 떨어뜨리면 웹뷰가 그 파일 문서로 이동해 버린다.
   //     앱 내부 드래그(세션 정렬·SFTP 패널)는 파일이 아니라 자체 타입을 쓰므로 건드리지 않는다.
   const hasFiles = (e: DragEvent): boolean =>
