@@ -7,7 +7,11 @@
 import { findChrome, ensureVite, openPage, makeRunner, expect, chromium } from "./helpers.mjs";
 
 const SESSIONS = [
-  { id: "s1", name: "가서버", kind: "ssh", host: "10.0.0.1", port: 22, user: "root", enableSftp: true, folder: "", sortOrder: 0, lastConnectedUtc: 100, triggers: [] },
+  { id: "s1", name: "가서버", kind: "ssh", host: "10.0.0.1", port: 22, user: "root", enableSftp: true, folder: "", sortOrder: 0, lastConnectedUtc: 100, triggers: [],
+    services: [
+      { name: "관리콘솔", scheme: "https", port: 8443, path: "/admin", browser: "edge" },
+      { name: "그라파나", scheme: "http", path: "", port: 3000, browser: "default" },
+    ] },
   { id: "s2", name: "나서버", kind: "ssh", host: "10.0.0.2", port: 22, user: "root", enableSftp: true, folder: "", sortOrder: 1, lastConnectedUtc: 200, triggers: [] },
 ];
 
@@ -116,6 +120,48 @@ try {
         await page.evaluate(() => window.__ctrl3),
         "Ctrl+3 keydown 이 문서까지 올라오지 않았다 — xterm 이 다시 가로챈다",
       );
+    });
+
+    await t.test("서비스 연결 — 하위메뉴가 펼쳐지고 정확한 URL 로 browser_open 호출", async () => {
+      await page.locator(".tree-session").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      // '서비스 연결' 항목에 마우스를 올리면 하위메뉴가 뜬다.
+      const parent = page.locator(".ctx-item.has-sub", { hasText: "서비스 연결" });
+      expect((await parent.count()) === 1, "'서비스 연결' 항목이 없다");
+      await parent.hover();
+      await page.waitForTimeout(250);
+      const items = await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-submenu .ctx-item")].map((e) => e.textContent.trim()),
+      );
+      expect(items.length === 2, `하위메뉴 항목 수 ${items.length} (2 기대): ${JSON.stringify(items)}`);
+      // 하위메뉴가 부모 메뉴의 오른쪽에 붙는지(위치 계산 회귀).
+      const pos = await page.evaluate(() => {
+        const main = document.querySelector(".ctx-menu:not(.ctx-submenu)").getBoundingClientRect();
+        const sub = document.querySelector(".ctx-submenu").getBoundingClientRect();
+        return sub.left >= main.right - 4;
+      });
+      expect(pos, "하위메뉴가 부모 오른쪽에 붙지 않았다");
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-submenu .ctx-item")]
+          .find((e) => e.textContent.includes("관리콘솔"))
+          ?.click(),
+      );
+      await page.waitForTimeout(300);
+      const calls = await page.evaluate(() => window.__ipc.filter(([c]) => c === "browser_open"));
+      expect(calls.length === 1, `browser_open 호출 ${calls.length}회 (1 기대)`);
+      const { browser: br, url } = calls[0][1];
+      expect(br === "edge", `브라우저 ${br} (edge 기대)`);
+      expect(url === "https://10.0.0.1:8443/admin", `URL ${url}`);
+      // 로컬 셸/서비스 없는 세션에는 항목이 없어야 한다.
+      await page.locator(".tree-session").nth(1).click({ button: "right" });
+      await page.waitForTimeout(250);
+      const none = await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")].some((e) => e.textContent.includes("서비스 연결")),
+      );
+      expect(!none, "서비스 없는 세션에 '서비스 연결' 항목이 보인다");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(150);
     });
 
     await t.test("세션 끊김 → 재접속 버튼에 포커스, 화면 클릭 후에도 복귀", async () => {

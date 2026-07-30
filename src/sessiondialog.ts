@@ -2,7 +2,7 @@
 // 필수값은 이름·호스트·포트만(사용자 이름은 비워도 저장 가능 — 접속 시 입력받음).
 
 import { openModal, field } from "./dialogs";
-import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType } from "./types";
+import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType, ServiceLink } from "./types";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { applyIcon } from "./icons";
 
@@ -190,6 +190,7 @@ export function sessionDialog(
         logRow.append(logBox, logText);
 
         const triggers = new TriggerEditor(initial.triggers);
+        const services = new ServiceEditor(initial.services);
 
         const err = document.createElement("div");
         err.className = "modal-err";
@@ -300,6 +301,7 @@ export function sessionDialog(
           logRow,
         );
         addTab("trig", "트리거", triggers.render());
+        addTab("svc", "서비스", services.render());
 
         // datalist 는 화면에 그려지지 않지만 문서 안에 있어야 input[list] 가 인식한다.
         card.append(title, tabbar, body, err, buttons, folderList);
@@ -310,7 +312,11 @@ export function sessionDialog(
           const local = kind.value === "local";
           const btn = tabButtons.get("auth")!;
           btn.style.display = local ? "none" : "";
-          if (local && btn.classList.contains("active")) selectTab("conn");
+          // 서비스는 세션 호스트에 접속하므로 호스트가 없는 로컬 셸에는 의미가 없다.
+          const svcBtn = tabButtons.get("svc")!;
+          svcBtn.style.display = local ? "none" : "";
+          if (local && (btn.classList.contains("active") || svcBtn.classList.contains("active")))
+            selectTab("conn");
         };
         kind.addEventListener("change", syncAuthTab);
         syncAuthTab();
@@ -351,6 +357,7 @@ export function sessionDialog(
             enableSftp: sftpBox.checked,
             allowLegacyAlgorithms: legacyBox.checked,
             triggers: triggers.value(),
+            services: services.value(),
           };
           close();
           resolve(result);
@@ -464,6 +471,122 @@ class TriggerEditor {
 
   value(): TriggerRule[] {
     return this.rules.filter((r) => r.pattern.trim() !== "");
+  }
+}
+
+/** 웹 서비스 목록 편집기 — 트리거 편집기와 같은 행 추가/삭제 패턴. */
+class ServiceEditor {
+  private items: ServiceLink[];
+  private readonly list = document.createElement("div");
+
+  constructor(initial: ServiceLink[] | undefined) {
+    this.items = (initial ?? []).map((x) => ({ ...x }));
+  }
+
+  render(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "trigger-wrap";
+
+    const head = document.createElement("div");
+    head.className = "trigger-head";
+    const label = document.createElement("span");
+    label.textContent = "웹 서비스 (우클릭 '서비스 연결' 메뉴에 표시)";
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "sftp-btn";
+    add.textContent = "서비스 추가";
+    add.addEventListener("click", () => {
+      this.items = [...this.items, { name: "", scheme: "http", port: 8080, path: "", browser: "default" }];
+      this.draw();
+    });
+    head.append(label, add);
+
+    const hint = document.createElement("div");
+    hint.className = "settings-hint";
+    hint.textContent =
+      "호스트는 이 세션의 호스트를 그대로 씁니다 — 서버 주소가 바뀌면 세션만 고치면 됩니다. " +
+      "경로는 '/admin?tab=1' 처럼 URL 뒷부분이며 비워도 됩니다.";
+
+    const cols = document.createElement("div");
+    cols.className = "trigger-cols svc-cols";
+    for (const t of ["이름", "프로토콜", "포트", "경로 (선택)", "브라우저", ""]) {
+      const c = document.createElement("span");
+      c.textContent = t;
+      cols.appendChild(c);
+    }
+
+    this.list.className = "trigger-list";
+    this.draw();
+    wrap.append(head, hint, cols, this.list);
+    return wrap;
+  }
+
+  private draw(): void {
+    this.list.innerHTML = "";
+    this.items.forEach((svc, i) => {
+      const row = document.createElement("div");
+      row.className = "trigger-row svc-row";
+
+      const name = textInput(svc.name, "예: 관리콘솔");
+      name.addEventListener("input", () => (this.items[i].name = name.value));
+
+      const scheme = document.createElement("select");
+      scheme.className = "sel-input";
+      for (const v of ["http", "https"] as const) {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = v;
+        if (v === svc.scheme) o.selected = true;
+        scheme.appendChild(o);
+      }
+      scheme.addEventListener("change", () => (this.items[i].scheme = scheme.value as ServiceLink["scheme"]));
+
+      const port = document.createElement("input");
+      port.type = "number";
+      port.min = "1";
+      port.max = "65535";
+      port.value = String(svc.port);
+      port.addEventListener("input", () => (this.items[i].port = Number(port.value)));
+
+      const path = textInput(svc.path, "/admin (선택)");
+      path.addEventListener("input", () => (this.items[i].path = path.value));
+
+      const browser = document.createElement("select");
+      browser.className = "sel-input";
+      for (const [v, l] of [
+        ["default", "기본 브라우저"],
+        ["chrome", "Chrome"],
+        ["edge", "Edge"],
+      ] as const) {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = l;
+        if (v === svc.browser) o.selected = true;
+        browser.appendChild(o);
+      }
+      browser.addEventListener("change", () => (this.items[i].browser = browser.value as ServiceLink["browser"]));
+
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "tree-act";
+      applyIcon(del, "delete");
+      del.title = "서비스 삭제";
+      del.addEventListener("click", () => {
+        this.items = this.items.filter((_, k) => k !== i);
+        this.draw();
+      });
+
+      row.append(name, scheme, port, path, browser, del);
+      this.list.appendChild(row);
+    });
+  }
+
+  value(): ServiceLink[] {
+    // 이름이 빈 행은 버린다 — 이름 없는 메뉴 항목은 무엇인지 알 수 없고,
+    // '추가'만 누르고 만 빈 행이 저장되는 것이 더 흔한 실수다.
+    return this.items.filter(
+      (x) => x.name.trim() !== "" && Number.isInteger(x.port) && x.port >= 1 && x.port <= 65535,
+    );
   }
 }
 

@@ -10,6 +10,7 @@ mod localfs;
 mod localshell;
 mod paths;
 mod portfwd;
+mod browser;
 mod debuglog;
 mod rdp;
 mod sftp;
@@ -86,6 +87,12 @@ fn debug_log_reset(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn debug_log_path(app: AppHandle) -> Result<String, String> {
     debuglog::path(&app)
+}
+
+/// 세션 호스트의 웹 서비스를 브라우저로 연다(http/https 만).
+#[tauri::command]
+fn browser_open(browser: String, url: String) -> Result<(), String> {
+    browser::open(browser, url)
 }
 
 /// RDP 세션 접속 — Windows 기본 클라이언트(mstsc.exe)를 별도 창으로 띄운다.
@@ -626,6 +633,7 @@ fn main() {
             ssh_connect,
             ssh_probe,
             rdp_launch,
+            browser_open,
             debug_log_append,
             debug_log_reset,
             debug_log_path,

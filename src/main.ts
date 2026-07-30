@@ -7,6 +7,7 @@ import {
   sessionsLoad,
   sshProbe,
   rdpLaunch,
+  browserOpen,
   sessionsSave,
   vaultStatus,
   vaultInit,
@@ -806,6 +807,17 @@ async function main(): Promise<void> {
         sessions = applyDrop(sessions, sourceId, target);
         await persist();
         redraw();
+      },
+      onOpenService: (s, svc) => {
+        // 기본 포트(http 80 / https 443)는 생략한다 — :80 이 붙은 주소는 어색하다.
+        const defaultPort = svc.scheme === "https" ? 443 : 80;
+        const portPart = svc.port === defaultPort ? "" : `:${svc.port}`;
+        // 경로 앞의 / 는 사용자가 빼먹기 쉬우니 보정한다.
+        const path = svc.path && !svc.path.startsWith("/") ? `/${svc.path}` : svc.path;
+        const url = `${svc.scheme}://${s.host}${portPart}${path}`;
+        void browserOpen(svc.browser, url).catch((e) =>
+          alertDialog(String(e), "서비스 연결 실패"),
+        );
       },
       onFolderSort: async (path, mode) => {
         settings = { ...settings, folderSort: { ...settings.folderSort, [path]: mode } };

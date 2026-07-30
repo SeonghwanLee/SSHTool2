@@ -30,6 +30,17 @@ export type SessionKind = "ssh" | "local" | "rdp";
 export type AuthType = "password" | "key";
 
 /** 저장되는 세션 정의(백엔드 store::SessionInfo 와 camelCase 1:1). */
+/** 세션 호스트의 웹 서비스 하나 — 우클릭 '서비스 연결' 메뉴의 한 줄이 된다. */
+export interface ServiceLink {
+  name: string;
+  scheme: "http" | "https";
+  port: number;
+  /** URL 뒷부분("/admin?tab=1" 등). 비워도 된다. */
+  path: string;
+  /** 열 브라우저. default = OS 기본. */
+  browser: "default" | "chrome" | "edge";
+}
+
 export interface SessionInfo {
   /** 저장 세션의 안정적 id(접속마다 바뀌는 live id 와 다름). */
   id: string;
@@ -71,6 +82,11 @@ export interface SessionInfo {
   portForwards: string;
   /** 이 세션의 터미널 글자 크기(0 = 전역 설정 따름). Ctrl+휠 조절 시 세션별로 기록. */
   fontSize: number;
+  /**
+   * 이 서버에서 브라우저로 여는 웹 서비스 목록(관리콘솔·그라파나 등). 호스트는 세션 것을
+   * 그대로 쓴다 — 서버 IP 가 바뀌면 세션만 고치면 전부 따라온다. 없으면 메뉴에 안 뜬다.
+   */
+  services?: ServiceLink[];
   /**
    * true 면 구형 서버(CentOS 5·OpenSSH 4.x 등)용 레거시 알고리즘(SHA-1 KEX·MAC, CBC 암호)을
    * 협상 목록 맨 뒤에 추가한다. 최신 서버와의 협상 결과는 바뀌지 않는다.

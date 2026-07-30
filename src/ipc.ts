@@ -324,3 +324,7 @@ export const debugLogAppend = (text: string): Promise<void> =>
 export const debugLogReset = (): Promise<void> => invoke("debug_log_reset");
 /** 로그 파일 경로 — 설정 화면에서 사용자에게 알려 준다. */
 export const debugLogPath = (): Promise<string> => invoke<string>("debug_log_path");
+
+/** 세션 호스트의 웹 서비스를 브라우저로 연다(http/https 만 — 백엔드가 검증). */
+export const browserOpen = (browser: string, url: string): Promise<void> =>
+  invoke("browser_open", { browser, url });

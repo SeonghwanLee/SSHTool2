@@ -1685,6 +1685,13 @@ body.dragging-tab * {
   padding: 4px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
+/* 하위메뉴 — 부모 메뉴 옆에 뜨는 두 번째 패널. 위치는 JS 가 잡는다. */
+.ctx-submenu {
+  min-width: 180px;
+}
+.ctx-item.has-sub .ctx-accel {
+  font-size: 10px;
+}
 .ctx-menu hr {
   border: none;
   border-top: 1px solid var(--border);
@@ -1853,6 +1860,15 @@ body.dragging-tab * {
   gap: 6px;
   align-items: center;
 }
+/* 서비스 편집기 — 이름 | 프로토콜 | 포트 | 경로 | 브라우저 | 삭제 */
+.trigger-cols.svc-cols,
+.trigger-row.svc-row {
+  grid-template-columns: 1fr 84px 74px 1fr 120px 28px;
+}
+/* .sel-input 의 고정폭(110px)이 84px 열을 넘친다 — 셀에 맞춘다. */
+.trigger-row.svc-row .sel-input {
+  width: 100%;
+}
 /* 체크박스만으로는 무엇을 뜻하는지 알 수 없어 열 머리글을 둔다(title 은 호버해야 보인다). */
 .trigger-cols {
   font-size: 11px;
@@ -1868,6 +1884,7 @@ body.dragging-tab * {
   justify-self: center;
 }
 .trigger-row input[type="text"],
+.trigger-row input[type="number"],
 .trigger-row input:not([type]) {
   background: var(--panel-2);
   color: var(--fg);

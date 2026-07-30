@@ -1,6 +1,6 @@
 // 좌측 세션 사이드바. 폴더 경로로 트리를 구성하고, 세션 열기/편집/삭제/새로만들기를 제공.
 
-import type { SessionInfo } from "./types";
+import type { SessionInfo, ServiceLink } from "./types";
 import type { FolderSort } from "./settings";
 import { showContextMenu, type MenuItem } from "./contextmenu";
 import { applyIcon } from "./icons";
@@ -37,6 +37,8 @@ interface SidebarCallbacks {
   onMoveFolder: (sourcePath: string, destParent: string) => void;
   /** 폴더별 정렬 방식 변경("" = 루트). */
   onFolderSort?: (path: string, mode: FolderSort) => void;
+  /** 세션 호스트의 웹 서비스를 브라우저로 연다. */
+  onOpenService?: (s: SessionInfo, svc: ServiceLink) => void;
 }
 
 /** 드롭 위치 — 세션 앞/뒤에 끼우기, 또는 폴더로 이동. */
@@ -517,6 +519,7 @@ export class Sidebar {
         this.select(row);
         showContextMenu(e.clientX, e.clientY, [
           { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
+          ...this.serviceItems(s),
           ...(sftpAvailable
             ? [{ label: "SFTP 파일 전송", accel: "f", action: () => this.cb.onSftp(s) } as const]
             : []),
@@ -652,6 +655,25 @@ export class Sidebar {
     }
   }
 
+  /**
+   * '서비스 연결' 하위메뉴("서비스목록"). 서비스가 없거나 호스트 없는 세션(로컬 셸)이면
+   * 빈 배열 — 죽은 항목을 두느니 아예 안 보이는 쪽이 낫다(빠른 접속 세션의 편집 항목과
+   * 같은 결정).
+   */
+  private serviceItems(s: SessionInfo): MenuItem[] {
+    const services = s.services ?? [];
+    if (s.kind === "local" || services.length === 0 || !this.cb.onOpenService) return [];
+    return [
+      {
+        label: "서비스 연결",
+        children: services.map((svc) => ({
+          label: `${svc.name}  ·  :${svc.port}`,
+          action: () => this.cb.onOpenService!(s, svc),
+        })),
+      },
+    ];
+  }
+
   /** 폴더 우클릭 메뉴의 정렬 항목("" = 루트). */
   private sortItems(path: string): MenuItem[] {
     const cur = this.folderSort[path] ?? (this.sortByRecent ? "recent" : "manual");
@@ -767,6 +789,7 @@ export class Sidebar {
       this.select(row);
       showContextMenu(e.clientX, e.clientY, [
         { label: "연결", accel: "c", action: () => this.cb.onOpen(s) },
+        ...this.serviceItems(s),
         ...(s.kind !== "ssh" || !s.enableSftp
           ? []
           : [
