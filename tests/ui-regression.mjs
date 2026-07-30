@@ -164,6 +164,51 @@ try {
       await page.waitForTimeout(150);
     });
 
+    await t.test("IME 조합 오버레이 — 화면이 다시 그려져도 시작 셀에 고정", async () => {
+      // claude CLI 재현: 조합 중에 스피너 출력이 커서를 다른 곳으로 옮긴다.
+      // 수정 전에는 오버레이가 그 커서를 따라 점프했다(시뮬레이션으로 확인한 원인).
+      const r = await page.evaluate(async () => {
+        const tm = window.__tm;
+        if (!tm) return { 훅없음: true };
+        const tab = tm.active;
+        const term = tab.term;
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        // 프롬프트를 그리고 커서를 입력 지점에 둔다.
+        term.write("\x1b[2J\x1b[H> ");
+        await wait(80);
+        const ta = term.textarea;
+        ta.focus();
+        ta.dispatchEvent(new CompositionEvent("compositionstart", { data: "" }));
+        ta.value = "안";
+        ta.dispatchEvent(new CompositionEvent("compositionupdate", { data: "안" }));
+        await wait(120);
+        // 탭이 여러 개면 문서 전체에서 첫 오버레이를 집으면 남의(비어 있는) 것을 본다 —
+        // 반드시 활성 탭의 DOM 안에서 찾는다.
+        const view = () => {
+          const v = tab.root.querySelector(".composition-view");
+          if (!v) return null;
+          return { left: v.style.left, top: v.style.top, text: v.textContent };
+        };
+        const before = view();
+        // 스피너처럼 커서를 옮기는 출력 — 조합은 계속되는 중.
+        term.write("\r\x1b[K\x1b[33m\u273b 생각 중\x1b[0m\r\n상태줄이 커서를 여기 둠");
+        await wait(150);
+        const after = view();
+        // 조합 종료 → 고정 해제. 이후 렌더에서는 다시 커서를 따라가야 한다.
+        ta.value = "";
+        ta.dispatchEvent(new CompositionEvent("compositionend", { data: "안" }));
+        await wait(80);
+        return { before, after };
+      });
+      expect(!r.훅없음, "개발 훅(__tm)이 없다 — DEV 분기가 죽었는지 확인");
+      expect(r.before && r.after, "조합 오버레이가 뜨지 않았다");
+      expect(
+        r.before.left === r.after.left && r.before.top === r.after.top,
+        `오버레이가 점프했다: ${JSON.stringify(r.before)} → ${JSON.stringify(r.after)}`,
+      );
+      expect(r.after.text === "안", `조합 글자가 아니다: ${r.after.text}`);
+    });
+
     await t.test("세션 끊김 → 재접속 버튼에 포커스, 화면 클릭 후에도 복귀", async () => {
       await page.locator("#tabbar .tab").first().click({ button: "right" });
       await page.waitForTimeout(250);

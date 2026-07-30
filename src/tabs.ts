@@ -292,6 +292,7 @@ class TerminalTab {
     this.term.onResize(() => onResize());
 
     this.wireInput();
+    this.pinCompositionOverlay();
     this.wireSearch();
   }
 
@@ -722,6 +723,68 @@ class TerminalTab {
     if (fired) this.triggerBuf = "";
   }
 
+  /**
+   * 조합(IME) 오버레이를 조합이 시작된 셀에 고정한다.
+   *
+   * xterm 은 조합 중인 글자를 '지금 커서 셀'에 띄우고 렌더마다 다시 놓는다. claude CLI 처럼
+   * 입력 중에도 화면을 계속 다시 그리는 앱에서는, 스피너 출력이 커서를 다른 곳에 두고
+   * 끝나는 순간 조합 중이던 한글이 그 자리로 점프해 보인다(시뮬레이션으로 재현·확인).
+   * 조합 중에는 아무것도 서버로 전송되지 않아 실제 입력 지점은 움직이지 않으므로,
+   * 시작 셀에 붙여 두는 것이 맞다.
+   *
+   * 안정성 원칙: xterm 의 상태(버퍼 등)는 일절 만지지 않는다. 원본 함수를 먼저 그대로
+   * 실행한 뒤 오버레이·textarea 의 left/top 스타일만 되돌려 놓는다. 비공개 API 라
+   * 구조가 다르면(업그레이드 등) 고정만 조용히 꺼지고 기본 동작으로 남는다.
+   */
+  private pinCompositionOverlay(): void {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const core = (this.term as any)._core;
+      const helper = core?._compositionHelper;
+      const ta = this.term.textarea;
+      if (!helper || !ta || typeof helper.updateCompositionElements !== "function") return;
+
+      let pinned: { left: number; top: number } | null = null;
+
+      ta.addEventListener("compositionstart", () => {
+        try {
+          const buf = core._bufferService?.buffer;
+          const cell = core._renderService?.dimensions?.css?.cell;
+          if (!buf || !cell || !(cell.width > 0)) {
+            pinned = null;
+            return;
+          }
+          const col = Math.min(buf.x, core._bufferService.cols - 1);
+          pinned = { left: col * cell.width, top: buf.y * cell.height };
+        } catch {
+          pinned = null;
+        }
+      });
+      ta.addEventListener("compositionend", () => {
+        pinned = null;
+      });
+
+      const original = helper.updateCompositionElements.bind(helper);
+      helper.updateCompositionElements = (dontRecurse?: unknown) => {
+        original(dontRecurse);
+        if (pinned === null || !helper._isComposing) return;
+        const view = helper._compositionView as HTMLElement | undefined;
+        if (view) {
+          view.style.left = `${pinned.left}px`;
+          view.style.top = `${pinned.top}px`;
+        }
+        // IME 후보창(한자 변환 목록 등)은 textarea 위치를 따라간다 — 같이 고정한다.
+        const t = helper._textarea as HTMLElement | undefined;
+        if (t) {
+          t.style.left = `${pinned.left}px`;
+          t.style.top = `${pinned.top}px`;
+        }
+      };
+    } catch {
+      // 내부 구조가 예상과 다르면 고정 없이 기본 동작 — 기능 하나가 앱을 위협하지 않는다.
+    }
+  }
+
   /** 상태바용 접속 유지시간. 접속 전이면 빈 문자열, 끊긴 뒤엔 최종값에서 멈춘다. */
   uptimeText(): string {
     if (this.connectedAt === null) return "";
@@ -818,6 +881,13 @@ export class TabManager {
     private readonly actions: TabActions = {},
   ) {
     this.settings = settings;
+
+    // 회귀 검사(check:ui)가 활성 탭 터미널에 접근하기 위한 훅 — 개발 서버에서만 존재하고
+    // 프로덕션 빌드에서는 이 가지째 제거된다(DEV 가 false 상수로 치환).
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__tm = this;
+    }
 
     // 접속 유지시간은 1초마다 값이 바뀌므로 상태바를 주기적으로 다시 내보낸다.
     // 실제로 흘러가는 경우(활성 탭이 접속 유지 중)에만 emit 해 불필요한 갱신을 막는다.
