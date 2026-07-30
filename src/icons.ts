@@ -36,6 +36,7 @@ export const GLYPH: Record<string, string> = {
   up: "",
   setDefault: "",
   sftp: "",
+  help: "", // 도움말(Help) — 도움말 전구 컴포넌트
 };
 
 /** WPF 도형 뷰 아이콘(16×13) — 탭 보기 / 세로 분할 / 가로 분할. */

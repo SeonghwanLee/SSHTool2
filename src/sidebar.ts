@@ -116,6 +116,9 @@ export class Sidebar {
   private folderSort: Record<string, FolderSort> = {};
   private showDetail = true;
   private recentLimit = 10;
+  /** 타입어헤드 버퍼 — 잠시 쉬면 처음부터 다시 친 것으로 본다(탐색기 방식, SFTP 목록과 동일). */
+  private typeBuf = "";
+  private typeAt = 0;
   /** 키보드 포커스가 놓인 행의 식별자. 다시 그려도 같은 행으로 돌아가기 위해 값으로 들고 있다. */
   private focusKey: string | null = null;
   /** 행 → Enter 로 실행할 동작(폴더는 펼침 토글, 세션·최근 접속은 연결). */
@@ -313,7 +316,42 @@ export class Sidebar {
         this.activateFns.get(row)?.();
         return;
       default:
+        this.typeAhead(e, rows, i);
         return;
+    }
+  }
+
+  /**
+   * 타입어헤드 — 글자를 치면 그 글자로 시작하는 행으로 이동한다(탐색기 방식).
+   * 연달아 치면 이어 붙여 좁히고("웹서" → 웹서버1), 잠시 쉬면 새로 시작한다.
+   * 현재 행 다음부터 찾아 한 바퀴 돈다 — 같은 글자를 다시 치면 다음 일치 항목으로 간다.
+   */
+  private typeAhead(e: KeyboardEvent, rows: HTMLElement[], from: number): void {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key.length !== 1 || e.key === " ") return; // 스페이스는 스크롤 등 기본 동작에 둔다
+    e.preventDefault();
+
+    const now = Date.now();
+    // 이어치기 창을 넘겼으면 새 검색. 같은 글자 반복은 '다음 일치로 이동'으로 취급한다
+    // (탐색기와 같다 — "ss" 를 빠르게 치면 s 로 시작하는 두 번째 항목).
+    const cont = now - this.typeAt <= 900;
+    const key = e.key.toLowerCase();
+    if (cont && !(this.typeBuf.length === 1 && this.typeBuf === key)) this.typeBuf += key;
+    else this.typeBuf = key;
+    this.typeAt = now;
+
+    const label = (r: HTMLElement) =>
+      (
+        r.querySelector(".tree-session-name, .tree-folder-label")?.textContent ?? ""
+      ).toLowerCase();
+    // 현재 행 '다음'부터 한 바퀴 — 검색어가 한 글자면 현재 행 자신은 건너뛰어야
+    // 같은 글자 연타로 다음 항목에 갈 수 있다.
+    for (let k = 1; k <= rows.length; k++) {
+      const r = rows[(from + k) % rows.length];
+      if (label(r).startsWith(this.typeBuf)) {
+        this.focusRow(r);
+        return;
+      }
     }
   }
 

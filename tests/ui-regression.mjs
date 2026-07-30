@@ -122,6 +122,48 @@ try {
       );
     });
 
+    await t.test("Ctrl+F4 — 터미널 포커스에서도 세션 닫기가 걸린다 (xterm 삼킴 회귀)", async () => {
+      await page.evaluate(() => {
+        [...document.querySelectorAll(".term-pane")]
+          .find((e) => getComputedStyle(e).display !== "none")
+          ?.querySelector("textarea")
+          ?.focus();
+      });
+      await page.keyboard.press("Control+F4");
+      await page.waitForTimeout(350);
+      // 접속 중인 탭이라 "닫을까요?" 확인창이 떠야 한다 — 이게 뜨면 이벤트가 문서까지 온 것.
+      const msg = await page.evaluate(
+        () => document.querySelector(".modal-card .modal-msg")?.textContent ?? "",
+      );
+      expect(msg.includes("닫"), `닫기 확인창이 뜨지 않았다 (메시지: "${msg}")`);
+      // ② y/n 단축키 — 'n' 으로 취소되는지 함께 확인.
+      await page.keyboard.press("n");
+      await page.waitForTimeout(250);
+      expect((await page.locator(".modal-overlay").count()) === 0, "'n' 으로 확인창이 닫히지 않았다");
+      expect(
+        (await page.locator("#tabbar .tab").count()) === 2,
+        "'아니오'를 골랐는데 탭이 닫혔다",
+      );
+    });
+
+    await t.test("세션 목록 타입어헤드 — 글자를 치면 그 이름의 행으로 이동", async () => {
+      // 트리에 포커스를 주고 '나' 를 친다 → '나서버' 행으로 포커스 이동.
+      await page.locator(".tree-session").first().click();
+      await page.waitForTimeout(150);
+      // Playwright 의 type() 은 한글을 keydown 없이 insertText 로 넣는다 — 실제 IME 는
+      // keydown(key="나" 또는 조합키)을 먼저 보낸다. 핸들러 검증에는 keydown 을 직접 만든다.
+      await page.evaluate(() => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "나", bubbles: true }),
+        );
+      });
+      await page.waitForTimeout(200);
+      const focused = await page.evaluate(
+        () => document.activeElement?.querySelector(".tree-session-name")?.textContent ?? "",
+      );
+      expect(focused === "나서버", `포커스가 '나서버'가 아니라 "${focused}"`);
+    });
+
     await t.test("서비스 연결 — 하위메뉴가 펼쳐지고 정확한 URL 로 browser_open 호출", async () => {
       await page.locator(".tree-session").first().click({ button: "right" });
       await page.waitForTimeout(250);
@@ -299,7 +341,60 @@ try {
       await page.waitForTimeout(200);
     });
 
+    await t.test("도움말 전구 — 긴 안내가 접히고, 클릭하면 말풍선, Esc 는 창을 닫지 않음", async () => {
+      // 세션 편집 → 트리거 탭: 긴 경고가 화면에서 사라지고 한 줄 요약 + 전구만 남는다.
+      await page.locator(".tree-session").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")].find((e) => e.textContent.includes("편집"))?.click(),
+      );
+      await page.waitForTimeout(350);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "트리거")?.click(),
+      );
+      await page.waitForTimeout(200);
+      const warnText = await page.evaluate(
+        () => document.querySelector(".trigger-warn")?.textContent ?? "",
+      );
+      expect(!warnText.includes("10초"), "긴 안내가 아직 화면에 그대로 있다");
+      expect(warnText.includes("비밀번호"), "핵심 경고 한 줄이 사라졌다 — 위험 고지는 남아야 한다");
+      // 전구 클릭 → 말풍선에 전체 안내. 트리거·서비스 두 탭에 전구가 있으므로
+      // 지금 보이는 것(offsetParent 있는 것)을 골라 누른다.
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".trigger-head .help-bulb")]
+          .find((b) => b.offsetParent !== null)
+          ?.click(),
+      );
+      await page.waitForTimeout(200);
+      const pop = await page.evaluate(() => document.querySelector(".help-pop-body")?.textContent ?? "");
+      expect(pop.includes("10초"), "말풍선에 전체 안내가 없다");
+      // 텍스트가 있어도 다른 창 아래 깔리면 소용없다 — 중앙이 실제로 클릭에 잡히는지 본다.
+      // (z-index 300 시절 편집 창(#modal-root 1000)에 깔려 오른쪽 조각만 보였던 회귀.)
+      const onTop = await page.evaluate(() => {
+        const el = document.querySelector(".help-pop");
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return el.contains(hit);
+      });
+      expect(onTop, "말풍선이 다른 창 아래에 깔려 있다");
+      // Esc → 말풍선만 닫히고 편집 창은 남아야 한다(입력하던 것이 날아가면 안 된다)
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+      expect(
+        (await page.locator(".help-pop").count()) === 0,
+        "Esc 로 말풍선이 닫히지 않았다",
+      );
+      expect(
+        (await page.locator(".session-card").count()) === 1,
+        "Esc 가 말풍선 대신 편집 창을 닫아 버렸다",
+      );
+      // 진짜 Esc 로 편집 창 닫기(정리)
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    });
+
     await t.test("설정 경고문(.settings-warn)이 --error 색이다 (.settings-hint 에 지면 안 됨)", async () => {
+      await dismissModals(page); // 앞 테스트가 실패해도 남은 창에 막히지 않게
       await page.click("#open-settings");
       await page.waitForTimeout(300);
       await page.evaluate(() =>
@@ -327,6 +422,7 @@ try {
     });
 
     await t.test("SFTP 칩 — .live 클래스가 실제로 색을 바꾼다 (규칙 순서 회귀)", async () => {
+      await dismissModals(page); // 앞 테스트가 실패해도 남은 창에 막히지 않게
       const r = await page.evaluate(() => {
         const chip = document.querySelector(".tree-session .sftp-chip");
         if (!chip) return null;
@@ -338,6 +434,36 @@ try {
       });
       expect(r !== null, "칩이 없다");
       expect(r.base !== r.live, ".live 를 붙여도 색이 같다 — 뒤에 오는 기본 규칙이 이기고 있다");
+    });
+
+    await t.test("분할 배치 — 4개까지 한 줄, 5개부터 접기", async () => {
+      // 지금까지 열린 탭(2개)에 같은 세션을 더 열어 4개를 만든다.
+      await openSession(page, 0);
+      await openSession(page, 0);
+      const grid = () =>
+        page.evaluate(() => {
+          const p = document.getElementById("panes");
+          // 'repeat(4, 1fr)' 문법이라 1fr 개수를 세면 안 된다 — repeat 의 N 을 읽는다.
+          const count = (v) => Number(/repeat\((\d+),/.exec(v)?.[1] ?? 0);
+          return { cols: count(p.style.gridTemplateColumns), rows: count(p.style.gridTemplateRows) };
+        });
+      await page.click("#view-vertical");
+      await page.waitForTimeout(250);
+      let g = await grid();
+      expect(g.cols === 4 && g.rows === 1, `세로 4개: ${g.cols}x${g.rows} (4x1 기대)`);
+      await page.click("#view-horizontal");
+      await page.waitForTimeout(250);
+      g = await grid();
+      expect(g.cols === 1 && g.rows === 4, `가로 4개: ${g.cols}x${g.rows} (1x4 기대)`);
+      // 5개째 — 접힌다(세로 3x2).
+      await page.click("#view-vertical");
+      await page.waitForTimeout(200);
+      await openSession(page, 0);
+      await page.waitForTimeout(250);
+      g = await grid();
+      expect(g.cols === 3 && g.rows === 2, `세로 5개: ${g.cols}x${g.rows} (3x2 기대)`);
+      await page.click("#view-tabs");
+      await page.waitForTimeout(200);
     });
 
     await page.close();

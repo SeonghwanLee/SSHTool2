@@ -342,6 +342,16 @@ export function confirmDialog(message: string): Promise<boolean> {
       buttons.append(no, yes);
 
       card.append(msg, buttons);
+      // y/n 한 키로 즉답(사용자 요청 — 모든 확인창 공통). 확인창에는 입력칸이 없어
+      // 타이핑과 충돌하지 않는다. Enter(=예)·Esc(=아니오)는 기존대로 동작한다.
+      card.addEventListener("keydown", (e) => {
+        const k = e.key.toLowerCase();
+        if (k !== "y" && k !== "n") return;
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+        resolve(k === "y");
+      });
       setTimeout(() => yes.focus(), 0);
       return card;
     }, () => resolve(false));

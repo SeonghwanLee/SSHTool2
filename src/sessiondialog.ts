@@ -5,6 +5,7 @@ import { openModal, field } from "./dialogs";
 import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType, ServiceLink } from "./types";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { applyIcon } from "./icons";
+import { helpIcon } from "./help";
 
 const CHARSETS: Charset[] = [
   "UTF-8",
@@ -33,6 +34,7 @@ export function sessionDialog(
       (close) => {
         const card = document.createElement("form");
         card.className = "session-card";
+        card.setAttribute("autocomplete", "off"); // WebView2 자동완성 목록(흰색) 차단
 
         const title = document.createElement("h3");
         title.textContent = titleText;
@@ -389,6 +391,17 @@ class TriggerEditor {
     head.className = "trigger-head";
     const label = document.createElement("span");
     label.textContent = "자동 입력 규칙 (패턴 감지 → 전송)";
+    // 긴 설명은 전구 뒤로. 위험의 핵심 한 줄(아래 warn)은 화면에 남긴다 —
+    // 위험은 읽을 기회가 있어야 경고다.
+    const help = helpIcon(
+      "트리거는 서버가 보낸 출력에 반응해 값을 자동으로 전송합니다.\n" +
+        "서버를 장악한 쪽이 패턴 문자열을 아무 때나 출력하면 그 값을 그대로 받아낼 수 있습니다. " +
+        "색상 코드로 위장한 출력도 감지되고, 1초 간격으로 반복해서 끌어낼 수 있습니다.\n" +
+        "규칙은 접속 후 10초 안에만 발동합니다 — 그 뒤에 같은 패턴이 나와도 전송하지 않습니다.\n" +
+        "'비밀'을 체크하면 값이 세션 파일 대신 볼트에 저장되지만, 그것은 디스크에 남는 것만 " +
+        "가립니다 — 자동 전송 위험은 그대로입니다.",
+      "트리거 안내",
+    );
     const add = document.createElement("button");
     add.type = "button";
     add.className = "sftp-btn";
@@ -397,20 +410,13 @@ class TriggerEditor {
       this.rules = [...this.rules, { pattern: "", send: "", regex: false, secret: false }];
       this.draw();
     });
-    head.append(label, add);
+    head.append(label, help, add);
 
-    // 자동 전송의 위험은 '저장 위치'가 아니라 '발동 조건'에 있다. 규칙을 어디에
-    // 보관하든, 전송을 촉발하는 것은 **서버가 보낸 출력**이라는 점을 분명히 적는다.
+    // 자동 전송의 위험은 '저장 위치'가 아니라 '발동 조건'에 있다 — 핵심만 한 줄 남긴다.
     const warn = document.createElement("div");
     warn.className = "trigger-warn";
     warn.textContent =
-      "⚠ 트리거는 서버가 보낸 출력에 반응해 값을 자동으로 전송합니다.\n" +
-      "서버를 장악한 쪽이 패턴 문자열을 아무 때나 출력하면 그 값을 그대로 받아낼 수 있습니다. " +
-      "색상 코드로 위장한 출력도 감지되고, 1초 간격으로 반복해서 끌어낼 수 있습니다.\n" +
-      "규칙은 접속 후 10초 안에만 발동합니다 — 그 뒤에 같은 패턴이 나와도 전송하지 않습니다.\n" +
-      "비밀번호·sudo 암호는 넣지 마세요.\n" +
-      "'비밀' 을 체크하면 값이 세션 파일 대신 볼트에 저장되지만, 그것은 디스크에 남는 것만 " +
-      "가립니다 — 위의 자동 전송 위험은 그대로입니다.";
+      "⚠ 서버 출력에 반응해 값을 자동 전송합니다 — 비밀번호·sudo 암호는 넣지 마세요.";
 
     // 체크박스 두 개가 무엇인지 알 수 있도록 열 머리글을 붙인다.
     const cols = document.createElement("div");
@@ -491,6 +497,12 @@ class ServiceEditor {
     head.className = "trigger-head";
     const label = document.createElement("span");
     label.textContent = "웹 서비스 (우클릭 '서비스 연결' 메뉴에 표시)";
+    const help = helpIcon(
+      "호스트는 이 세션의 호스트를 그대로 씁니다 — 서버 주소가 바뀌면 세션만 고치면 됩니다.\n" +
+        "경로는 '/admin?tab=1' 처럼 URL 뒷부분이며 비워도 됩니다.\n" +
+        "http/https 주소만 열 수 있고, 브라우저는 목록(기본/Chrome/Edge)에서만 실행됩니다.",
+      "웹 서비스 안내",
+    );
     const add = document.createElement("button");
     add.type = "button";
     add.className = "sftp-btn";
@@ -499,13 +511,7 @@ class ServiceEditor {
       this.items = [...this.items, { name: "", scheme: "http", port: 8080, path: "", browser: "default" }];
       this.draw();
     });
-    head.append(label, add);
-
-    const hint = document.createElement("div");
-    hint.className = "settings-hint";
-    hint.textContent =
-      "호스트는 이 세션의 호스트를 그대로 씁니다 — 서버 주소가 바뀌면 세션만 고치면 됩니다. " +
-      "경로는 '/admin?tab=1' 처럼 URL 뒷부분이며 비워도 됩니다.";
+    head.append(label, help, add);
 
     const cols = document.createElement("div");
     cols.className = "trigger-cols svc-cols";
@@ -517,7 +523,7 @@ class ServiceEditor {
 
     this.list.className = "trigger-list";
     this.draw();
-    wrap.append(head, hint, cols, this.list);
+    wrap.append(head, cols, this.list);
     return wrap;
   }
 

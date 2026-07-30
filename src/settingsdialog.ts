@@ -22,6 +22,7 @@ import {
   popModal,
   isTopModal,
 } from "./dialogs";
+import { helpIcon } from "./help";
 
 export interface SettingsResult {
   /** true 면 저장, false 면 취소(미리보기 되돌림). */
@@ -261,6 +262,13 @@ export function settingsDialog(
     const sec = addTab("sec", "보안");
 
     const lockRow = controlRow("무활동 자동 잠금 (분, 0=화면보호기)");
+    lockRow.firstChild?.after(
+      helpIcon(
+        "1분 이상이면 그 시간 동안 입력이 없을 때 볼트를 잠급니다.\n" +
+          "0이면 잠그지 않고, 5분 무활동 시 화면보호기(움직이는 애니메이션)를 띄웁니다.",
+        "자동 잠금 안내",
+      ),
+    );
     const lockInput = numInput(String(working.autoLockMinutes), 0, 720, 1);
     lockInput.addEventListener("change", () => {
       const v = clampNum(lockInput, 0, 720, 0);
@@ -269,11 +277,6 @@ export function settingsDialog(
     });
     lockRow.appendChild(lockInput);
     sec.appendChild(lockRow);
-    const lockHint = document.createElement("div");
-    lockHint.className = "settings-hint";
-    lockHint.textContent =
-      "1분 이상이면 그 시간 무활동 시 볼트를 잠급니다. 0이면 잠그지 않고, 5분 무활동 시 화면보호기(움직이는 애니메이션)를 띄웁니다.";
-    sec.appendChild(lockHint);
 
     const autoRow = document.createElement("label");
     autoRow.className = "check-row control-row";
@@ -328,6 +331,14 @@ export function settingsDialog(
       working = { ...working, sftpLocalDir: sftpDir.value.trim() };
       apply();
     });
+    sftpDirRow.firstChild?.after(
+      helpIcon(
+        "SFTP 를 열 때 왼쪽(내 PC) 창이 시작할 폴더입니다.\n" +
+          "'찾아보기…'로 고르거나 직접 입력할 수 있습니다. 없는 경로면 문서 폴더로 엽니다.\n" +
+          "연결이 살아 있는 SFTP 를 다시 열 때는 직전에 보던 폴더가 그대로 유지됩니다.",
+        "SFTP 기본 폴더 안내",
+      ),
+    );
     sftpDirRow.appendChild(sftpDir);
     // 경로를 손으로 치는 것보다 고르는 편이 빠르고 오타도 없다. 직접 입력도 그대로 둔다 —
     // 네트워크 경로(\\서버\공유)처럼 탐색 창으로 가기 번거로운 자리가 있다.
@@ -347,26 +358,24 @@ export function settingsDialog(
       }),
     );
     gen.appendChild(sftpDirRow);
-    const sftpDirHint = document.createElement("div");
-    sftpDirHint.className = "settings-hint";
-    sftpDirHint.textContent =
-      "SFTP 를 열 때 왼쪽(내 PC) 창이 시작할 폴더입니다. '찾아보기…' 로 고르거나 직접 입력할 수 있습니다. 없는 경로면 문서 폴더로 엽니다. 연결이 살아 있는 SFTP 를 다시 열 때는 직전에 보던 폴더가 그대로 유지됩니다.";
-    gen.appendChild(sftpDirHint);
 
     gen.appendChild(sectionLabel("진단"));
 
-    gen.appendChild(
-      checkRow("진단 로그 기록 (debug.log)", working.verboseLog, (v) => {
-        working = { ...working, verboseLog: v };
-        logNote.style.display = v ? "" : "none";
-        apply();
-      }),
+    const logRow = checkRow("진단 로그 기록 (debug.log)", working.verboseLog, (v) => {
+      working = { ...working, verboseLog: v };
+      logNote.style.display = v ? "" : "none";
+      apply();
+    });
+    logRow.firstChild?.after(
+      helpIcon(
+        "접속·끊김과 터미널이 받은 원시 데이터를 파일에 남깁니다.\n" +
+          "원인을 알 수 없는 증상을 알릴 때 켜세요. 켜는 순간 파일이 새로 시작되고, " +
+          "20MB 를 넘으면 잘라냅니다.\n" +
+          "'경로 복사'로 파일 위치를 확인할 수 있습니다.",
+        "진단 로그 안내",
+      ),
     );
-    const logHint = document.createElement("div");
-    logHint.className = "settings-hint";
-    logHint.textContent =
-      "접속·끊김과 터미널이 받은 원시 데이터를 파일에 남깁니다. 원인을 알 수 없는 증상을 알릴 때 켜세요. 켜는 순간 파일이 새로 시작되고, 20MB 를 넘으면 잘라냅니다.";
-    gen.appendChild(logHint);
+    gen.appendChild(logRow);
 
     const logNote = document.createElement("div");
     logNote.className = "settings-hint settings-warn";

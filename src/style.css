@@ -67,6 +67,16 @@
 }
 
 /* 기본값(런타임에 테마가 즉시 덮어씀 — themes.ts applyAppTheme). */
+/* 브라우저(WebView2)가 직접 그리는 UI — datalist·select 팝업, 숫자 스피너, 자동완성 틀 —
+   는 CSS 가 닿지 않는다. color-scheme 을 테마와 맞추면 UA 가 알아서 어두운/밝은 판으로
+   그린다. 세션 검색의 흰색 목록 검토(사용자 질문)에서 나온 조치. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 :root {
   --bg: #2d353b;
   --panel: #343f44;
@@ -327,7 +337,9 @@ button {
   left: 50%;
   transform: translate(-50%, -50%);
   width: 18px;
-  height: 44px;
+  /* 세로로 길게 — 44px 는 마우스를 정확히 대야 잡혔다. 2배로 키워 스치듯 지나가도
+     잡히게 한다(사용자 요청). 폭은 그대로 — 옆 터미널을 가리면 안 된다. */
+  height: 88px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1418,6 +1430,43 @@ body.dragging-tab * {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+/* 도움말 전구 + 말풍선 */
+.help-bulb {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+  opacity: 0.7;
+  flex: 0 0 auto;
+}
+.help-bulb:hover {
+  opacity: 1;
+}
+.help-pop {
+  position: fixed;
+  /* #modal-root(1000) 안의 설정·편집 창 위에 떠야 한다 — 전구가 바로 그 창들 안에 있다.
+     300 으로 뒀더니 말풍선 왼쪽이 편집 창에 깔려 오른쪽 조각만 보였다(스크린샷으로 발견). */
+  z-index: 1100;
+  max-width: 380px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.help-pop-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.help-pop-body {
+  font-size: 12px;
+  color: var(--fg);
+  line-height: 1.6;
+  white-space: pre-line; /* 안내문의 \n 을 줄바꿈으로 */
 }
 .settings-hint {
   font-size: 11px;

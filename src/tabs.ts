@@ -346,6 +346,13 @@ class TerminalTab {
         return false;
       }
 
+      // Ctrl+F4 = 세션 닫기. 같은 이유 — xterm 이 F4 를 이스케이프 시퀀스로 바꿔 보내며
+      // 이벤트를 삼키므로, 문서의 닫기 핸들러까지 올라오지 못했다("안 먹히는" 원인).
+      // 터미널에 포커스가 있을 때(= 사실상 항상) 죽어 있던 셈이다.
+      if (ctrl && !e.altKey && !e.shiftKey && !e.metaKey && e.key === "F4") {
+        return false;
+      }
+
       // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
       if (ctrl && e.key === "Enter") {
         if (e.isComposing || e.keyCode === 229) {
@@ -996,14 +1003,17 @@ export class TabManager {
 
     if (tiled) {
       const n = Math.max(1, this.tabs.length);
-      // 3개까지는 한 줄, 그 이상은 2열로 접어 2×2 형태가 되게 한다.
-      // 세로 분할: 3개까지는 한 줄, 4개부터는 정사각에 가깝게 접어 2×2 형태가 되게 한다.
+      // 4개까지는 한 줄로 나열한다(세로 분할이면 ⅠⅠⅠⅠ, 가로 분할이면 4단) — 로그 넉 대를
+      // 나란히 두고 보는 용도(사용자 요청). 5개부터는 접는다: 한 줄에 다섯을 세우면
+      // 폭이 좁아져 어차피 읽을 수 없다. 세로는 정사각에 가깝게, 가로는 3단 기준.
       const cols =
         this.viewMode === "vertical"
-          ? n <= 3
+          ? n <= 4
             ? n
             : Math.ceil(Math.sqrt(n))
-          : Math.ceil(n / Math.min(n, 3));
+          : n <= 4
+            ? 1
+            : Math.ceil(n / 3);
       const rows = Math.ceil(n / cols);
       this.panes.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
       this.panes.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
