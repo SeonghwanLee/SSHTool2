@@ -122,6 +122,25 @@ try {
       );
     });
 
+    await t.test("Ctrl+Tab — 터미널 포커스에서도 탭 순환이 걸린다 (xterm 삼킴 회귀)", async () => {
+      const active = () =>
+        page.evaluate(() => document.querySelector("#tabbar .tab.active .tab-label")?.textContent);
+      await page.evaluate(() => {
+        [...document.querySelectorAll(".term-pane")]
+          .find((e) => getComputedStyle(e).display !== "none")
+          ?.querySelector("textarea")
+          ?.focus();
+      });
+      const before = await active();
+      await page.keyboard.press("Control+Tab");
+      await page.waitForTimeout(250);
+      const after = await active();
+      expect(before !== after, `Ctrl+Tab 으로 탭이 바뀌지 않았다(계속 ${after})`);
+      await page.keyboard.press("Control+Shift+Tab");
+      await page.waitForTimeout(250);
+      expect((await active()) === before, "Ctrl+Shift+Tab 역방향 순환 실패");
+    });
+
     await t.test("Ctrl+F4 — 터미널 포커스에서도 세션 닫기가 걸린다 (xterm 삼킴 회귀)", async () => {
       await page.evaluate(() => {
         [...document.querySelectorAll(".term-pane")]
@@ -236,11 +255,28 @@ try {
         term.write("\r\x1b[K\x1b[33m\u273b 생각 중\x1b[0m\r\n상태줄이 커서를 여기 둠");
         await wait(150);
         const after = view();
-        // 조합 종료 → 고정 해제. 이후 렌더에서는 다시 커서를 따라가야 한다.
         ta.value = "";
         ta.dispatchEvent(new CompositionEvent("compositionend", { data: "안" }));
         await wait(80);
-        return { before, after };
+
+        // ── 에코 전진 시나리오(0.53.0 회귀) ──
+        // 음절 확정 → 서버 에코가 커서를 전진시키기 '전에' 다음 음절 조합이 시작된다.
+        // 에코가 도착하면 오버레이가 전진한 커서를 따라가야 한다 — 못 따라가면 다음
+        // 조합 글자가 앞 글자 위에 겹쳐 보인다.
+        term.write("\x1b[2J\x1b[H> ");
+        await wait(80);
+        ta.dispatchEvent(new CompositionEvent("compositionstart", { data: "" }));
+        ta.value = "녕";
+        ta.dispatchEvent(new CompositionEvent("compositionupdate", { data: "녕" }));
+        await wait(100);
+        const echoBefore = view();
+        term.write("안"); // 앞 음절의 에코 도착 — 커서 2칸 전진(전각)
+        await wait(150);
+        const echoAfter = view();
+        ta.value = "";
+        ta.dispatchEvent(new CompositionEvent("compositionend", { data: "녕" }));
+        await wait(80);
+        return { before, after, echoBefore, echoAfter };
       });
       expect(!r.훅없음, "개발 훅(__tm)이 없다 — DEV 분기가 죽었는지 확인");
       expect(r.before && r.after, "조합 오버레이가 뜨지 않았다");
@@ -249,6 +285,10 @@ try {
         `오버레이가 점프했다: ${JSON.stringify(r.before)} → ${JSON.stringify(r.after)}`,
       );
       expect(r.after.text === "안", `조합 글자가 아니다: ${r.after.text}`);
+      // 에코 전진은 따라가야 한다 — 전각 1글자 = 2칸만큼 left 가 커져야 한다.
+      const eb = parseFloat(r.echoBefore.left);
+      const ea = parseFloat(r.echoAfter.left);
+      expect(ea > eb, `에코 전진을 따라가지 않았다: ${r.echoBefore.left} → ${r.echoAfter.left}`);
     });
 
     await t.test("세션 끊김 → 재접속 버튼에 포커스, 화면 클릭 후에도 복귀", async () => {

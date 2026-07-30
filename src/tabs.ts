@@ -333,24 +333,22 @@ class TerminalTab {
         return false;
       };
 
-      // Ctrl+1~9 = 탭 전환. xterm 에 넘기지 않고 흘려보내 문서 단위 핸들러가 받게 한다.
+      // ── 앱 예약 단축키 — xterm 에 넘기지 않고 흘려보내 문서 핸들러가 받게 한다 ──
       //
-      // 이걸 빼면 Ctrl+3~7 이 죽는다. xterm 은 keyCode 51~55(숫자 3~7)를 제어문자
-      // ESC·FS·GS·RS·US 로 바꿔 보내면서 stopPropagation 까지 하기 때문이다. 그래서
-      // Ctrl+1·2·8·9 는 되는데 3~7 만 안 먹는, 원인을 짐작하기 어려운 모양이 된다.
+      // xterm 은 자기가 아는 키를 이스케이프 시퀀스로 바꿔 보내며 stopPropagation 까지
+      // 하므로, 여기서 빼 주지 않은 앱 단축키는 터미널에 포커스가 있는 동안(= 사실상 항상)
+      // 전부 죽는다. Ctrl+3~7(제어문자), Ctrl+F4, Ctrl+Tab 이 차례로 그렇게 죽어 있었다 —
+      // 하나씩 뚫는 대신 목록 한 곳에 모은다. 새 단축키를 만들면 여기에도 넣을 것.
       //
-      // false 를 돌려주면 xterm 은 그 자리에서 손을 떼고 preventDefault 도 하지 않으므로,
-      // 이벤트가 그대로 위로 올라가 탭 전환이 걸린다. 잃는 것은 Ctrl+3~7 로 제어문자를
-      // 보내는 길인데, ESC 는 Esc 키가 있고 나머지(FS·GS·RS·US)는 쓸 일이 거의 없다.
-      if (ctrl && !e.altKey && !e.shiftKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
-        return false;
-      }
-
-      // Ctrl+F4 = 세션 닫기. 같은 이유 — xterm 이 F4 를 이스케이프 시퀀스로 바꿔 보내며
-      // 이벤트를 삼키므로, 문서의 닫기 핸들러까지 올라오지 못했다("안 먹히는" 원인).
-      // 터미널에 포커스가 있을 때(= 사실상 항상) 죽어 있던 셈이다.
-      if (ctrl && !e.altKey && !e.shiftKey && !e.metaKey && e.key === "F4") {
-        return false;
+      // false 반환 = xterm 이 손을 떼고 preventDefault 도 하지 않아 이벤트가 그대로
+      // 문서까지 올라간다. 대가: 그 조합을 원격 앱에 보내는 길이 막힌다
+      // (Ctrl+3~7 의 제어문자 ESC·FS·GS·RS·US, Ctrl+Tab, Ctrl+F4 시퀀스 — 실사용 희박).
+      if (ctrl && !e.altKey && !e.metaKey) {
+        const reserved =
+          (!e.shiftKey && e.key >= "1" && e.key <= "9") || // 탭 번호 전환
+          (!e.shiftKey && e.key === "F4") || // 세션 닫기
+          e.key === "Tab"; // 탭 순환(Shift 는 역방향이므로 함께)
+        if (reserved) return false;
       }
 
       // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
@@ -751,18 +749,13 @@ class TerminalTab {
       const ta = this.term.textarea;
       if (!helper || !ta || typeof helper.updateCompositionElements !== "function") return;
 
-      let pinned: { left: number; top: number } | null = null;
+      /** 고정 기준 셀. null 이면 고정하지 않는다(기본 동작). */
+      let pinned: { col: number; row: number } | null = null;
 
       ta.addEventListener("compositionstart", () => {
         try {
           const buf = core._bufferService?.buffer;
-          const cell = core._renderService?.dimensions?.css?.cell;
-          if (!buf || !cell || !(cell.width > 0)) {
-            pinned = null;
-            return;
-          }
-          const col = Math.min(buf.x, core._bufferService.cols - 1);
-          pinned = { left: col * cell.width, top: buf.y * cell.height };
+          pinned = buf ? { col: buf.x, row: buf.y } : null;
         } catch {
           pinned = null;
         }
@@ -775,16 +768,36 @@ class TerminalTab {
       helper.updateCompositionElements = (dontRecurse?: unknown) => {
         original(dontRecurse);
         if (pinned === null || !helper._isComposing) return;
-        const view = helper._compositionView as HTMLElement | undefined;
-        if (view) {
-          view.style.left = `${pinned.left}px`;
-          view.style.top = `${pinned.top}px`;
-        }
-        // IME 후보창(한자 변환 목록 등)은 textarea 위치를 따라간다 — 같이 고정한다.
-        const t = helper._textarea as HTMLElement | undefined;
-        if (t) {
-          t.style.left = `${pinned.left}px`;
-          t.style.top = `${pinned.top}px`;
+        try {
+          const buf = core._bufferService?.buffer;
+          const cols = core._bufferService?.cols ?? 0;
+          const cell = core._renderService?.dimensions?.css?.cell;
+          if (!buf || !cell || !(cell.width > 0)) return;
+
+          // 커서의 '정당한 전진'은 따라간다. SSH 에서는 음절이 확정되면 서버 에코가
+          // 돌아와야 커서가 움직이는데, 다음 음절의 조합은 그보다 먼저 시작된다 —
+          // 시작 셀에 못 박아 두면 조합 글자가 앞 글자 위에 겹쳐 보인다(0.52.3 회귀).
+          // 같은 줄에서 앞으로 몇 칸 이내의 이동만 에코로 보고 기준을 옮긴다.
+          // 먼 점프·다른 줄(스피너·상태줄 재그리기)은 무시한다 — 그게 원래 고치려던 증상이다.
+          if (buf.y === pinned.row && buf.x >= pinned.col && buf.x - pinned.col <= 8) {
+            pinned = { col: buf.x, row: buf.y };
+          }
+
+          const left = Math.min(pinned.col, Math.max(0, cols - 1)) * cell.width;
+          const top = pinned.row * cell.height;
+          const view = helper._compositionView as HTMLElement | undefined;
+          if (view) {
+            view.style.left = `${left}px`;
+            view.style.top = `${top}px`;
+          }
+          // IME 후보창(한자 변환 목록 등)은 textarea 위치를 따라간다 — 같이 붙인다.
+          const t = helper._textarea as HTMLElement | undefined;
+          if (t) {
+            t.style.left = `${left}px`;
+            t.style.top = `${top}px`;
+          }
+        } catch {
+          /* 계측 실패 시 이번 렌더는 기본 위치(원본이 이미 놓았다)로 둔다 */
         }
       };
     } catch {
