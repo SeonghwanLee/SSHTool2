@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.52.2",
+    date: "2026-07-29",
+    notes: [
+      "세션 편집 창이 넓어졌습니다(480 → 640px). 서비스 탭의 입력 항목(이름·프로토콜·포트·경로·브라우저)이 좁아 보이던 것을 해소했고, 연결·인증 탭의 입력칸도 함께 넓어집니다",
+    ],
+  },
+  {
     version: "0.52.1",
     date: "2026-07-29",
     notes: [

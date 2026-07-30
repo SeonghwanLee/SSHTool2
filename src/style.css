@@ -1796,7 +1796,10 @@ body.dragging-tab * {
 
 /* ── 세션 편집기(자동화 섹션) ───────────────────────────────────────────────── */
 .session-card {
-  width: 480px;
+  /* 서비스 탭(입력 6열)이 들어오면서 480px 로는 좁다 — 이름·경로가 예시도 안 보일 폭이 된다.
+     다른 탭(연결·인증)도 넓어져서 손해 볼 것은 없다. */
+  width: 640px;
+  max-width: 92vw;
   /* 설정창과 같은 이유로 높이 고정 — 탭(연결/인증/…/서비스) 전환 시 창이 튀지 않게. */
   height: min(560px, 86vh);
   display: flex;
@@ -1869,7 +1872,7 @@ body.dragging-tab * {
 /* 서비스 편집기 — 이름 | 프로토콜 | 포트 | 경로 | 브라우저 | 삭제 */
 .trigger-cols.svc-cols,
 .trigger-row.svc-row {
-  grid-template-columns: 1fr 84px 74px 1fr 120px 28px;
+  grid-template-columns: 1.1fr 80px 72px 1.4fr 116px 28px;
 }
 /* .sel-input 의 고정폭(110px)이 84px 열을 넘친다 — 셀에 맞춘다. */
 .trigger-row.svc-row .sel-input {
