@@ -1295,7 +1295,10 @@ function restartScreensaver(): void {
   if (isScreensaverOn()) hideScreensaver();
   // 자동 잠금이 켜져 있으면(>0) 잠금이 우선 — 화면보호기는 띄우지 않는다.
   if ((settings?.autoLockMinutes ?? 0) !== 0) return;
-  screensaverTimer = window.setTimeout(() => showScreensaver(), SCREENSAVER_IDLE_MS);
+  screensaverTimer = window.setTimeout(() => {
+    const pick = settings.screensaver;
+    showScreensaver(pick === "random" ? undefined : pick);
+  }, SCREENSAVER_IDLE_MS);
 }
 
 function wireAutoLock(): void {

@@ -3,6 +3,7 @@
 import { settingsLoad, settingsSave } from "./ipc";
 import { saveFailureAlert } from "./dialogs";
 import { DEFAULT_THEME_ID, THEMES } from "./themes";
+import { SAVER_NAMES, type SaverName } from "./screensaver";
 
 export type CursorStyle = "block" | "underline" | "bar";
 /** 세션 화면 배치(tabs.ts ViewMode 와 동일 — 순환 import 를 피하려 여기서 정의). */
@@ -58,7 +59,11 @@ export interface Settings {
    * 배치하는 게 편하다 — 전역 하나로는 부족했다.
    */
   folderSort: Record<string, FolderSort>;
+  /** 화면보호기 종류. "random" = 켜질 때마다 무작위. */
+  screensaver: ScreensaverChoice;
 }
+
+export type ScreensaverChoice = "random" | SaverName;
 
 /** 폴더 정렬 방식. `manual` = 끌어서 정한 순서(sortOrder). */
 export type FolderSort = "manual" | "name-asc" | "name-desc" | "recent";
@@ -85,6 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   verboseLog: false,
   offlineMode: false,
   folderSort: {},
+  screensaver: "random",
 };
 
 export interface FontChoice {
@@ -133,6 +139,9 @@ export async function loadSettings(): Promise<Settings> {
     if (typeof merged.sftpLocalDir !== "string") merged.sftpLocalDir = "";
     // 구버전 파일에는 없던 항목 — 형식이 깨져 있으면 트리 정렬이 통째로 멈춘다.
     if (!merged.folderSort || typeof merged.folderSort !== "object") merged.folderSort = {};
+    // 삭제된 화면보호기(생명게임·프롬프트 등)를 골라 뒀던 파일 방어 — 무작위로 되돌린다.
+    if (merged.screensaver !== "random" && !(SAVER_NAMES as readonly string[]).includes(merged.screensaver))
+      merged.screensaver = "random";
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };

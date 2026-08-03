@@ -7,7 +7,7 @@
 //   · 마스터 비밀번호 변경  · OS 키체인 자동해제 토글  · 알려진 호스트 관리
 //   · 설정 내보내기/가져오기 · 완전 초기화  (각자 확인창이 있음)
 
-import type { Settings, CursorStyle } from "./settings";
+import type { Settings, CursorStyle, ScreensaverChoice } from "./settings";
 import { FONTS } from "./settings";
 import { THEMES } from "./themes";
 import { knownHostsDialog } from "./knownhosts";
@@ -23,7 +23,7 @@ import {
   isTopModal,
 } from "./dialogs";
 import { helpIcon } from "./help";
-import { showScreensaver, type SaverName } from "./screensaver";
+import { showScreensaver } from "./screensaver";
 
 export interface SettingsResult {
   /** true 면 저장, false 면 취소(미리보기 되돌림). */
@@ -279,27 +279,42 @@ export function settingsDialog(
     lockRow.appendChild(lockInput);
     sec.appendChild(lockRow);
 
-    // 화면보호기 미리보기 — 어떤 게 나올지 몰라 5분을 기다려 볼 수는 없다.
-    const svRow = controlRow("화면보호기 미리보기");
+    // 화면보호기 — 종류 선택(무작위 포함) + 미리보기. 처음(0.54.1)엔 미리보기만 있고
+    // 정작 고르는 설정이 없었다(사용자 지적).
+    const svRow = controlRow("화면보호기");
     const svWrap = document.createElement("div");
     svWrap.className = "sv-preview-btns";
-    const SAVER_LABELS: [SaverName, string][] = [
+    const svSel = document.createElement("select");
+    svSel.className = "sel-input";
+    const SAVER_LABELS: [ScreensaverChoice, string][] = [
+      ["random", "무작위"],
       ["matrix", "매트릭스"],
       ["starfield", "별하늘"],
-      ["life", "생명 게임"],
-      ["logo", "프롬프트"],
     ];
-    for (const [name, label] of SAVER_LABELS) {
-      svWrap.appendChild(
-        mkSmallButton(label, () => showScreensaver(name)),
-      );
+    for (const [v, label] of SAVER_LABELS) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = label;
+      if (v === working.screensaver) o.selected = true;
+      svSel.appendChild(o);
     }
+    svSel.addEventListener("change", () => {
+      working = { ...working, screensaver: svSel.value as ScreensaverChoice };
+      apply();
+    });
+    svWrap.append(
+      svSel,
+      mkSmallButton("미리보기", () => {
+        const v = svSel.value as ScreensaverChoice;
+        showScreensaver(v === "random" ? undefined : v);
+      }),
+    );
     svRow.appendChild(svWrap);
     sec.appendChild(svRow);
     const svHint = document.createElement("div");
     svHint.className = "settings-hint";
     svHint.textContent =
-      "실제 화면보호기는 무활동 5분 후(자동 잠금 0일 때) 4종 중 하나가 무작위로 나옵니다. 미리보기는 마우스를 움직이면 닫힙니다.";
+      "무활동 5분 후(자동 잠금이 0일 때) 여기서 고른 화면보호기가 뜹니다. 미리보기는 마우스를 움직이면 닫힙니다.";
     sec.appendChild(svHint);
 
     const autoRow = document.createElement("label");

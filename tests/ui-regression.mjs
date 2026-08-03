@@ -227,7 +227,7 @@ try {
       expect(xtermUntouched, "xterm textarea 까지 건드렸다");
     });
 
-    await t.test("화면보호기 4종 — 각각 실제로 움직이고, 닫으면 정리된다", async () => {
+    await t.test("화면보호기 전 종류 — 각각 실제로 움직이고, 닫으면 정리된다", async () => {
       const result = await page.evaluate(async () => {
         const mod = await import("/src/screensaver.ts");
         const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -263,8 +263,9 @@ try {
         [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "보안")?.click(),
       );
       await page.waitForTimeout(200);
-      // '별하늘' 버튼 클릭 — 여는 클릭의 마우스 이동(전역 활동 감지)에도 살아남아야 한다.
-      await page.locator(".sv-preview-btns button", { hasText: "별하늘" }).click();
+      // 드롭다운에서 '별하늘' 선택 후 미리보기 — 여는 클릭의 마우스 이동에도 살아남아야 한다.
+      await page.locator(".sv-preview-btns select").selectOption("starfield");
+      await page.locator(".sv-preview-btns button", { hasText: "미리보기" }).click();
       await page.mouse.move(400, 400); // 클릭 직후의 흔들림 재현
       await page.waitForTimeout(200);
       expect((await page.locator(".screensaver").count()) === 1, "미리보기가 뜨자마자 닫혔다");

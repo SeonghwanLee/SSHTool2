@@ -1,6 +1,6 @@
 // 화면보호기 — 무활동 자동 잠금이 0(사용 안 함)일 때 유휴 상태에서 띄우는 애니메이션.
 // 전부 canvas 에 코드로만 그린다(이미지·폰트 자산 없음 — 설치 용량에 영향 없음).
-// 켜질 때마다 아래 4종 중 하나를 무작위로 고른다. 아무 입력이 오면 사라진다
+// 설정에서 고른 것(기본: 무작위)이 뜬다. 아무 입력이 오면 사라진다
 // (입력 감지는 main.ts 가 담당).
 //
 // 공통 규칙: ~18fps 로 제한해 CPU 를 아끼고, 테마의 --accent 색을 써서 어떤 테마에서도
@@ -97,109 +97,12 @@ const starfield: SaverFactory = (canvas, ctx, accent) => {
   };
 };
 
-// ── ③ 생명 게임 — 터미널 셀 위의 콘웨이 라이프 ──────────────────────────────
-const gameOfLife: SaverFactory = (canvas, ctx, accent) => {
-  const cell = 12;
-  let w = 0;
-  let h = 0;
-  let grid = new Uint8Array(0);
-  let idle = 0; // 변화 없는 세대 수 — 정체되면 새로 심는다
-  const reset = () => {
-    w = Math.max(8, Math.floor(canvas.width / cell));
-    h = Math.max(8, Math.floor(canvas.height / cell));
-    grid = new Uint8Array(w * h).map(() => (Math.random() < 0.22 ? 1 : 0));
-    idle = 0;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  };
-  reset();
-  return {
-    reset,
-    step() {
-      const next = new Uint8Array(w * h);
-      let changed = 0;
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          let n = 0;
-          for (let dy = -1; dy <= 1; dy++)
-            for (let dx = -1; dx <= 1; dx++) {
-              if (!dx && !dy) continue;
-              n += grid[((y + dy + h) % h) * w + ((x + dx + w) % w)];
-            }
-          const i = y * w + x;
-          next[i] = grid[i] ? (n === 2 || n === 3 ? 1 : 0) : n === 3 ? 1 : 0;
-          if (next[i] !== grid[i]) changed++;
-        }
-      }
-      grid = next;
-      // 정물(변화 거의 없음)이 이어지면 다시 심는다 — 화면보호기가 멈춰 보이면 안 된다.
-      idle = changed < w * h * 0.002 ? idle + 1 : 0;
-      if (idle > 40) reset();
-
-      ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = accent;
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < w; x++)
-          if (grid[y * w + x]) ctx.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
-    },
-  };
-};
-
-// ── ④ 튕기는 프롬프트 — 벽에 튕기는 ">_ SSHTool2" ───────────────────────────
-const bouncingLogo: SaverFactory = (canvas, ctx, accent) => {
-  const text = ">_ SSHTool2";
-  const font = "bold 28px Consolas, monospace";
-  let x = 40;
-  let y = 80;
-  let vx = 2.2;
-  let vy = 1.7;
-  let n = 0; // 튕긴 횟수 — 색 순환용
-  const colors = [accent, "#7fbbb3", "#dbbc7f", "#d699b6", "#e67e80"];
-  let color = accent;
-  const reset = () => {
-    x = Math.random() * Math.max(1, canvas.width - 220) + 20;
-    y = Math.random() * Math.max(1, canvas.height - 80) + 40;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  };
-  reset();
-  return {
-    reset,
-    step() {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.18)"; // 잔상 꼬리
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.font = font;
-      const w = ctx.measureText(text).width;
-      const hTxt = 28;
-      x += vx;
-      y += vy;
-      let bounced = false;
-      if (x <= 0 || x + w >= canvas.width) {
-        vx = -vx;
-        x = Math.max(0, Math.min(x, canvas.width - w));
-        bounced = true;
-      }
-      if (y - hTxt <= 0 || y >= canvas.height) {
-        vy = -vy;
-        y = Math.max(hTxt, Math.min(y, canvas.height));
-        bounced = true;
-      }
-      if (bounced) color = colors[++n % colors.length];
-      ctx.fillStyle = color;
-      ctx.fillText(text, x, y);
-    },
-  };
-};
-
 /** 이름 → 팩토리. 테스트가 특정 것을 강제할 수 있도록 이름을 공개한다. */
-export const SAVER_NAMES = ["matrix", "starfield", "life", "logo"] as const;
+export const SAVER_NAMES = ["matrix", "starfield"] as const;
 export type SaverName = (typeof SAVER_NAMES)[number];
 const FACTORIES: Record<SaverName, SaverFactory> = {
   matrix: matrixRain,
   starfield,
-  life: gameOfLife,
-  logo: bouncingLogo,
 };
 
 let overlay: HTMLDivElement | null = null;
