@@ -20,6 +20,9 @@ pub struct TriggerRule {
     /// true 면 send 를 파일이 아닌 볼트에 보관한다(옵트인).
     #[serde(default)]
     pub secret: bool,
+    /// 프론트만 아는 필드 보존 통로(SessionInfo.extra 와 같은 이유).
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// 저장되는 세션 정의. JS(프론트)와 camelCase 로 1:1.
@@ -87,6 +90,13 @@ pub struct SessionInfo {
     /// true 면 구형 서버용 레거시 알고리즘(SHA-1 KEX·MAC, CBC 암호)까지 협상 목록에 넣는다.
     #[serde(default)]
     pub allow_legacy_algorithms: bool,
+    /// 프론트만 아는 필드의 통로. serde 는 구조체에 없는 필드를 **조용히 버린다** —
+    /// services(웹 서비스 목록, 0.52.0)가 여기에 없어서 저장할 때마다 떨어져 나갔고,
+    /// 재시작하면 등록한 서비스가 전부 사라졌다(실사용 데이터 유실 사고). flatten 맵이
+    /// 모르는 필드를 그대로 받아 두었다가 저장 때 되쓴다 — 앞으로 프론트에 새 필드가
+    /// 생겨도 여기를 통해 보존된다. 백엔드가 값을 읽어야 하는 필드만 위에 명시한다.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 fn default_kind() -> String {
