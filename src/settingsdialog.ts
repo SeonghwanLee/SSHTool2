@@ -290,6 +290,10 @@ export function settingsDialog(
       ["random", "무작위"],
       ["matrix", "매트릭스"],
       ["starfield", "별하늘"],
+      ["clock", "시계"],
+      ["constellation", "별자리"],
+      ["fire", "불꽃"],
+      ["shell", "셸 데모"],
     ];
     for (const [v, label] of SAVER_LABELS) {
       const o = document.createElement("option");
