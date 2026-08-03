@@ -17,6 +17,7 @@ on:
       - '**.md'
       - 'tests/**'
       - 'tools/**'
+      - 'site/**'
 
 permissions:
   contents: read

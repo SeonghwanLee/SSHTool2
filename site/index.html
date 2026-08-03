@@ -1,0 +1,204 @@
+<!doctype html>
+<!-- SSHTool2 다운로드·안내 페이지 — Vercel 정적 배포용.
+     버전·용량·날짜는 GitHub API 에서 실시간으로 읽으므로 릴리스 때마다 재배포할 필요가 없다. -->
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SSHTool2 — Windows SSH·SFTP 클라이언트</title>
+  <meta name="description" content="세션 관리·SFTP·RDP·자동화를 갖춘 Windows용 SSH 클라이언트. 한글 환경에 최적화." />
+  <style>
+    /* 앱과 같은 에버포레스트 팔레트 — 페이지와 앱이 한 제품으로 보이게. */
+    :root {
+      --bg: #2d353b; --panel: #343f44; --panel2: #3d484d; --border: #4f585e;
+      --fg: #d3c6aa; --muted: #859289; --accent: #a7c080; --accent-ink: #2d353b;
+      --blue: #7fbbb3; --red: #e67e80; --yellow: #dbbc7f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--fg);
+      font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── 히어로 ── */
+    header { padding: 72px 0 56px; text-align: center; }
+    .logo { font-family: Consolas, monospace; font-size: 15px; color: var(--accent); letter-spacing: 1px; }
+    h1 { font-size: 44px; margin: 8px 0 4px; }
+    h1 .accent { color: var(--accent); }
+    .tagline { color: var(--muted); font-size: 17px; margin-bottom: 28px; }
+    .dl-btn {
+      display: inline-block; background: var(--accent); color: var(--accent-ink);
+      font-size: 17px; font-weight: 700; padding: 14px 36px; border-radius: 8px;
+      text-decoration: none; transition: filter 0.15s;
+    }
+    .dl-btn:hover { filter: brightness(1.08); }
+    .dl-meta { margin-top: 12px; font-size: 13px; color: var(--muted); }
+    .dl-meta a { color: var(--blue); }
+    .dl-sub { margin-top: 6px; font-size: 12px; color: var(--muted); }
+
+    /* ── 공통 섹션 ── */
+    section { padding: 40px 0; border-top: 1px solid var(--border); }
+    h2 { font-size: 22px; color: var(--accent); margin-bottom: 20px; }
+    h3 { font-size: 15px; margin-bottom: 6px; }
+
+    /* 기능 그리드 */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+      padding: 16px 18px; font-size: 13.5px;
+    }
+    .card p { color: var(--muted); }
+    .card .ic { font-size: 20px; margin-bottom: 6px; display: block; }
+
+    /* 설치 안내 */
+    .steps { counter-reset: n; display: flex; flex-direction: column; gap: 14px; }
+    .step {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 18px 14px 56px; position: relative; font-size: 14px;
+    }
+    .step::before {
+      counter-increment: n; content: counter(n);
+      position: absolute; left: 16px; top: 14px;
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--accent); color: var(--accent-ink);
+      font-weight: 700; display: flex; align-items: center; justify-content: center;
+    }
+    .step .note { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+    .warn {
+      background: var(--panel); border-left: 3px solid var(--yellow);
+      padding: 12px 16px; border-radius: 0 8px 8px 0; margin-top: 14px;
+      font-size: 13px; color: var(--muted);
+    }
+    .warn b { color: var(--yellow); }
+
+    /* 단축키 표 */
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    kbd {
+      font-family: Consolas, monospace; background: var(--panel2);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 1px 7px; font-size: 12px; white-space: nowrap;
+    }
+
+    /* 시스템 요구/푸터 */
+    .req { display: flex; flex-wrap: wrap; gap: 10px; }
+    .chip {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 20px;
+      padding: 6px 16px; font-size: 13px;
+    }
+    footer { padding: 36px 0 48px; border-top: 1px solid var(--border);
+             text-align: center; color: var(--muted); font-size: 12.5px; }
+    footer a { color: var(--blue); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">&gt;_ SSHTool2</div>
+      <h1>Windows를 위한<br /><span class="accent">SSH · SFTP 클라이언트</span></h1>
+      <p class="tagline">세션 관리 · 파일 전송 · 원격 데스크톱 · 자동화 — 한글 환경에 맞게 만들었습니다</p>
+      <a id="dl" class="dl-btn" href="https://github.com/SeonghwanLee/SSHTool2/releases/latest">
+        다운로드
+      </a>
+      <div class="dl-meta" id="meta">최신 버전 확인 중…</div>
+      <div class="dl-sub">설치 후에는 앱이 스스로 업데이트를 확인합니다 · 무료</div>
+    </header>
+
+    <section>
+      <h2>주요 기능</h2>
+      <div class="grid">
+        <div class="card"><span class="ic">🗂</span><h3>세션 관리</h3>
+          <p>폴더 트리 · 폴더별 정렬(이름/최근/수동) · 글자만 쳐서 찾아가는 타입어헤드 · 드래그 정렬 · 최근 접속 목록</p></div>
+        <div class="card"><span class="ic">🖥</span><h3>터미널</h3>
+          <p>한글 IME 최적화 · 검색어 전체 강조 · 세션 4개까지 한 줄 분할 · 세션별 글자 크기 · 테마 15종(고대비 포함)</p></div>
+        <div class="card"><span class="ic">📁</span><h3>SFTP 파일 전송</h3>
+          <p>로컬|원격 듀얼 패널 · 창을 닫아도 이어지는 백그라운드 전송 · 전체 진행률 · 폴더 트리에서 바로 업/다운로드</p></div>
+        <div class="card"><span class="ic">🔐</span><h3>보안</h3>
+          <p>비밀번호는 AES-256-GCM 볼트에 · 설정 파일 암호화 · 첫 접속 호스트키 지문 확인 · 암호화 백업/복원</p></div>
+        <div class="card"><span class="ic">🌐</span><h3>서비스 연결</h3>
+          <p>서버의 웹 콘솔(관리도구·그라파나 등)을 우클릭 한 번으로 Chrome/Edge 에서 열기</p></div>
+        <div class="card"><span class="ic">⚡</span><h3>자동화</h3>
+          <p>접속 시 자동 실행 명령 · 패턴 감지 자동 입력(트리거) · 동시 명령(전체/선택 세션에 한 번에 전송)</p></div>
+        <div class="card"><span class="ic">🪟</span><h3>원격 데스크톱</h3>
+          <p>RDP 세션도 같은 목록에서 관리 — 더블클릭하면 Windows 원격 데스크톱이 별도 창으로</p></div>
+        <div class="card"><span class="ic">🧰</span><h3>구형 서버 호환</h3>
+          <p>CentOS 5 같은 옛 서버도 세션별 레거시 알고리즘 옵션으로 접속 — 최신 서버의 보안성은 그대로</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>설치 방법</h2>
+      <div class="steps">
+        <div class="step">위의 <b>다운로드</b> 버튼으로 설치 파일(<span id="fname">SSHTool2_x64-setup.exe</span>)을 받습니다.</div>
+        <div class="step">받은 파일을 실행하고 설치를 진행합니다.
+          <div class="note">설치 위치 등은 기본값 그대로 두면 됩니다. 몇 초면 끝납니다.</div></div>
+        <div class="step">실행 후 <b>＋ 새 세션</b>으로 서버를 등록하거나, 빈 곳을 우클릭해 <b>다른 클라이언트에서 가져오기</b>로 기존 설정을 옮깁니다.</div>
+      </div>
+      <div class="warn">
+        <b>Windows SmartScreen 안내</b> — 서명되지 않은 설치 파일이라 처음 실행 시 파란 경고창이 뜰 수 있습니다.
+        <b>「추가 정보」 → 「실행」</b>을 누르면 설치됩니다. 설치 후 업데이트는 앱 안에서 자동으로 이뤄집니다.
+      </div>
+    </section>
+
+    <section>
+      <h2>단축키</h2>
+      <table>
+        <tr><th>키</th><th>동작</th></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>1</kbd>~<kbd>9</kbd></td><td>번호로 세션 탭 전환</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Tab</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd></td><td>다음/이전 탭 순환</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>F4</kbd></td><td>현재 세션 닫기</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></td><td>터미널 검색 (일치 항목 전체 강조)</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + 휠 / <kbd>Ctrl</kbd> + <kbd>0</kbd></td><td>글자 크기 조절 / 원래대로 (배율 % 표시)</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>제출 없이 줄바꿈 (다중행 입력)</td></tr>
+        <tr><td><kbd>Y</kbd> / <kbd>N</kbd></td><td>확인창에서 예/아니오 즉답</td></tr>
+        <tr><td><kbd>F2</kbd> · <kbd>F5</kbd> · <kbd>Del</kbd></td><td>SFTP: 이름 변경 · 새로고침 · 삭제</td></tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>시스템 요구사항</h2>
+      <div class="req">
+        <span class="chip">Windows 10 / 11 (64비트)</span>
+        <span class="chip">WebView2 런타임 — Windows 11 기본 포함</span>
+        <span class="chip">설치 용량 약 8 MB</span>
+        <span class="chip">인터넷 없이 동작 (내부망 모드 지원)</span>
+      </div>
+    </section>
+
+    <footer>
+      <span id="footer-ver"></span>
+      <a href="https://github.com/SeonghwanLee/SSHTool2/releases">전체 릴리스 노트</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/SeonghwanLee/SSHTool2">GitHub</a>
+    </footer>
+  </div>
+
+  <script>
+    // 최신 릴리스 정보 — 페이지를 다시 배포하지 않아도 버전이 따라온다.
+    // 실패(오프라인·API 제한)해도 버튼은 releases/latest 로 이동하므로 다운로드는 된다.
+    (async () => {
+      try {
+        const r = await fetch("https://api.github.com/repos/SeonghwanLee/SSHTool2/releases/latest");
+        if (!r.ok) throw new Error(r.status);
+        const rel = await r.json();
+        const exe = rel.assets.find((a) => a.name.endsWith("-setup.exe"));
+        if (!exe) throw new Error("no asset");
+        const ver = rel.tag_name.replace(/^v/, "");
+        const mb = (exe.size / 1048576).toFixed(1);
+        const date = new Date(rel.published_at).toLocaleDateString("ko-KR");
+        document.getElementById("dl").href = exe.browser_download_url;
+        document.getElementById("dl").textContent = `다운로드 v${ver}`;
+        document.getElementById("meta").innerHTML =
+          `${mb} MB · ${date} 배포 · <a href="${rel.html_url}">이 버전의 변경 내용</a>`;
+        document.getElementById("fname").textContent = exe.name;
+        document.getElementById("footer-ver").textContent = `SSHTool2 v${ver} · `;
+      } catch {
+        document.getElementById("meta").textContent = "버전 정보를 불러오지 못했습니다 — 버튼은 최신 릴리스로 연결됩니다.";
+      }
+    })();
+  </script>
+</body>
+</html>
