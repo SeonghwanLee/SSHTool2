@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.53.4",
+    date: "2026-07-30",
+    notes: [
+      "로컬 셸(PowerShell)에서 '접속 시 자동 실행' 명령이 입력만 되고 실행되지 않던 문제를 고쳤습니다. 실행 키를 키보드 Enter 와 같은 방식(CR)으로 보내도록 바꿨습니다 — SSH 는 우연히 동작했지만 PowerShell 은 엔터가 먹히지 않았습니다. 트리거의 \\n 전송도 같은 방식으로 맞췄습니다",
+      "세션 목록에서 종류가 아이콘으로 구분됩니다 — SSH·로컬 셸·원격 데스크톱(모니터 모양)이 서로 다른 아이콘을 씁니다. 최근 접속에도 똑같이 적용됩니다",
+    ],
+  },
+  {
     version: "0.53.3",
     date: "2026-07-30",
     notes: [

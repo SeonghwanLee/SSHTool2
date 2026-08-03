@@ -70,6 +70,10 @@ const NO_DEPTH = -1;
 
 const navDepth = (row: HTMLElement): number => Number(row.dataset.navDepth ?? NO_DEPTH);
 
+/** 세션 종류별 아이콘 — 목록만 훑어도 SSH·로컬 셸·원격 데스크톱이 구분되게. */
+const kindIcon = (s: SessionInfo): string =>
+  s.kind === "local" ? "local" : s.kind === "rdp" ? "rdp" : "remote";
+
 /** 세션 상세(계정@호스트:포트 또는 로컬 셸) — 세션 행·최근 접속 공용. */
 const detailText = (s: SessionInfo): string =>
   s.kind === "local"
@@ -498,7 +502,7 @@ export class Sidebar {
 
       const icon = document.createElement("span");
       icon.className = "tree-icon";
-      applyIcon(icon, s.kind === "local" ? "local" : "remote");
+      applyIcon(icon, kindIcon(s));
 
       // 구조·클래스를 세션 행(sessionRow)과 똑같이 맞춘다. 예전에는 이름·세부정보·버튼을
       // 행에 나란히 붙였는데, 늘어나는 몫이 세부정보에만 있어서 '세션 세부정보 표시'를 끄면
@@ -736,7 +740,7 @@ export class Sidebar {
 
     const icon = document.createElement("span");
     icon.className = "tree-icon";
-    applyIcon(icon, s.kind === "local" ? "local" : "remote");
+    applyIcon(icon, kindIcon(s));
 
     const main = document.createElement("div");
     main.className = "tree-session-main";

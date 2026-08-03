@@ -683,7 +683,10 @@ class TerminalTab {
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
-    for (const line of lines) this.sendText(`${line}\n`);
+    // 실행 키는 CR — 키보드 Enter 가 보내는 그 바이트다. LF 를 보냈더니 원격 셸은
+    // 줄 규율이 받아줘 우연히 실행됐지만, 로컬 PowerShell(ConPTY)은 텍스트만 붙고
+    // 실행되지 않았다("엔터가 안 먹힌다"). 양쪽 다 CR 이 맞다.
+    for (const line of lines) this.sendText(`${line}\r`);
   }
 
   private sendText(text: string): void {
@@ -729,7 +732,8 @@ class TerminalTab {
       }
 
       fired = true;
-      this.sendText(rule.send.replace(/\\n/g, "\n"));
+      // 사용자가 적은 \n 은 'Enter' 라는 뜻 — 실행되려면 CR 이어야 한다(위 시작 명령과 동일).
+      this.sendText(rule.send.replace(/\\n/g, "\r"));
     });
 
     // 버퍼 비우기는 루프가 끝난 뒤 한 번 — 루프 안에서 지우면 같은 출력에 걸린

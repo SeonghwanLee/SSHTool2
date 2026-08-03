@@ -12,7 +12,11 @@ const SESSIONS = [
       { name: "관리콘솔", scheme: "https", port: 8443, path: "/admin", browser: "edge" },
       { name: "그라파나", scheme: "http", path: "", port: 3000, browser: "default" },
     ] },
-  { id: "s2", name: "나서버", kind: "ssh", host: "10.0.0.2", port: 22, user: "root", enableSftp: true, folder: "", sortOrder: 1, lastConnectedUtc: 200, triggers: [] },
+  { id: "s2", name: "나서버", kind: "ssh", host: "10.0.0.2", port: 22, user: "root", enableSftp: true, folder: "", sortOrder: 1, lastConnectedUtc: 200, triggers: [],
+    startupCommands: "echo startup-probe" },
+  // 종류별 아이콘 구분 검증용 — lastConnectedUtc 0 이라 최근 접속에는 안 뜬다.
+  { id: "s3", name: "윈도서버", kind: "rdp", host: "10.0.0.9", port: 3389, user: "admin", enableSftp: false, folder: "", sortOrder: 2, lastConnectedUtc: 0, triggers: [] },
+  { id: "s4", name: "내PC셸", kind: "local", host: "", port: 22, user: "", shellExe: "", enableSftp: false, folder: "", sortOrder: 3, lastConnectedUtc: 0, triggers: [] },
 ];
 
 /** 자격증명 등 떠 있는 모달을 전부 넘긴다(비밀번호는 채우고 기본 버튼을 누른다). */
@@ -122,6 +126,21 @@ try {
       );
     });
 
+    await t.test("시작 명령 — 실행 키가 CR 로 나간다 (PowerShell 에서 엔터 안 먹던 회귀)", async () => {
+      // 나서버(s2)에 startupCommands 가 있고, 접속 0.5초 뒤 전송된다.
+      await page.waitForTimeout(700);
+      const found = await page.evaluate(() => {
+        const text = (bytes) => String.fromCharCode(...bytes);
+        return window.__ipc
+          .filter(([c]) => c === "ssh_write")
+          .map(([, a]) => text(a.data))
+          .find((t) => t.includes("startup-probe"));
+      });
+      expect(found !== undefined, "시작 명령이 전송되지 않았다");
+      expect(found.endsWith("\r"), `줄끝이 CR 이 아니다: ${JSON.stringify(found)}`);
+      expect(!found.includes("\n"), `LF 가 섞여 있다: ${JSON.stringify(found)}`);
+    });
+
     await t.test("터미널 검색창 — 밖을 클릭하면 자동으로 닫히고 강조도 걷힌다", async () => {
       await page.evaluate(() => window.__tm.openSearch());
       await page.waitForTimeout(200);
@@ -206,6 +225,23 @@ try {
         return ta ? ta.spellcheck !== false || !ta.closest(".xterm") === false : true;
       });
       expect(xtermUntouched, "xterm textarea 까지 건드렸다");
+    });
+
+    await t.test("세션 종류별 아이콘 — SSH·로컬 셸·RDP 글리프가 서로 다르다", async () => {
+      const glyphs = await page.evaluate(() => {
+        const of = (name) => {
+          const row = [...document.querySelectorAll(".tree-session")].find(
+            (r) => r.querySelector(".tree-session-name")?.textContent === name,
+          );
+          return row?.querySelector(".tree-icon")?.textContent ?? null;
+        };
+        return { ssh: of("가서버"), rdp: of("윈도서버"), local: of("내PC셸") };
+      });
+      expect(glyphs.ssh && glyphs.rdp && glyphs.local, `아이콘 누락: ${JSON.stringify(glyphs)}`);
+      expect(
+        glyphs.ssh !== glyphs.rdp && glyphs.rdp !== glyphs.local && glyphs.ssh !== glyphs.local,
+        "세 종류의 글리프가 서로 달라야 한다",
+      );
     });
 
     await t.test("세션 목록 타입어헤드 — 글자를 치면 그 이름의 행으로 이동", async () => {

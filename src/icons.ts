@@ -37,6 +37,7 @@ export const GLYPH: Record<string, string> = {
   setDefault: "",
   sftp: "",
   help: "", // 도움말(Help) — 도움말 전구 컴포넌트
+  rdp: "", // 원격 데스크톱 세션(TVMonitor) — SSH(remote)·로컬 셸과 구분
 };
 
 /** WPF 도형 뷰 아이콘(16×13) — 탭 보기 / 세로 분할 / 가로 분할. */
