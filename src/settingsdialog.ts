@@ -23,6 +23,7 @@ import {
   isTopModal,
 } from "./dialogs";
 import { helpIcon } from "./help";
+import { showScreensaver, type SaverName } from "./screensaver";
 
 export interface SettingsResult {
   /** true 면 저장, false 면 취소(미리보기 되돌림). */
@@ -277,6 +278,29 @@ export function settingsDialog(
     });
     lockRow.appendChild(lockInput);
     sec.appendChild(lockRow);
+
+    // 화면보호기 미리보기 — 어떤 게 나올지 몰라 5분을 기다려 볼 수는 없다.
+    const svRow = controlRow("화면보호기 미리보기");
+    const svWrap = document.createElement("div");
+    svWrap.className = "sv-preview-btns";
+    const SAVER_LABELS: [SaverName, string][] = [
+      ["matrix", "매트릭스"],
+      ["starfield", "별하늘"],
+      ["life", "생명 게임"],
+      ["logo", "프롬프트"],
+    ];
+    for (const [name, label] of SAVER_LABELS) {
+      svWrap.appendChild(
+        mkSmallButton(label, () => showScreensaver(name)),
+      );
+    }
+    svRow.appendChild(svWrap);
+    sec.appendChild(svRow);
+    const svHint = document.createElement("div");
+    svHint.className = "settings-hint";
+    svHint.textContent =
+      "실제 화면보호기는 무활동 5분 후(자동 잠금 0일 때) 4종 중 하나가 무작위로 나옵니다. 미리보기는 마우스를 움직이면 닫힙니다.";
+    sec.appendChild(svHint);
 
     const autoRow = document.createElement("label");
     autoRow.className = "check-row control-row";

@@ -205,6 +205,8 @@ const FACTORIES: Record<SaverName, SaverFactory> = {
 let overlay: HTMLDivElement | null = null;
 let raf = 0;
 let onResize: (() => void) | null = null;
+/** 표시된 시각 — 직후의 마우스 흔들림에 곧장 닫히지 않게 짧은 유예를 둔다(미리보기용). */
+let shownAt = 0;
 
 export function isScreensaverOn(): boolean {
   return overlay !== null;
@@ -213,6 +215,7 @@ export function isScreensaverOn(): boolean {
 /** 화면보호기를 띄운다. name 을 주면 그것으로(테스트용), 없으면 무작위. */
 export function showScreensaver(name?: SaverName): void {
   if (overlay) return;
+  shownAt = Date.now();
   overlay = document.createElement("div");
   overlay.className = "screensaver";
   const canvas = document.createElement("canvas");
@@ -254,6 +257,9 @@ export function showScreensaver(name?: SaverName): void {
 
 export function hideScreensaver(): void {
   if (!overlay) return;
+  // 미리보기 버튼을 누른 그 클릭·직후의 미세한 마우스 이동이 전역 활동 감지를 타고
+  // 곧장 닫아버린다 — 뜨자마자 사라지면 미리보기가 성립하지 않는다. 잠깐만 무시한다.
+  if (Date.now() - shownAt < 400) return;
   cancelAnimationFrame(raf);
   if (onResize) window.removeEventListener("resize", onResize);
   onResize = null;

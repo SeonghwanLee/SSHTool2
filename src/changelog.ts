@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.54.1",
+    date: "2026-08-03",
+    notes: [
+      "설정 > 보안에 화면보호기 미리보기 버튼이 생겼습니다 — 매트릭스·별하늘·생명 게임·프롬프트를 눌러 바로 확인할 수 있습니다. 마우스를 움직이면 닫힙니다",
+    ],
+  },
+  {
     version: "0.54.0",
     date: "2026-08-03",
     notes: [

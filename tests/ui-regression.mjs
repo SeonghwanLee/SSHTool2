@@ -255,6 +255,30 @@ try {
       }
     });
 
+    await t.test("화면보호기 미리보기 — 설정에서 버튼으로 띄우면 곧장 닫히지 않는다", async () => {
+      await dismissModals(page);
+      await page.click("#open-settings");
+      await page.waitForTimeout(300);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "보안")?.click(),
+      );
+      await page.waitForTimeout(200);
+      // '별하늘' 버튼 클릭 — 여는 클릭의 마우스 이동(전역 활동 감지)에도 살아남아야 한다.
+      await page.locator(".sv-preview-btns button", { hasText: "별하늘" }).click();
+      await page.mouse.move(400, 400); // 클릭 직후의 흔들림 재현
+      await page.waitForTimeout(200);
+      expect((await page.locator(".screensaver").count()) === 1, "미리보기가 뜨자마자 닫혔다");
+      // 유예(400ms)가 지난 뒤의 움직임에는 닫혀야 한다.
+      await page.waitForTimeout(400);
+      await page.mouse.move(500, 500);
+      await page.waitForTimeout(200);
+      expect((await page.locator(".screensaver").count()) === 0, "유예 후에도 닫히지 않는다");
+      // 설정창은 그대로 남아 있어야 한다.
+      expect((await page.locator(".settings-card").count()) === 1, "설정창이 사라졌다");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    });
+
     await t.test("세션 종류별 아이콘 — SSH·로컬 셸·RDP 글리프가 서로 다르다", async () => {
       const glyphs = await page.evaluate(() => {
         const of = (name) => {

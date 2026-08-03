@@ -1475,6 +1475,14 @@ body.dragging-tab * {
   margin: -2px 0 4px;
 }
 
+/* 화면보호기 미리보기 버튼 묶음 — 한 행 오른쪽에 나란히. */
+.sv-preview-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 /* 켜면 위험이 따르는 설정의 안내 — 일반 힌트보다 눈에 띄게.
    .settings-hint 와 특이도가 같으므로 반드시 그 뒤에 와야 색이 이긴다. */
 .settings-hint.settings-warn {
