@@ -15,6 +15,7 @@ mod debuglog;
 mod rdp;
 mod sftp;
 mod ssh;
+mod stage;
 mod store;
 mod vault;
 
@@ -516,6 +517,29 @@ fn local_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
 }
 
+/// 탐색기에서 드롭된 파일 내용 조각을 임시 폴더에 기록한다(stage.rs 참고).
+/// 파일 내용은 JSON 을 거치지 않도록 raw 본문으로 받고, 경로는 헤더로 받는다
+/// (헤더는 ASCII 만 안전해서 encodeURIComponent 로 온다).
+#[tauri::command]
+fn stage_write(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let headers = request.headers();
+    let path_enc = headers
+        .get("x-path")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("경로 헤더가 없습니다")?;
+    let append = headers.get("x-append").and_then(|v| v.to_str().ok()) == Some("1");
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("본문이 바이너리가 아닙니다".into());
+    };
+    stage::write(path_enc, append, bytes)
+}
+
+/// 하루 지난 스테이징 잔재 제거(드롭 시작 시 fire-and-forget 로 호출).
+#[tauri::command]
+fn stage_sweep() {
+    stage::sweep();
+}
+
 /// 세션(터미널) 시작 시 IME 를 영문(ALPHANUMERIC) 모드로 전환한다(Windows, best-effort).
 /// 포커스된 입력 창(WebView2 자식 HWND)의 IME 컨텍스트를 GetGUIThreadInfo 로 찾아 설정한다.
 #[cfg(windows)]
@@ -694,6 +718,8 @@ fn main() {
             local_exists,
             open_path,
             local_temp_dir,
+            stage_write,
+            stage_sweep,
             ime_set_english
         ])
         .run(tauri::generate_context!())

@@ -237,8 +237,13 @@ try {
           await wait(250);
           const canvas = document.querySelector(".screensaver canvas");
           const a = canvas?.toDataURL();
-          await wait(300);
-          const b = canvas?.toDataURL();
+          // 고정 창으로 두 번 찍으면 셸 데모처럼 연출상 멈춤이 있는 보호기가 플레이크가
+          // 된다 — 변할 때까지 기다리되 상한(3초)을 둔다.
+          let b = a;
+          for (let i = 0; i < 10 && b === a; i++) {
+            await wait(300);
+            b = canvas?.toDataURL();
+          }
           mod.hideScreensaver();
           out[name] = {
             떴다: !!canvas,
@@ -779,6 +784,86 @@ try {
         () => window.__ipc.filter(([c, a]) => c === "sftp_list" && a?.path === "/home/u/폴더").length,
       );
       expect(listCalls === 1, `'/home/u/폴더' 목록을 ${listCalls}번 조회 — 측정 결과가 재사용되지 않는다`);
+    });
+
+    await t.test("탐색기 드래그 — 원격 목록만 드롭 대상으로 밝힌다", async () => {
+      const hl = await page.evaluate(() => {
+        const dt = new DataTransfer();
+        dt.items.add(new File(["x"], "드래그.txt"));
+        const fire = (el) => {
+          el.dispatchEvent(
+            new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }),
+          );
+          return el.classList.contains("drop-target");
+        };
+        const lists = [...document.querySelectorAll(".sftp-list")];
+        const r = { local: fire(lists[0]), remote: fire(lists[1]) };
+        lists.forEach((l) => l.classList.remove("drop-target"));
+        return r;
+      });
+      expect(!hl.local && hl.remote, `하이라이트 상태: ${JSON.stringify(hl)}`);
+    });
+
+    await t.test("탐색기 드롭 업로드 — 스테이징 후 업로드·정리까지 이어진다", async () => {
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.evaluate(() => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          window.__ipc.push([cmd, args]);
+          if (cmd === "local_temp_dir") return "C:\\Temp";
+          if (["stage_write", "stage_sweep", "local_mkdir", "local_remove", "sftp_upload"].includes(cmd))
+            return null;
+          if (cmd === "sftp_list" || cmd === "local_list") return [];
+          return prev(cmd, args);
+        };
+        // 합성 DataTransfer 는 webkitGetAsEntry 가 null 을 주므로 File 폴백 경로를 지난다.
+        const dt = new DataTransfer();
+        dt.items.add(new File(["안녕하세요 드롭 업로드"], "드롭테스트.txt"));
+        document
+          .querySelectorAll(".sftp-list")[1]
+          .dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(1200);
+      const calls = await page.evaluate(() => ({
+        stage: window.__ipc.filter(([c]) => c === "stage_write").length,
+        up: window.__ipc.filter(([c]) => c === "sftp_upload").map(([, a]) => a?.remotePath),
+        cleanup: window.__ipc.some(([c, a]) => c === "local_remove" && a?.isDir === true),
+      }));
+      expect(calls.stage >= 1, "stage_write 가 호출되지 않았다");
+      expect(
+        calls.up.length === 1 && String(calls.up[0]).endsWith("/드롭테스트.txt"),
+        `업로드 호출이 어긋난다: ${JSON.stringify(calls.up)}`,
+      );
+      expect(calls.cleanup, "임시 스테이징 폴더가 정리되지 않았다");
+    });
+
+    await t.test("원격 우클릭에 '폴더 지정해 다운로드' 가 있다 (로컬엔 없다)", async () => {
+      // 위 테스트가 원격 목록을 비웠다 — 행 하나를 다시 채운다.
+      await page.evaluate(() => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_list")
+            return [{ name: "받을.txt", path: "/home/u/받을.txt", isDir: false, size: 3, modified: 1 }];
+          return prev(cmd, args);
+        };
+      });
+      await page.locator(".sftp-pane").nth(1).locator(".sftp-list").click({ position: { x: 40, y: 200 } });
+      await page.keyboard.press("F5");
+      await page.waitForTimeout(500);
+      await page
+        .locator(".sftp-pane")
+        .nth(1)
+        .locator(".sftp-row:not(.sftp-updir)")
+        .first()
+        .click({ button: "right" });
+      await page.waitForTimeout(250);
+      const has = await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")].some((x) =>
+          x.textContent.includes("폴더 지정해 다운로드"),
+        ),
+      );
+      await page.keyboard.press("Escape");
+      expect(has, "원격 우클릭 메뉴에 '폴더 지정해 다운로드' 가 없다");
     });
 
     await page.close();

@@ -25,7 +25,10 @@ import {
   localExists,
   openPath,
   localTempDir,
+  stageWrite,
+  stageSweep,
 } from "./ipc";
+import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { confirmDialog, textPrompt } from "./dialogs";
 import { applyIcon, fileIcon } from "./icons";
 import { showContextMenu, type MenuItem } from "./contextmenu";
@@ -50,6 +53,10 @@ type Side = "local" | "remote";
 
 const joinPath = (dir: string, name: string): string =>
   dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
+
+/** 드래그 내용에 OS 파일(탐색기 등)이 들어 있는가. 앱 내부 드래그는 자체 타입만 쓴다. */
+const hasOsFiles = (e: DragEvent): boolean =>
+  Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
 const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 
@@ -568,6 +575,8 @@ export async function openSftpBrowser(
       private readonly onPick: (path: string) => void,
       /** 트리 폴더 우클릭 — 그 폴더를 대상으로 한 메뉴를 띄운다. */
       private readonly onMenu?: (path: string, x: number, y: number) => void,
+      /** 탐색기에서 트리 폴더 위로 파일을 떨어뜨렸을 때(원격 트리에만 연결). */
+      private readonly onDropFiles?: (path: string, dt: DataTransfer) => void,
     ) {
       this.el.className = "sftp-tree";
     }
@@ -664,6 +673,24 @@ export async function openSftpBrowser(
         e.stopPropagation();
         this.onMenu?.(path, e.clientX, e.clientY);
       });
+      // 탐색기 파일을 특정 폴더에 조준해 떨어뜨리는 경로 — 목록(현재 폴더) 드롭과 달리
+      // 이동하지 않고 그 폴더로 바로 올린다.
+      if (this.onDropFiles) {
+        row.addEventListener("dragover", (e) => {
+          if (!hasOsFiles(e)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          row.classList.add("drop-target");
+        });
+        row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
+        row.addEventListener("drop", (e) => {
+          row.classList.remove("drop-target");
+          if (!e.dataTransfer || !hasOsFiles(e)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          this.onDropFiles?.(path, e.dataTransfer);
+        });
+      }
       this.el.appendChild(row);
 
       if (isOpen && kids) {
@@ -700,7 +727,7 @@ export async function openSftpBrowser(
         (path, x, y) => {
           // 트리에 보이는 폴더가 반대편 목록에 떠 있다는 보장이 없어 항목을 직접 만든다.
           const folder: Entry = { name: baseName(path), path, isDir: true, size: 0, modified: 0 };
-          showContextMenu(x, y, [
+          const items: MenuItem[] = [
             { label: "이 폴더 열기", accel: "o", action: () => void this.go(path) },
             { separator: true },
             {
@@ -708,10 +735,22 @@ export async function openSftpBrowser(
               accel: "t",
               action: () => void transferItems(this.other, [folder]),
             },
+          ];
+          if (side === "remote") {
+            items.push({
+              label: "폴더 지정해 다운로드…",
+              accel: "g",
+              action: () => void downloadToPicked([folder]),
+            });
+          }
+          items.push(
             { separator: true },
             { label: "새로고침", accel: "f", action: () => void this.tree.reveal(path, true) },
-          ]);
+          );
+          showContextMenu(x, y, items);
         },
+        // 원격 트리 폴더에 탐색기 파일을 떨어뜨리면 그 폴더로 업로드.
+        side === "remote" ? (path, dt) => void onOsFilesDropped(dt, path) : undefined,
       );
 
       const head = document.createElement("div");
@@ -778,9 +817,11 @@ export async function openSftpBrowser(
         showContextMenu(e.clientX, e.clientY, items);
       });
 
-      // 반대 패널에서 끌어온 항목 받기.
+      // 반대 패널에서 끌어온 항목, 그리고 탐색기에서 끌어온 OS 파일(원격만) 받기.
       this.listEl.addEventListener("dragover", (e) => {
         if (!e.dataTransfer) return;
+        // OS 파일은 원격 패널만 받는다 — 로컬 패널에 받아 봐야 탐색기 복사와 같다.
+        if (hasOsFiles(e) && this.side === "local") return;
         e.preventDefault();
         this.listEl.classList.add("drop-target");
       });
@@ -792,7 +833,13 @@ export async function openSftpBrowser(
       this.listEl.addEventListener("drop", (e) => {
         e.preventDefault();
         this.listEl.classList.remove("drop-target");
-        const raw = e.dataTransfer?.getData("application/x-sshtool");
+        if (!e.dataTransfer) return;
+        if (hasOsFiles(e)) {
+          // 탐색기 드롭 = 현재 원격 폴더로 업로드.
+          if (this.side === "remote") void onOsFilesDropped(e.dataTransfer);
+          return;
+        }
+        const raw = e.dataTransfer.getData("application/x-sshtool");
         if (!raw) return;
         try {
           const payload = JSON.parse(raw) as { side: Side; paths: string[] };
@@ -1278,14 +1325,23 @@ export async function openSftpBrowser(
             action: () => void this.open(entry),
           });
         }
+        items.push({
+          label:
+            (this.side === "local" ? "업로드 →" : "← 다운로드") +
+            (count > 1 ? ` (${count}개)` : ""),
+          accel: "t",
+          action: () => void transferInto(this.other, [...this.selected]),
+        });
+        // 좌측(로컬) 패널을 옮겨 다닐 필요 없이 바탕화면 등 원하는 곳으로 바로 받는다.
+        if (this.side === "remote") {
+          items.push({
+            label: "폴더 지정해 다운로드…" + (count > 1 ? ` (${count}개)` : ""),
+            accel: "g",
+            action: () =>
+              void downloadToPicked(this.entries.filter((en) => this.selected.has(en.path))),
+          });
+        }
         items.push(
-          {
-            label:
-              (this.side === "local" ? "업로드 →" : "← 다운로드") +
-              (count > 1 ? ` (${count}개)` : ""),
-            accel: "t",
-            action: () => void transferInto(this.other, [...this.selected]),
-          },
           { separator: true },
           { label: "이름 변경 (F2)", accel: "r", action: () => void this.rename(entry) },
           { label: "새 폴더", accel: "n", action: () => void this.makeDir() },
@@ -1347,8 +1403,14 @@ export async function openSftpBrowser(
   /**
    * 항목을 실제로 옮긴다. 목록(`entries`)에 없는 것도 옮길 수 있어야 해서 경로가 아니라
    * 항목을 받는다 — 트리에서 고른 폴더는 반대편 목록에 떠 있지 않을 수 있다.
+   * destDirOverride 를 주면 dest 패널이 보고 있는 폴더 대신 그 폴더로 보낸다
+   * (트리 폴더에 조준한 드롭 업로드, "폴더 지정해 다운로드").
    */
-  async function transferItems(dest: Pane, items: Entry[]): Promise<void> {
+  async function transferItems(
+    dest: Pane,
+    items: Entry[],
+    destDirOverride?: string,
+  ): Promise<void> {
     const src = dest.other;
     if (items.length === 0) return;
     if (!sftpId) {
@@ -1362,6 +1424,21 @@ export async function openSftpBrowser(
 
     transferring = true;
     cancelled = false;
+
+    const destDir = destDirOverride ?? dest.path;
+    // 지정 폴더로 보낼 때는 dest 패널 목록이 그 폴더가 아니므로 충돌 검사용 이름을 따로
+    // 읽는다. 읽기에 실패하면 빈 목록으로 진행한다 — 충돌 확인을 못 해도 전송은 멈추지
+    // 않는 편이 낫고, 이때 겹친 이름은 덮어써진다.
+    let overrideNames: Set<string> | null = null;
+    if (destDirOverride !== undefined && destDirOverride !== dest.path) {
+      const listed = (await (dest.side === "local"
+        ? localList(destDirOverride)
+        : sftpList(sftpId, destDirOverride)
+      ).catch(() => [])) as Entry[];
+      overrideNames = new Set(listed.map((e) => e.name));
+    }
+    const hasName = (n: string): boolean =>
+      overrideNames ? overrideNames.has(n) : dest.hasName(n);
 
     // 총량을 먼저 잰다. 폴더는 목록을 훑어야 알 수 있어 잠깐 걸린다 — 그 사이 상태를 밝힌다.
     // 실패하면 0 으로 두고 파일 단위 진행률로 돌아간다(멈추지는 않는다).
@@ -1383,7 +1460,7 @@ export async function openSftpBrowser(
       const item = items[i];
       let targetName = item.name;
 
-      if (dest.hasName(targetName)) {
+      if (hasName(targetName)) {
         const decision: ConflictResult = applied
           ? { choice: applied, applyToRest: true }
           : await conflictDialog(targetName, items.length - i - 1);
@@ -1391,12 +1468,12 @@ export async function openSftpBrowser(
         if (decision.choice === "cancel") break;
         if (decision.choice === "skip") continue;
         if (decision.choice === "rename") {
-          targetName = uniqueName(targetName, (c) => dest.hasName(c));
+          targetName = uniqueName(targetName, (c) => hasName(c));
         }
       }
 
       try {
-        await transferOne(src.side, item, dest.path, targetName);
+        await transferOne(src.side, item, destDir, targetName);
       } catch (e) {
         // 심볼릭 링크·권한 오류 등 한 항목의 실패로 나머지를 중단하지 않는다.
         failed++;
@@ -1507,6 +1584,147 @@ export async function openSftpBrowser(
         console.error("하위 항목 전송 실패", child.path, e); // 링크·권한 문제는 건너뜀
       }
     }
+  }
+
+  // ── 탐색기 연계 ──
+
+  /** "폴더 지정해 다운로드" — 대상 폴더를 골라 원격 항목을 그리로 받는다. */
+  async function downloadToPicked(items: Entry[]): Promise<void> {
+    if (items.length === 0) return;
+    const dir = await openFolderDialog({ directory: true, title: "다운로드 위치 선택" });
+    if (typeof dir !== "string" || !dir) return;
+    // "C:\" 같은 루트의 꼬리 구분자만 떼고, 전부 구분자면("/") 그대로 둔다.
+    await transferItems(local, items, dir.replace(/[\\/]+$/, "") || dir);
+  }
+
+  /** 스테이징 조각 크기. 한 번의 IPC 로 보내는 파일 내용의 양이다. */
+  const STAGE_CHUNK = 4 * 1024 * 1024;
+
+  /** 디렉터리 항목의 자식 전부 읽기 — readEntries 는 한 번에 일부만 주므로 빌 때까지 반복. */
+  const readAllEntries = (reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> =>
+    new Promise((res, rej) => {
+      const acc: FileSystemEntry[] = [];
+      const step = (): void =>
+        reader.readEntries((batch) => {
+          if (batch.length === 0) return res(acc);
+          acc.push(...batch);
+          step();
+        }, rej);
+      step();
+    });
+
+  const entryFile = (fe: FileSystemFileEntry): Promise<File> =>
+    new Promise((res, rej) => fe.file(res, rej));
+
+  /** 드롭된 트리를 재귀로 훑어 파일(File 핸들)과 폴더(상대경로)를 모은다. */
+  async function collectEntry(
+    ent: FileSystemEntry,
+    rel: string,
+    out: { files: { file: File; rel: string }[]; dirs: string[] },
+  ): Promise<void> {
+    if (ent.isFile) {
+      out.files.push({ file: await entryFile(ent as FileSystemFileEntry), rel });
+    } else if (ent.isDirectory) {
+      out.dirs.push(rel);
+      for (const child of await readAllEntries(
+        (ent as FileSystemDirectoryEntry).createReader(),
+      )) {
+        await collectEntry(child, `${rel}/${child.name}`, out);
+      }
+    }
+  }
+
+  /** 파일 하나를 조각 단위로 임시 폴더에 복사한다(진행 표시·취소 확인 포함). */
+  async function stageFile(f: File, target: string, base: number, total: number): Promise<void> {
+    if (f.size === 0) {
+      await stageWrite(target, new Uint8Array(0), false);
+      return;
+    }
+    for (let off = 0; off < f.size; off += STAGE_CHUNK) {
+      if (cancelled) throw new Error("취소");
+      const end = Math.min(f.size, off + STAGE_CHUNK);
+      const buf = new Uint8Array(await f.slice(off, end).arrayBuffer());
+      await stageWrite(target, buf, off > 0);
+      showProgress(`가져오는 중: ${f.name}`, base + end, total);
+    }
+  }
+
+  /**
+   * 탐색기 드롭 업로드. 웹뷰는 드롭된 파일의 OS 경로를 주지 않으므로(경로를 주는
+   * 네이티브 드롭을 켜면 앱 내부 드래그가 전부 죽는다) 내용을 읽어 임시 폴더에
+   * 복원한 뒤, 평소 업로드와 같은 경로로 전송한다 — 진행률·충돌 처리도 그대로 탄다.
+   * destDir 를 주면(트리 폴더에 조준한 드롭) 그 폴더로, 아니면 현재 원격 폴더로.
+   */
+  async function onOsFilesDropped(dt: DataTransfer, destDir?: string): Promise<void> {
+    // 수집은 반드시 동기로 — 드롭 핸들러가 await 를 지나면 DataTransfer 를 더 읽을 수 없다.
+    const tops: { entry: FileSystemEntry | null; file: File | null }[] = [];
+    for (const it of Array.from(dt.items)) {
+      if (it.kind !== "file") continue;
+      // webkitGetAsEntry 는 폴더까지 준다. 없거나 실패하면 File(파일만)로 받는다.
+      const entry = typeof it.webkitGetAsEntry === "function" ? it.webkitGetAsEntry() : null;
+      tops.push({ entry, file: entry ? null : it.getAsFile() });
+    }
+    if (tops.every((t) => !t.entry && !t.file)) return;
+    if (!sftpId) {
+      setStatus("원격에 접속되지 않았습니다.");
+      return;
+    }
+    if (transferring) {
+      setStatus("이미 전송 중입니다. 끝난 뒤 다시 시도하세요.");
+      return;
+    }
+
+    transferring = true;
+    cancelled = false;
+    void stageSweep().catch(() => undefined);
+    const root = joinPath(
+      (await localTempDir()).replace(/[\\/]+$/, ""),
+      `sshtool2-drop-${crypto.randomUUID()}`,
+    );
+    const items: Entry[] = [];
+    try {
+      setStatus("탐색기 항목 읽는 중…");
+      await localMkdir(root);
+      const col = { files: [] as { file: File; rel: string }[], dirs: [] as string[] };
+      const topMeta: { name: string; isDir: boolean }[] = [];
+      for (const t of tops) {
+        if (t.entry) {
+          await collectEntry(t.entry, t.entry.name, col);
+          topMeta.push({ name: t.entry.name, isDir: t.entry.isDirectory });
+        } else if (t.file) {
+          col.files.push({ file: t.file, rel: t.file.name });
+          topMeta.push({ name: t.file.name, isDir: false });
+        }
+      }
+      // 빈 폴더도 임시 사본에 있어야 원격에 만들어진다.
+      for (const d of col.dirs) await localMkdir(joinPath(root, d));
+      const total = col.files.reduce((s, x) => s + x.file.size, 0);
+      let done = 0;
+      for (const { file, rel } of col.files) {
+        await stageFile(file, joinPath(root, rel), done, total);
+        done += file.size;
+      }
+      hideProgress();
+      for (const t of topMeta) {
+        items.push({
+          name: t.name,
+          path: joinPath(root, t.name),
+          isDir: t.isDir,
+          size: t.isDir ? 0 : (col.files.find((f) => f.rel === t.name)?.file.size ?? 0),
+          modified: 0,
+        });
+      }
+    } catch (e) {
+      hideProgress();
+      transferring = false;
+      setStatus(cancelled ? "가져오기 취소됨" : `탐색기 항목을 읽지 못했습니다: ${e}`);
+      await localRemove(root, true).catch(() => undefined);
+      return;
+    }
+    transferring = false;
+    await transferItems(remote, items, destDir);
+    // 스테이징 사본 정리 — 전송이 실패했어도 임시 파일을 남길 이유가 없다.
+    await localRemove(root, true).catch(() => undefined);
   }
 
   // ── 시작: 로컬 기본 폴더 + 원격 접속 ──

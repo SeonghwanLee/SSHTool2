@@ -2125,6 +2125,11 @@ body.sftp-resizing * {
   outline-offset: -3px;
   background: rgba(255, 255, 255, 0.03);
 }
+/* 탐색기 파일을 트리 폴더에 조준해 떨어뜨릴 때 — 어느 폴더로 들어가는지 보여 준다. */
+.tree-node.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
 .sftp-row.selected {
   background: var(--accent);
 }

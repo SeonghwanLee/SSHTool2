@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.56.0",
+    date: "2026-08-03",
+    notes: [
+      "SFTP: 탐색기에서 파일·폴더를 끌어와 원격 파일영역이나 트리의 특정 폴더에 놓으면 그대로 업로드됩니다 (진행률·이름 충돌 처리 동일)",
+      "SFTP: 원격 파일·폴더 우클릭 → \"폴더 지정해 다운로드…\" — 바탕화면 등 원하는 위치를 골라 바로 받습니다",
+    ],
+  },
+  {
     version: "0.55.1",
     date: "2026-08-03",
     notes: [
