@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.54.0",
+    date: "2026-08-03",
+    notes: [
+      "화면보호기가 4종으로 늘었습니다 — 매트릭스 레인(기존) · 별하늘 비행 · 생명 게임 · 튕기는 프롬프트. 켜질 때마다 무작위로 하나가 나옵니다",
+      "전부 코드로만 그려 설치 용량에 영향이 없고, 프레임을 낮게 잡아 CPU 도 거의 쓰지 않습니다. 색은 테마의 강조색을 따라갑니다",
+    ],
+  },
+  {
     version: "0.53.4",
     date: "2026-07-30",
     notes: [

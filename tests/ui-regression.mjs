@@ -227,6 +227,34 @@ try {
       expect(xtermUntouched, "xterm textarea 까지 건드렸다");
     });
 
+    await t.test("화면보호기 4종 — 각각 실제로 움직이고, 닫으면 정리된다", async () => {
+      const result = await page.evaluate(async () => {
+        const mod = await import("/src/screensaver.ts");
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        const out = {};
+        for (const name of mod.SAVER_NAMES) {
+          mod.showScreensaver(name);
+          await wait(250);
+          const canvas = document.querySelector(".screensaver canvas");
+          const a = canvas?.toDataURL();
+          await wait(300);
+          const b = canvas?.toDataURL();
+          mod.hideScreensaver();
+          out[name] = {
+            떴다: !!canvas,
+            움직임: !!a && !!b && a !== b,
+            정리됨: document.querySelector(".screensaver") === null,
+          };
+        }
+        return out;
+      });
+      for (const [name, r] of Object.entries(result)) {
+        expect(r.떴다, `${name}: 캔버스가 안 떴다`);
+        expect(r.움직임, `${name}: 프레임이 변하지 않는다(멈춘 화면)`);
+        expect(r.정리됨, `${name}: 닫아도 오버레이가 남는다`);
+      }
+    });
+
     await t.test("세션 종류별 아이콘 — SSH·로컬 셸·RDP 글리프가 서로 다르다", async () => {
       const glyphs = await page.evaluate(() => {
         const of = (name) => {
