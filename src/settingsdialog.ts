@@ -21,6 +21,7 @@ import {
   pushModal,
   popModal,
   isTopModal,
+  attentionPulse,
 } from "./dialogs";
 import { helpIcon } from "./help";
 import { showScreensaver } from "./screensaver";
@@ -65,7 +66,7 @@ export function settingsDialog(
     document.addEventListener("keydown", onEsc);
     pushModal(overlay);
     overlay.addEventListener("mousedown", (e) => {
-      if (e.target === overlay) cancel();
+      if (e.target === overlay) attentionPulse(card); // 바깥 클릭으로는 닫지 않는다
     });
 
     const title = document.createElement("h3");

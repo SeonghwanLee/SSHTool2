@@ -29,7 +29,7 @@ import {
   stageSweep,
 } from "./ipc";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
-import { confirmDialog, textPrompt } from "./dialogs";
+import { confirmDialog, textPrompt, attentionPulse } from "./dialogs";
 import { applyIcon, fileIcon } from "./icons";
 import { showContextMenu, type MenuItem } from "./contextmenu";
 import {
@@ -319,7 +319,8 @@ export async function openSftpBrowser(
       // 최대화가 아니면 버튼이 거짓말을 하게 된다.
       if (beforeMax !== null) {
         beforeMax = null;
-        maxBtn.textContent = "최대화";
+        applyIcon(maxBtn, "maximize");
+        maxBtn.title = "창 크기에 맞게 최대화 (되돌리려면 다시 누르세요)";
       }
       // 드래그 중에는 커서를 고정한다. 손잡이를 잠깐 벗어나도 모양이 바뀌지 않게.
       document.body.style.cursor = cursor;
@@ -349,21 +350,22 @@ export async function openSftpBrowser(
   title.textContent = `SFTP · ${session.name || session.host}`;
   const status = document.createElement("div");
   status.className = "sftp-status";
-  // 닫기는 연결을 유지한 채 창만 감춘다 — 끊으려면 이 버튼을 눌러야 한다.
-  const dcBtn = document.createElement("button");
-  dcBtn.className = "sftp-btn sftp-disconnect";
-  dcBtn.textContent = "연결 끊기";
-  dcBtn.title = "SFTP 연결을 끊습니다(진행 중 전송도 취소).";
-  // 최대화 — 창 안을 꽉 채운다. 파일이 많은 폴더를 훑을 때 매번 모서리를 끌지 않아도 된다.
+  // 우측 상단 창 버튼 — 일반 창과 같은 [–][□][X] 표준 매핑(0.57.0).
+  // 접기(–)가 예전 X 의 역할(창만 닫고 연결 유지, 세션 목록의 SFTP 칩으로 복원)이고,
+  // X 는 이제 실제로 끊는다 — 예전엔 X 가 창만 닫아 일반 창과 의미가 달랐다.
+  const minBtn = document.createElement("button");
+  minBtn.className = "sftp-winbtn sftp-min";
+  minBtn.title = "접기 — 연결은 유지됩니다. 세션 목록의 SFTP 칩으로 다시 엽니다";
+  applyIcon(minBtn, "minimize");
   const maxBtn = document.createElement("button");
-  maxBtn.className = "sftp-btn sftp-maximize";
-  maxBtn.textContent = "최대화";
+  maxBtn.className = "sftp-winbtn sftp-maximize";
   maxBtn.title = "창 크기에 맞게 최대화 (되돌리려면 다시 누르세요)";
+  applyIcon(maxBtn, "maximize");
   const closeBtn = document.createElement("button");
-  closeBtn.className = "sftp-close";
-  closeBtn.title = "닫기(연결은 유지됩니다)";
+  closeBtn.className = "sftp-winbtn sftp-close";
+  closeBtn.title = "연결을 끊고 닫습니다(진행 중 전송도 취소)";
   applyIcon(closeBtn, "close");
-  header.append(title, status, dcBtn, maxBtn, closeBtn);
+  header.append(title, status, minBtn, maxBtn, closeBtn);
 
   // 최대화 직전의 인라인 스타일을 통째로 기억했다가 되돌린다. 값만 따로 담으면
   // '한 번도 크기를 안 바꾼 상태'(인라인 스타일 없음)를 되살릴 수 없다.
@@ -389,7 +391,7 @@ export async function openSftpBrowser(
       panel.setAttribute("style", beforeMax);
       beforeMax = null;
     }
-    maxBtn.textContent = on ? "이전 크기" : "최대화";
+    applyIcon(maxBtn, on ? "restore" : "maximize");
     maxBtn.title = on ? "최대화 전 크기로 되돌립니다" : "창 크기에 맞게 최대화 (되돌리려면 다시 누르세요)";
   };
   maxBtn.addEventListener("click", () => setMaximized(beforeMax === null));
@@ -543,14 +545,14 @@ export async function openSftpBrowser(
     overlay.remove();
     notifyLive();
   };
-  // 닫기는 연결을 유지하므로 전송 중이어도 그냥 닫아도 된다(예전엔 확인을 물었다).
-  closeBtn.addEventListener("click", closeKeepAlive);
+  // 접기는 연결을 유지하므로 전송 중이어도 그냥 접어도 된다(배경 전송은 칩이 보여 준다).
+  minBtn.addEventListener("click", closeKeepAlive);
   overlay.addEventListener("mousedown", (e) => {
-    if (e.target === overlay) closeKeepAlive();
+    if (e.target === overlay) attentionPulse(panel); // 바깥 클릭으로는 닫지 않는다(버튼으로만)
   });
 
-  // 끊기는 되돌릴 수 없다 — 전송 중이면 한 번 확인한다.
-  dcBtn.addEventListener("click", () => {
+  // X = 끊고 닫기. 끊기는 되돌릴 수 없다 — 전송 중이면 한 번 확인한다.
+  closeBtn.addEventListener("click", () => {
     void (async () => {
       if (currentTransfer) {
         const ok = await confirmDialog("파일을 전송 중입니다. 전송을 취소하고 연결을 끊을까요?");

@@ -491,6 +491,39 @@ try {
       // 릴리스 노트가 길어 84vh 까지 커져야 한다 — 620px(설정창 고정값)에 눌리면 회귀.
       expect(h > 640, `버전정보 창이 눌려 있다: ${Math.round(h)}px`);
       await page.keyboard.press("Escape");
+    });
+
+    await t.test("바깥 클릭 — 창이 닫히지 않고 반짝이며 유지 (설정·버전정보, Esc 는 닫힘)", async () => {
+      await dismissModals(page);
+      const probe = (cardSel) =>
+        page.evaluate((sel) => {
+          const ov = document.querySelector(".modal-overlay");
+          ov?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+          const card = document.querySelector(sel);
+          return { open: !!card, attn: !!card?.classList.contains("modal-attn") };
+        }, cardSel);
+      // 설정창(자체 오버레이 구현)
+      await page.click("#open-settings");
+      await page.waitForTimeout(300);
+      let r = await probe(".settings-card");
+      expect(r.open && r.attn, `설정창이 바깥 클릭에 버티지 못한다: ${JSON.stringify(r)}`);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+      expect(
+        (await page.locator(".settings-card").count()) === 0,
+        "Esc 로는 설정창이 닫혀야 한다",
+      );
+      // 버전정보(공용 openModal 경로 — 세션편집·확인창 등 전부 이 길을 쓴다)
+      await page.click("#open-about");
+      await page.waitForTimeout(300);
+      r = await probe(".about-card");
+      expect(r.open && r.attn, `버전정보 창이 바깥 클릭에 버티지 못한다: ${JSON.stringify(r)}`);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+      expect(
+        (await page.locator(".about-card").count()) === 0,
+        "Esc 로는 버전정보 창이 닫혀야 한다",
+      );
       await page.waitForTimeout(200);
     });
 
@@ -864,6 +897,45 @@ try {
       );
       await page.keyboard.press("Escape");
       expect(has, "원격 우클릭 메뉴에 '폴더 지정해 다운로드' 가 없다");
+    });
+
+    await t.test("SFTP 바깥 클릭 — 창이 닫히지 않고 반짝이며 유지된다", async () => {
+      const r = await page.evaluate(() => {
+        const ov = document.querySelector(".sftp-overlay");
+        ov?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        const panel = document.querySelector(".sftp-panel");
+        return { open: !!panel, attn: !!panel?.classList.contains("modal-attn") };
+      });
+      expect(r.open && r.attn, `SFTP 창이 바깥 클릭에 버티지 못한다: ${JSON.stringify(r)}`);
+    });
+
+    await t.test("SFTP 창 버튼 표준 매핑 — 접기는 연결 유지, X 는 끊는다", async () => {
+      const btns = await page.evaluate(() => ({
+        min: !!document.querySelector(".sftp-min"),
+        max: !!document.querySelector(".sftp-maximize"),
+        x: !!document.querySelector(".sftp-close"),
+        dc: !!document.querySelector(".sftp-disconnect"),
+      }));
+      expect(
+        btns.min && btns.max && btns.x && !btns.dc,
+        `헤더 버튼 구성이 다르다: ${JSON.stringify(btns)}`,
+      );
+      // 접기: 창은 사라지되 sftp_disconnect 가 나가면 안 된다.
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.locator(".sftp-min").click();
+      await page.waitForTimeout(300);
+      const afterMin = await page.evaluate(() => ({
+        closed: !document.querySelector(".sftp-panel"),
+        dc: window.__ipc.some(([c]) => c === "sftp_disconnect"),
+      }));
+      expect(afterMin.closed && !afterMin.dc, `접기 동작이 다르다: ${JSON.stringify(afterMin)}`);
+      // 다시 열면(살아있는 연결 재사용) X 로 실제 끊김이 나가야 한다.
+      await page.evaluate(() => window.__open());
+      await page.waitForTimeout(800);
+      await page.locator(".sftp-close").click();
+      await page.waitForTimeout(300);
+      const dc = await page.evaluate(() => window.__ipc.some(([c]) => c === "sftp_disconnect"));
+      expect(dc, "X 가 연결을 끊지 않는다");
     });
 
     await page.close();

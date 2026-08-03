@@ -25,8 +25,22 @@ const root = (): HTMLElement => {
 };
 
 /**
+ * 바깥 클릭 시 창을 닫는 대신 잠깐 두드러지게 — 열려 있음을 알린다.
+ * 실수 클릭 한 번에 입력하던 내용이 날아가는 사고를 없앤 자리(0.56.1)라서,
+ * 어떤 창에도 "바깥 클릭 = 닫기"를 다시 넣지 말 것. 닫기는 버튼과 Esc 만.
+ */
+export function attentionPulse(card: HTMLElement): void {
+  card.classList.remove("modal-attn");
+  void card.offsetWidth; // 리플로 강제 — 연타해도 매번 다시 반짝인다
+  card.classList.add("modal-attn");
+  card.addEventListener("animationend", () => card.classList.remove("modal-attn"), {
+    once: true,
+  });
+}
+
+/**
  * 오버레이 + 카드 골격을 만든다. build(close) 안의 버튼은 close() 로 닫고 자체 resolve 한다.
- * Esc/바깥클릭으로 닫힐 때는 onDismiss 가 호출되므로 각 다이얼로그가 취소값(null/false)을
+ * Esc 로 닫힐 때는 onDismiss 가 호출되므로 각 다이얼로그가 취소값(null/false)을
  * resolve 해야 caller 가 무한 대기하지 않는다. keydown 리스너는 모든 경로에서 정리된다.
  */
 export function openModal(build: (close: () => void) => HTMLElement, onDismiss?: () => void): void {
@@ -48,7 +62,7 @@ export function openModal(build: (close: () => void) => HTMLElement, onDismiss?:
   card.classList.add("modal-card");
   overlay.appendChild(card);
   overlay.addEventListener("mousedown", (e) => {
-    if (e.target === overlay) dismiss(); // 바깥 클릭 = 취소
+    if (e.target === overlay) attentionPulse(card); // 바깥 클릭으로는 닫지 않는다
   });
   document.addEventListener("keydown", esc);
   pushModal(overlay);
