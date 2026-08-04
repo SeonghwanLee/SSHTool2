@@ -22,6 +22,10 @@ export const GLYPH: Record<string, string> = {
   lock: "",
   unlock: "",
 
+  chevronDown: "", // 폴더 헤더 펼침 표시(ChevronDown) — 접히면 CSS 로 회전
+  collapseAll: "", // 폴더 모두 접기(DoubleChevronUp)
+  expandAll: "", // 폴더 모두 펼치기(DoubleChevronDown)
+
   remote: "", // 원격 세션
   local: "", // 로컬 셸 세션 / SFTP 로컬 패널
   globe: "", // SFTP 원격 패널

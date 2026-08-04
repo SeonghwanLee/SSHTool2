@@ -940,6 +940,66 @@ try {
 
     await page.close();
   }
+
+  // ── Grafana 스타일 세션목록 접기(0.58.0) ─────────────────────────────────
+  {
+    const page = await openPage(browser, {
+      stub: {
+        sessions_load: [
+          { id: "f1", name: "운영1", kind: "ssh", host: "10.1.0.1", port: 22, user: "root", enableSftp: false, folder: "운영", sortOrder: 0, lastConnectedUtc: 0, triggers: [] },
+          { id: "f2", name: "운영2", kind: "ssh", host: "10.1.0.2", port: 22, user: "root", enableSftp: false, folder: "운영", sortOrder: 1, lastConnectedUtc: 0, triggers: [] },
+          { id: "f3", name: "개발1", kind: "ssh", host: "10.1.0.3", port: 22, user: "root", enableSftp: false, folder: "개발", sortOrder: 2, lastConnectedUtc: 0, triggers: [] },
+        ],
+      },
+    });
+    await page.waitForTimeout(600);
+    await dismissModals(page);
+
+    await t.test("폴더 헤더 — 셰브론 렌더 + 접기 연출(지연 재렌더) + 펼치기 복귀", async () => {
+      expect((await page.locator(".tree-folder").count()) === 2, "폴더 헤더가 2개가 아니다");
+      const chev = await page.evaluate(() => {
+        const a = document.querySelector(".tree-folder .tree-arrow");
+        return a ? getComputedStyle(a).transitionProperty.includes("transform") : false;
+      });
+      expect(chev, "셰브론 회전 전환(transition)이 없다");
+      const before = await page.locator(".tree-session").count();
+      expect(before === 3, `세션 행이 3개가 아니다: ${before}`);
+      // '운영' 접기 — 두 단계(연출 130ms 후 재렌더)라 직후엔 셰브론만 돌고, 잠시 뒤 자식이 사라진다.
+      await page.locator(".tree-folder", { hasText: "운영" }).click();
+      await page.waitForTimeout(60);
+      const collapsedNow = await page.evaluate(() =>
+        [...document.querySelectorAll(".tree-folder")].some((f) => f.classList.contains("collapsed")),
+      );
+      expect(collapsedNow, "클릭 직후 셰브론(.collapsed)이 돌지 않는다");
+      await page.waitForTimeout(400);
+      const after = await page.locator(".tree-session").count();
+      expect(after === before - 2, `접힌 뒤 세션 행: ${after} (기대 ${before - 2})`);
+      await page.locator(".tree-folder", { hasText: "운영" }).click();
+      await page.waitForTimeout(400);
+      expect(
+        (await page.locator(".tree-session").count()) === before,
+        "펼친 뒤 자식이 돌아오지 않는다",
+      );
+    });
+
+    await t.test("전체 접기/펼치기 버튼 — 모두 접힘 ↔ 모두 복귀, 아이콘 토글", async () => {
+      const icon = () => page.evaluate(() => document.getElementById("fold-all")?.textContent ?? "");
+      const i1 = await icon();
+      await page.click("#fold-all");
+      await page.waitForTimeout(300);
+      expect((await page.locator(".tree-session").count()) === 0, "전체 접기 후에도 세션 행이 보인다");
+      const i2 = await icon();
+      expect(i1 !== i2 && i2.length > 0, `버튼 아이콘이 상태를 따라 바뀌지 않는다: "${i1}"→"${i2}"`);
+      await page.click("#fold-all");
+      await page.waitForTimeout(300);
+      expect(
+        (await page.locator(".tree-session").count()) === 3,
+        "전체 펼치기 후 세션 행이 복귀하지 않는다",
+      );
+    });
+
+    await page.close();
+  }
 } finally {
   await browser.close();
   stop();

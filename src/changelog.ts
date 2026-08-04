@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.58.0",
+    date: "2026-08-05",
+    notes: [
+      "세션목록 폴더를 Grafana 대시보드 행처럼 개선 — 밴드형 섹션 헤더 + 회전 셰브론, 접고 펼칠 때 절제된 슬라이드 연출",
+      "사이드바 상단에 폴더 전체 접기/펼치기 버튼 추가 — 하나라도 펼쳐져 있으면 모두 접고, 아이콘이 다음 동작을 예고합니다",
+    ],
+  },
+  {
     version: "0.57.0",
     date: "2026-08-03",
     notes: [

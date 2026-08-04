@@ -540,25 +540,50 @@ button {
   background: var(--border);
 }
 
+/* Grafana Row 방식 섹션 헤더(0.58.0) — 밴드 배경 + 셰브론 회전. */
 .tree-folder {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 6px;
+  padding: 6px 8px;
   cursor: pointer;
   user-select: none;
   font-size: 13px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
 }
 .tree-folder:hover {
-  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 0 var(--accent);
 }
 .tree-arrow {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--muted);
-  width: 10px;
+  width: 12px;
+  transition: transform 0.15s ease;
+}
+.tree-folder.collapsed .tree-arrow {
+  transform: rotate(-90deg);
 }
 .tree-folder-label {
   font-weight: 600;
+}
+/* 접기/펼치기 연출 — 위치 이동이 아니라 투명도+살짝 미끄러짐만(보수적). */
+@keyframes kid-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.kid-enter {
+  animation: kid-in 0.14s ease-out;
+}
+.kid-exit {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.12s ease-in,
+    transform 0.12s ease-in;
+  pointer-events: none;
 }
 
 .tree-session {

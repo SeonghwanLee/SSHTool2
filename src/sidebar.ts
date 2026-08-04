@@ -113,6 +113,10 @@ export class Sidebar {
   private sessions: SessionInfo[] = [];
   private folders: string[] = [];
   private collapsed = new Set<string>();
+  /** 접기 연출이 도는 중(두 단계 접기의 대기 구간) — 연타로 상태가 꼬이지 않게 막는다. */
+  private foldAnimating = false;
+  /** 마지막 render 가 실제로 그린 모든 폴더 경로(중첩 포함) — 전체 접기/펼치기용. */
+  private allFolderPaths: string[] = [];
   private filter = "";
   /** 표시 옵션(설정에서 주입). */
   private sortByRecent = false;
@@ -393,6 +397,42 @@ export class Sidebar {
     this.render(this.sessions);
   }
 
+  /**
+   * 전체 접기 ↔ 전체 펼치기(사이드바 상단 버튼). 하나라도 펼쳐져 있으면 모두 접는다.
+   * 반환값 = 실행 후 전부 접힌 상태인가(버튼 아이콘 갱신용).
+   */
+  toggleFoldAll(): boolean {
+    const anyExpanded = this.allFolderPaths.some((p) => !this.collapsed.has(p));
+    if (anyExpanded) for (const p of this.allFolderPaths) this.collapsed.add(p);
+    else this.collapsed.clear();
+    this.collapsedChanged();
+    this.render(this.sessions);
+    return anyExpanded;
+  }
+
+  /** 폴더가 있고 전부 접혀 있는가 — 전체 접기 버튼의 아이콘 결정용. */
+  isAllFolded(): boolean {
+    return (
+      this.allFolderPaths.length > 0 &&
+      this.allFolderPaths.every((p) => this.collapsed.has(p))
+    );
+  }
+
+  /** 방금 펼친 폴더의 자식 행들이 살짝 미끄러져 들어오게 한다(다시 그린 직후 호출). */
+  private animateKidsIn(path: string, depth: number): void {
+    const rows = [...this.tree.querySelectorAll<HTMLElement>("[data-nav-kind]")];
+    const i = rows.findIndex(
+      (r) => r.dataset.navKind === "folder" && r.dataset.navPath === path,
+    );
+    if (i < 0) return;
+    for (let k = i + 1; k < rows.length; k++) {
+      const r = rows[k];
+      if (Number(r.dataset.navDepth ?? "-1") <= depth) break;
+      r.classList.add("kid-enter");
+      r.addEventListener("animationend", () => r.classList.remove("kid-enter"), { once: true });
+    }
+  }
+
   /** 접힘이 바뀔 때마다 저장을 요청한다 — 폴더를 정리해 쓰면 매번 다시 접는 건 번거롭다. */
   private collapsedChanged(): void {
     this.cb.onCollapsedChange?.([...this.collapsed]);
@@ -445,6 +485,16 @@ export class Sidebar {
       if (!this.matches(s)) continue;
       this.ensurePath(rootNode, s.folder).sessions.push(s);
     }
+
+    // 전체 접기/펼치기가 다룰 폴더 목록(중첩 포함, 루트 제외)을 이번 트리에서 뽑아 둔다.
+    this.allFolderPaths = [];
+    const walkFolders = (n: FolderNode): void => {
+      for (const c of n.folders.values()) {
+        this.allFolderPaths.push(c.path);
+        walkFolders(c);
+      }
+    };
+    walkFolders(rootNode);
 
     this.tree.innerHTML = "";
     // 검색 중이 아니면 상단에 최근 접속 10개(바로 접속 가능).
@@ -588,11 +638,13 @@ export class Sidebar {
     for (const f of folders) {
       const isCollapsed = !this.filter && this.collapsed.has(f.path);
       const row = document.createElement("div");
-      row.className = "tree-folder";
+      // Grafana Row 헤더 방식(0.58.0) — 밴드형 헤더 + 셰브론. 회전은 CSS(.collapsed)가
+      // 담당해 접을 때 부드럽게 돈다(폴더 아이콘 교체 방식은 애니메이션이 불가능했다).
+      row.className = "tree-folder" + (isCollapsed ? " collapsed" : "");
       row.style.paddingLeft = `${8 + depth * 14}px`;
       const arrow = document.createElement("span");
       arrow.className = "tree-arrow";
-      applyIcon(arrow, isCollapsed ? "folder" : "folderOpen");
+      applyIcon(arrow, "chevronDown");
       const label = document.createElement("span");
       label.className = "tree-folder-label";
       label.textContent = f.name;
@@ -604,10 +656,37 @@ export class Sidebar {
         if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
       });
       const toggle = () => {
-        if (isCollapsed) this.collapsed.delete(f.path);
-        else this.collapsed.add(f.path);
-        this.collapsedChanged();
-        this.render(this.sessions);
+        if (this.foldAnimating) return; // 접히는 중 연타 방지
+        // 검색 중에는 접힘이 표시에 반영되지 않으므로 연출 없이 상태만 바꾼다(기존 동작).
+        if (this.filter) {
+          if (isCollapsed) this.collapsed.delete(f.path);
+          else this.collapsed.add(f.path);
+          this.collapsedChanged();
+          this.render(this.sessions);
+          return;
+        }
+        if (isCollapsed) {
+          this.collapsed.delete(f.path);
+          this.collapsedChanged();
+          this.render(this.sessions);
+          this.animateKidsIn(f.path, depth);
+          return;
+        }
+        // 접기는 두 단계 — 자식이 미끄러져 사라진 뒤 다시 그린다. 셰브론 회전(CSS 전환)도
+        // 이 지연 덕에 눈에 보인다. 즉시 다시 그리면 애니메이션이 전혀 보이지 않는다.
+        row.classList.add("collapsed");
+        let el = row.nextElementSibling as HTMLElement | null;
+        while (el && Number(el.dataset.navDepth ?? "-1") > depth) {
+          el.classList.add("kid-exit");
+          el = el.nextElementSibling as HTMLElement | null;
+        }
+        this.foldAnimating = true;
+        window.setTimeout(() => {
+          this.foldAnimating = false;
+          this.collapsed.add(f.path);
+          this.collapsedChanged();
+          this.render(this.sessions);
+        }, 130);
       };
       row.dataset.navKind = "folder";
       row.dataset.navPath = f.path;

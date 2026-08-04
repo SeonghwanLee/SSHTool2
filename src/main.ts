@@ -945,6 +945,20 @@ async function main(): Promise<void> {
   // 저장돼 있던 폴더 접힘 상태 복원(설정 로드 후 첫 렌더에 반영).
   sidebar.setCollapsed(settings.collapsedFolders ?? []);
 
+  // 전체 접기/펼치기(Grafana 방식) — 하나라도 펼쳐져 있으면 모두 접는다.
+  // 아이콘·툴팁이 다음 동작을 예고한다(접힘 상태면 '펼치기' 모양).
+  const foldBtn = $("fold-all");
+  const syncFoldIcon = () => {
+    const folded = sidebar.isAllFolded();
+    applyIcon(foldBtn, folded ? "expandAll" : "collapseAll");
+    foldBtn.title = folded ? "폴더 모두 펼치기" : "폴더 모두 접기";
+  };
+  foldBtn.addEventListener("click", () => {
+    sidebar.toggleFoldAll();
+    syncFoldIcon();
+  });
+  syncFoldIcon();
+
   wireCommandBar(tabs);
   wireViewModes(tabs);
   wireSettings(tabs);
