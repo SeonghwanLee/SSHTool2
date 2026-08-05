@@ -399,15 +399,51 @@ export class Sidebar {
 
   /**
    * 전체 접기 ↔ 전체 펼치기(사이드바 상단 버튼). 하나라도 펼쳐져 있으면 모두 접는다.
-   * 반환값 = 실행 후 전부 접힌 상태인가(버튼 아이콘 갱신용).
+   * 개별 폴더와 같은 두 단계 연출을 쓴다 — 깊이 0(최상위 폴더·루트 세션)만 남으므로
+   * 사라질 행은 정확히 "깊이 > 0"인 행들이다.
+   * 반환값 = 실행 후(연출이 끝나면) 전부 접힌 상태가 되는가 — 버튼 아이콘은 이 값으로
+   * 즉시 갱신한다. 연출 중 재호출은 상태를 바꾸지 않고 현 상태를 되돌려 준다.
    */
   toggleFoldAll(): boolean {
+    if (this.foldAnimating) return this.isAllFolded();
     const anyExpanded = this.allFolderPaths.some((p) => !this.collapsed.has(p));
-    if (anyExpanded) for (const p of this.allFolderPaths) this.collapsed.add(p);
-    else this.collapsed.clear();
-    this.collapsedChanged();
-    this.render(this.sessions);
-    return anyExpanded;
+
+    if (!anyExpanded) {
+      // 전체 펼치기 — 다시 그린 직후 깊이 > 0 행들이 미끄러져 들어온다.
+      this.collapsed.clear();
+      this.collapsedChanged();
+      this.render(this.sessions);
+      if (!this.filter) {
+        for (const r of this.tree.querySelectorAll<HTMLElement>("[data-nav-kind]")) {
+          if (Number(r.dataset.navDepth ?? "-1") <= 0) continue;
+          r.classList.add("kid-enter");
+          r.addEventListener("animationend", () => r.classList.remove("kid-enter"), {
+            once: true,
+          });
+        }
+      }
+      return false;
+    }
+
+    // 전체 접기 — 검색 중에는 접힘이 표시에 반영되지 않으므로 연출 없이 상태만 바꾼다.
+    if (this.filter) {
+      for (const p of this.allFolderPaths) this.collapsed.add(p);
+      this.collapsedChanged();
+      this.render(this.sessions);
+      return true;
+    }
+    for (const r of this.tree.querySelectorAll<HTMLElement>("[data-nav-kind]")) {
+      if (Number(r.dataset.navDepth ?? "-1") > 0) r.classList.add("kid-exit");
+      else if (r.dataset.navKind === "folder") r.classList.add("collapsed"); // 셰브론 회전
+    }
+    this.foldAnimating = true;
+    window.setTimeout(() => {
+      this.foldAnimating = false;
+      for (const p of this.allFolderPaths) this.collapsed.add(p);
+      this.collapsedChanged();
+      this.render(this.sessions);
+    }, 130);
+    return true;
   }
 
   /** 폴더가 있고 전부 접혀 있는가 — 전체 접기 버튼의 아이콘 결정용. */

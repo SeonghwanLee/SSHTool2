@@ -986,6 +986,15 @@ try {
       const icon = () => page.evaluate(() => document.getElementById("fold-all")?.textContent ?? "");
       const i1 = await icon();
       await page.click("#fold-all");
+      // 접기도 두 단계 연출 — 직후엔 셰브론이 전부 돌고 자식은 슬라이드 아웃 중이어야 한다.
+      await page.waitForTimeout(60);
+      const mid = await page.evaluate(() => ({
+        chev: [...document.querySelectorAll(".tree-folder")].every((f) =>
+          f.classList.contains("collapsed"),
+        ),
+        exiting: document.querySelectorAll(".kid-exit").length,
+      }));
+      expect(mid.chev && mid.exiting > 0, `전체 접기 연출이 없다: ${JSON.stringify(mid)}`);
       await page.waitForTimeout(300);
       expect((await page.locator(".tree-session").count()) === 0, "전체 접기 후에도 세션 행이 보인다");
       const i2 = await icon();

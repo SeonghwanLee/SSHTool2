@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.58.1",
+    date: "2026-08-05",
+    notes: [
+      "전체 접기/펼치기도 개별 폴더와 같은 연출로 — 셰브론이 일제히 돌고 자식 행이 미끄러지며 정리됩니다",
+    ],
+  },
+  {
     version: "0.58.0",
     date: "2026-08-05",
     notes: [

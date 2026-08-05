@@ -948,16 +948,13 @@ async function main(): Promise<void> {
   // 전체 접기/펼치기(Grafana 방식) — 하나라도 펼쳐져 있으면 모두 접는다.
   // 아이콘·툴팁이 다음 동작을 예고한다(접힘 상태면 '펼치기' 모양).
   const foldBtn = $("fold-all");
-  const syncFoldIcon = () => {
-    const folded = sidebar.isAllFolded();
+  const syncFoldIcon = (folded: boolean) => {
     applyIcon(foldBtn, folded ? "expandAll" : "collapseAll");
     foldBtn.title = folded ? "폴더 모두 펼치기" : "폴더 모두 접기";
   };
-  foldBtn.addEventListener("click", () => {
-    sidebar.toggleFoldAll();
-    syncFoldIcon();
-  });
-  syncFoldIcon();
+  // 접기는 연출 뒤에 상태가 반영되므로, 아이콘은 토글의 반환값(목표 상태)으로 즉시 바꾼다.
+  foldBtn.addEventListener("click", () => syncFoldIcon(sidebar.toggleFoldAll()));
+  syncFoldIcon(sidebar.isAllFolded());
 
   wireCommandBar(tabs);
   wireViewModes(tabs);
