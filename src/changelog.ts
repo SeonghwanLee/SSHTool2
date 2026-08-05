@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.58.2",
+    date: "2026-08-05",
+    notes: [
+      "화면보호기 '불꽃' 삭제 — 선택해 두셨던 경우 자동으로 '무작위'로 돌아갑니다",
+      "셸 데모 명령 다양화 — 5종 → 17종(프로세스·서비스 상태·컨테이너·포트·헬스체크·백업 검증 등), 재생 순서도 매번 섞입니다",
+    ],
+  },
+  {
     version: "0.58.1",
     date: "2026-08-05",
     notes: [

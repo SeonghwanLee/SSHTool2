@@ -191,74 +191,7 @@ const constellation: SaverFactory = (canvas, ctx, accent) => {
   };
 };
 
-// ── ⑤ 도트 불꽃 — 고전 doom fire. 팔레트는 검정→테마색→흰색 ─────────────────────
-const doomFire: SaverFactory = (canvas, ctx, accent) => {
-  const CELL = 6; // 픽셀 크기 — 작을수록 곱지만 불길이 상대적으로 낮아진다(스크린샷 튜닝)
-  const LEVELS = 24;
-  let w = 0;
-  let h = 0;
-  let heat = new Uint8Array(0);
-  let img: ImageData | null = null;
-  let off: HTMLCanvasElement | null = null;
-
-  // 검정 → 테마색 → 흰색 보간 팔레트.
-  const hex = (c: string) => {
-    const m = /^#?([0-9a-f]{6})$/i.exec(c.trim());
-    const n = parseInt(m ? m[1] : "a7c080", 16);
-    return [n >> 16, (n >> 8) & 255, n & 255] as const;
-  };
-  const [ar, ag, ab] = hex(accent);
-  const palette = Array.from({ length: LEVELS }, (_, i) => {
-    const t = i / (LEVELS - 1);
-    if (t < 0.78) {
-      const k = t / 0.78; // 검정 → 테마색 — 흰 구간을 줄여 '불' 답게(첫 튜닝에서 희멀겋었다)
-      return [ar * k, ag * k, ab * k] as const;
-    }
-    const k = (t - 0.78) / 0.22; // 테마색 → 흰색(심지 부분만)
-    return [ar + (255 - ar) * k, ag + (255 - ag) * k, ab + (255 - ab) * k] as const;
-  });
-
-  const reset = () => {
-    w = Math.max(8, Math.ceil(canvas.width / CELL));
-    h = Math.max(8, Math.ceil(canvas.height / CELL));
-    heat = new Uint8Array(w * h);
-    heat.fill(LEVELS - 1, w * (h - 1)); // 맨 아랫줄이 불씨
-    img = new ImageData(w, h);
-    off = document.createElement("canvas");
-    off.width = w;
-    off.height = h;
-  };
-  reset();
-  return {
-    reset,
-    step() {
-      if (!img || !off) return;
-      // 위로 번지며 무작위로 식는다 — 고전 알고리즘 그대로.
-      for (let y = 0; y < h - 1; y++) {
-        for (let x = 0; x < w; x++) {
-          const src = (y + 1) * w + x;
-          const drift = (Math.random() * 3) | 0; // 0~2 — 좌우 흔들림
-          const dst = y * w + Math.min(w - 1, Math.max(0, x + drift - 1));
-          const cool = Math.random() < 0.34 ? 1 : 0; // 낮출수록 불길이 높이 오른다
-          heat[dst] = Math.max(0, heat[src] - cool);
-        }
-      }
-      const d = img.data;
-      for (let i = 0; i < w * h; i++) {
-        const [r, g, b] = palette[heat[i]];
-        d[i * 4] = r;
-        d[i * 4 + 1] = g;
-        d[i * 4 + 2] = b;
-        d[i * 4 + 3] = 255;
-      }
-      off.getContext("2d")!.putImageData(img, 0, 0);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
-    },
-  };
-};
-
-// ── ⑥ 셸 데모 — 화면이 스스로 명령을 치고 출력을 흘린다 ────────────────────────
+// ── ⑤ 셸 데모 — 화면이 스스로 명령을 치고 출력을 흘린다 ────────────────────────
 const shellDemo: SaverFactory = (canvas, ctx, accent) => {
   const FONT = 15;
   const LINE = 22;
@@ -277,16 +210,56 @@ const shellDemo: SaverFactory = (canvas, ctx, accent) => {
       "64 bytes from gateway: icmp_seq=3 ttl=64 time=0.41 ms",
     ]],
     ["free -h", ["              total   used   free", "Mem:            31G    11G    18G"]],
+    ["ps aux --sort=-%cpu | head -4", [
+      "USER  PID %CPU %MEM COMMAND",
+      "app  2114  3.2  1.8 java -jar collector.jar",
+      "app  1873  1.1  0.6 node dist/server.js",
+      "root  912  0.4  0.2 /usr/sbin/rsyslogd",
+    ]],
+    ["systemctl status nginx --no-pager | head -3", [
+      "● nginx.service - A high performance web server",
+      "     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled)",
+      "     Active: active (running) since Mon; 213 days ago",
+    ]],
+    ["docker ps --format 'table {{.Names}}\\t{{.Status}}'", [
+      "NAMES          STATUS",
+      "api-gateway    Up 6 weeks (healthy)",
+      "redis-cache    Up 6 weeks",
+      "batch-worker   Up 3 days",
+    ]],
+    ["git pull", ["Already up to date."]],
+    ["ss -tlnp | head -4", [
+      "State   Recv-Q  Send-Q  Local Address:Port",
+      "LISTEN  0       511     0.0.0.0:443",
+      "LISTEN  0       511     0.0.0.0:80",
+      "LISTEN  0       128     127.0.0.1:5432",
+    ]],
+    ["curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8080/health", ["200"]],
+    ["du -sh /var/lib/backup", ["48G     /var/lib/backup"]],
+    ["last -3", [
+      "admin  pts/0   10.20.0.5   Mon 09:12   still logged in",
+      "admin  pts/1   10.20.0.5   Fri 18:44 - 19:02  (00:17)",
+      "deploy pts/0   10.20.0.9   Fri 03:00 - 03:01  (00:01)",
+    ]],
+    ["uname -srmo", ["Linux 5.14.0-687.el9.x86_64 x86_64 GNU/Linux"]],
+    ["vmstat 1 2 | tail -1", [" 1  0  0  18342112  84120  9214480  0  0  3  41  212  388  2  1 97  0"]],
+    ["sha256sum backup-latest.tar.gz", ["4f8b2ce19e...c41a7d  backup-latest.tar.gz"]],
+    ["journalctl -u app --since -5m -n2 --no-pager", [
+      "Aug 05 14:29:11 prod-web-01 app[2114]: request burst absorbed (p99 84ms)",
+      "Aug 05 14:31:56 prod-web-01 app[2114]: cache hit ratio 96.4%",
+    ]],
   ];
   const PROMPT = "admin@prod-web-01:~$ ";
   let lines: string[] = [];
+  let order: number[] = []; // 대본 재생 순서 — 매번 섞는다(고정 순서는 금방 외워진다)
   let si = 0; // 대본 위치
   let typed = 0; // 현재 명령에서 친 글자 수
   let outAt = 0; // 출력 몇 줄째
   let pause = 0; // 명령 사이 숨 고르기(프레임)
   const reset = () => {
     lines = [];
-    si = Math.floor(Math.random() * SCRIPT.length);
+    order = SCRIPT.map((_, i) => i).sort(() => Math.random() - 0.5);
+    si = 0;
     typed = 0;
     outAt = 0;
     pause = 0;
@@ -295,7 +268,7 @@ const shellDemo: SaverFactory = (canvas, ctx, accent) => {
   return {
     reset,
     step() {
-      const [cmd, out] = SCRIPT[si % SCRIPT.length];
+      const [cmd, out] = SCRIPT[order[si % order.length]];
       if (pause > 0) {
         pause--;
       } else if (typed < cmd.length) {
@@ -337,14 +310,13 @@ const shellDemo: SaverFactory = (canvas, ctx, accent) => {
 };
 
 /** 이름 → 팩토리. 테스트가 특정 것을 강제할 수 있도록 이름을 공개한다. */
-export const SAVER_NAMES = ["matrix", "starfield", "clock", "constellation", "fire", "shell"] as const;
+export const SAVER_NAMES = ["matrix", "starfield", "clock", "constellation", "shell"] as const;
 export type SaverName = (typeof SAVER_NAMES)[number];
 const FACTORIES: Record<SaverName, SaverFactory> = {
   matrix: matrixRain,
   starfield,
   clock: bigClock,
   constellation,
-  fire: doomFire,
   shell: shellDemo,
 };
 

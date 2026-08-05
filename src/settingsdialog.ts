@@ -293,7 +293,6 @@ export function settingsDialog(
       ["starfield", "별하늘"],
       ["clock", "시계"],
       ["constellation", "별자리"],
-      ["fire", "불꽃"],
       ["shell", "셸 데모"],
     ];
     for (const [v, label] of SAVER_LABELS) {
