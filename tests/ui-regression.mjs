@@ -1007,6 +1007,30 @@ try {
       );
     });
 
+    await t.test("세션 열기 — 탭 즉시 생성, 접속 실패는 팝업 대신 탭 오버레이+재접속", async () => {
+      await page.evaluate(() => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "ssh_probe") throw "연결 실패(테스트): 호스트에 닿을 수 없습니다";
+          return prev(cmd, args);
+        };
+      });
+      await page.locator(".tree-session").first().dblclick();
+      await page.waitForTimeout(600);
+      const r = await page.evaluate(() => ({
+        tabs: document.querySelectorAll(".xterm").length,
+        popup: !!document.querySelector(".modal-overlay"),
+        overlay: [...document.querySelectorAll(".overlay-msg")].map((m) => m.textContent).join("|"),
+        reBtn: [...document.querySelectorAll("button")].some((b) =>
+          (b.textContent ?? "").includes("재접속"),
+        ),
+      }));
+      expect(r.tabs >= 1, "세션을 열었는데 탭(터미널)이 생기지 않았다");
+      expect(!r.popup, "접속 실패가 여전히 팝업으로 뜬다");
+      expect(r.overlay.includes("접속 실패"), `오버레이에 실패 사유가 없다: "${r.overlay}"`);
+      expect(r.reBtn, "재접속 버튼이 없다");
+    });
+
     await page.close();
   }
 } finally {

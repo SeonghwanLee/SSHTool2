@@ -322,9 +322,9 @@ const credentials: CredentialProvider = {
     try {
       await sshProbe(session.host, session.port, session.user, session.allowLegacyAlgorithms);
     } catch (e) {
-      // 붙지도 않는 서버에 비밀번호를 묻지 않는다. 실패 사유는 그대로 보여 준다.
-      await alertDialog(String(e), "접속 실패");
-      return null;
+      // 붙지도 않는 서버에 비밀번호를 묻지 않는다. 실패 사유는 팝업이 아니라
+      // 탭의 재접속 오버레이로 보여 준다(0.59.0 — 팝업은 늦게 떠서 불편했다).
+      return { failed: String(e) };
     }
 
     if (!session.user) {
@@ -628,6 +628,11 @@ async function openSftpFor(s: SessionInfo): Promise<void> {
   // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
   const creds = await credentials.resolve(s);
   if (creds === null) return;
+  if ("failed" in creds) {
+    // 세션 탭과 달리 SFTP 는 실패를 담아 둘 화면이 없다 — 여기서는 팝업으로 알린다.
+    await alertDialog(creds.failed, "접속 실패");
+    return;
+  }
   const target = creds.user !== s.user ? { ...s, user: creds.user } : s;
   // 저장은 SFTP 인증이 '성공한 뒤에만' — 틀린 비번을 볼트에 넣지 않는다.
   await openSftpBrowser(

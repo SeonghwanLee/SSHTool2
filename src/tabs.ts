@@ -48,8 +48,14 @@ export interface ResolvedCreds {
 }
 
 /** 자격증명 해결·저장 정책. 볼트 연동은 main.ts 가 구현(탭은 UI-비종속). */
+/**
+ * 자격증명 해결 결과 — null 은 사용자가 스스로 취소한 것, { failed } 는 서버 확인(probe)
+ * 실패다. 실패를 팝업이 아니라 탭 오버레이에 보여 주려면 둘을 구분해야 한다(0.59.0).
+ */
+export type CredResolution = ResolvedCreds | null | { failed: string };
+
 export interface CredentialProvider {
-  resolve(session: SessionInfo): Promise<ResolvedCreds | null>;
+  resolve(session: SessionInfo): Promise<CredResolution>;
   onConnected(session: SessionInfo, creds: ResolvedCreds): Promise<void>;
   onError(session: SessionInfo, error: string): Promise<void>;
 }
@@ -1072,10 +1078,9 @@ export class TabManager {
   }
 
   async openSession(session: SessionInfo): Promise<void> {
-    // 로컬 셸은 인증이 없다.
-    const creds = isLocal(session) ? LOCAL_CREDS : await this.credentials.resolve(session);
-    if (creds === null) return;
-
+    // 탭부터 무조건 만든다(0.59.0) — 예전엔 probe·비밀번호를 다 통과해야 탭이 생겨서,
+    // 죽은 호스트는 한참 뒤 팝업 하나가 전부였다. 이제 여는 즉시 탭이 뜨고,
+    // probe 가 도는 동안 '접속 중…', 실패하면 끊김과 똑같은 재접속 오버레이가 보인다.
     const tab = new TerminalTab(
       session,
       this.settings,
@@ -1102,8 +1107,26 @@ export class TabManager {
     this.tabs.push(tab);
     this.panes.appendChild(tab.root);
     this.activate(tab);
+    tab.setConnecting(); // probe·비밀번호 입력 동안에도 탭 안에 상태가 보이게
     this.renderTabbar();
+
+    const creds = isLocal(session) ? LOCAL_CREDS : await this.credentials.resolve(session);
+    if (!this.tabs.includes(tab)) return; // 묻는 사이 탭을 닫았으면 유령 접속 금지
+    if (creds === null || "failed" in creds) {
+      this.markUnconnected(tab, creds);
+      return;
+    }
     await this.doConnect(tab, creds);
+  }
+
+  /** 자격증명 단계에서 멈춘 탭을 끊김과 같은 재접속 오버레이로 바꾼다. */
+  private markUnconnected(tab: TerminalTab, creds: null | { failed: string }): void {
+    tab.setDisconnected(
+      creds === null ? "접속을 취소했습니다." : `접속 실패: ${creds.failed}`,
+      () => void this.reconnect(tab),
+    );
+    this.renderTabbar();
+    this.emitStatus();
   }
 
   /**
@@ -1192,9 +1215,14 @@ export class TabManager {
   }
 
   private async reconnect(tab: TerminalTab): Promise<void> {
-    const creds = isLocal(tab.session) ? LOCAL_CREDS : await this.credentials.resolve(tab.session);
-    if (creds === null) return;
     this.activate(tab);
+    tab.setConnecting(); // probe 동안 '접속 중…' — 재시도 반응이 즉시 보이게
+    const creds = isLocal(tab.session) ? LOCAL_CREDS : await this.credentials.resolve(tab.session);
+    if (!this.tabs.includes(tab)) return;
+    if (creds === null || "failed" in creds) {
+      this.markUnconnected(tab, creds);
+      return;
+    }
     await this.doConnect(tab, creds);
   }
 
