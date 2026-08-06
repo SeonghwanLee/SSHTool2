@@ -292,6 +292,7 @@ export function settingsDialog(
       ["matrix", "매트릭스"],
       ["starfield", "별하늘"],
       ["clock", "시계"],
+      ["mystify", "춤추는 다각형"],
       ["constellation", "별자리"],
       ["shell", "셸 데모"],
     ];

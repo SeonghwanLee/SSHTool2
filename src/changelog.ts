@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.61.0",
+    date: "2026-08-06",
+    notes: [
+      "화면보호기 시계를 플립시계로 재디자인 — 시/분/초 카드 3장이 실제로 접히며 넘어가고, 하단에 년월일. 고정 배치(컨펌 시안 A)",
+      "화면보호기 '춤추는 다각형' 추가 — Windows Mystify 방식. 테마색+보색 도형 2개가 잔상을 끌며 튕겨 다니고 색이 천천히 순환합니다",
+    ],
+  },
+  {
     version: "0.60.0",
     date: "2026-08-06",
     notes: [
