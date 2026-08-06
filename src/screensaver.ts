@@ -98,9 +98,17 @@ const starfield: SaverFactory = (canvas, ctx, accent) => {
 };
 
 
-// ── ③ 큰 시계 — 유휴 중에도 실용적. 잔상 방지로 위치가 천천히 떠다닌다 ─────────
+// ── ③ 큰 시계 — 얇은 활자 + 분 진행선 + 숨 쉬는 광원(0.60.0 재디자인) ──────────
+// 유휴 중에도 실용적. 잔상 방지로 위치가 천천히 떠다닌다. 광원과 진행선이
+// 프레임마다 미세하게 변해 '멈춘 화면'으로 오해받지 않는다(스캔라인의 후임).
 const bigClock: SaverFactory = (canvas, ctx, accent) => {
   let t = 0;
+  // 액센트 HEX → rgba(알파 지정) — 광원·진행선에 쓴다.
+  const hexA = (c: string, a: number): string => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(c.trim());
+    const n = parseInt(m ? m[1] : "a7c080", 16);
+    return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+  };
   const reset = () => {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -110,34 +118,81 @@ const bigClock: SaverFactory = (canvas, ctx, accent) => {
     reset,
     step() {
       t++;
+      const W = canvas.width;
+      const H = canvas.height;
       ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, W, H);
 
       const now = new Date();
       const p2 = (n: number) => String(n).padStart(2, "0");
-      const time = `${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
-      const date = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} (${"일월화수목금토"[now.getDay()]})`;
+      const date = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${"일월화수목금토"[now.getDay()]}요일`;
+      // 분 진행률 — 초·밀리초까지 반영해 진행선이 끊김 없이 흐른다.
+      const minFrac = (now.getSeconds() * 1000 + now.getMilliseconds()) / 60_000;
 
       // OLED 번인 방지 — 리사주 궤적으로 아주 천천히 떠다닌다.
-      const cx = canvas.width / 2 + Math.sin(t * 0.008) * canvas.width * 0.06;
-      const cy = canvas.height / 2 + Math.sin(t * 0.011) * canvas.height * 0.06;
+      const cx = W / 2 + Math.sin(t * 0.008) * W * 0.05;
+      const cy = H / 2 + Math.sin(t * 0.011) * H * 0.05;
 
+      // 숨 쉬는 배경 광원 — 시계 뒤에서 액센트색이 아주 옅게 맥동한다.
+      const breathe = 0.09 + 0.03 * Math.sin(t * 0.02);
+      const R = Math.min(W, H) * 0.6;
+      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+      glow.addColorStop(0, hexA(accent, breathe));
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+
+      // 시:분 — 얇은 활자(Segoe UI Light 급). 콜론만 초 리듬으로 부드럽게 숨 쉰다.
+      const big = Math.floor(Math.min(W / 6, H / 2.8));
+      const thin = `200 ${big}px "Segoe UI", "Malgun Gothic", sans-serif`;
+      ctx.font = thin;
       ctx.textAlign = "center";
-      ctx.fillStyle = accent;
-      ctx.font = `bold ${Math.floor(canvas.width / 9)}px Consolas, monospace`;
-      ctx.fillText(time, cx, cy);
-      ctx.globalAlpha = 0.55;
-      ctx.font = `${Math.floor(canvas.width / 36)}px Consolas, monospace`;
-      ctx.fillText(date, cx, cy + canvas.width / 18);
-
-      // 은은한 스캔라인 스윕 — 프레임마다 변화가 있어야 '멈춘 화면'으로 오해받지 않는다.
-      const sweep = (t * 3) % (canvas.height + 120);
-      const grad = ctx.createLinearGradient(0, sweep - 120, 0, sweep);
-      grad.addColorStop(0, "rgba(255,255,255,0)");
-      grad.addColorStop(1, "rgba(255,255,255,0.045)");
+      const halfColon = ctx.measureText(":").width / 2;
+      const digitW = ctx.measureText("00").width;
+      ctx.fillStyle = "#e9e9e4";
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = big * 0.07;
+      ctx.fillText(p2(now.getHours()), cx - halfColon - digitW / 2 - big * 0.06, cy);
+      ctx.fillText(p2(now.getMinutes()), cx + halfColon + digitW / 2 + big * 0.06, cy);
+      const colonPulse = 0.25 + 0.75 * Math.abs(Math.sin((now.getMilliseconds() / 1000) * Math.PI));
+      ctx.globalAlpha = colonPulse;
+      ctx.fillText(":", cx, cy - big * 0.06);
       ctx.globalAlpha = 1;
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, sweep - 120, canvas.width, 120);
+      // 초 — 분 오른쪽 위에 작게(위첨자 느낌).
+      ctx.font = `200 ${Math.floor(big * 0.26)}px "Segoe UI", "Malgun Gothic", sans-serif`;
+      ctx.textAlign = "left";
+      ctx.globalAlpha = 0.75;
+      ctx.fillText(p2(now.getSeconds()), cx + halfColon + digitW + big * 0.15, cy - big * 0.62);
+      ctx.shadowBlur = 0;
+
+      // 분 진행선 — 1분에 걸쳐 왼→오. 트랙은 희미하게, 진행분은 액센트, 끝에 점.
+      const lineW = (halfColon + digitW + big * 0.06) * 2 * 0.94;
+      const ly = cy + big * 0.28;
+      const lx = cx - lineW / 2;
+      ctx.lineCap = "round";
+      ctx.lineWidth = Math.max(2, big * 0.018);
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      ctx.beginPath();
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(lx + lineW, ly);
+      ctx.stroke();
+      ctx.strokeStyle = hexA(accent, 0.85);
+      ctx.beginPath();
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(lx + lineW * Math.max(0.001, minFrac), ly);
+      ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(lx + lineW * minFrac, ly, Math.max(3, big * 0.024), 0, Math.PI * 2);
+      ctx.fill();
+
+      // 날짜 — 한 줄, 차분하게.
+      ctx.font = `300 ${Math.floor(big * 0.155)}px "Segoe UI", "Malgun Gothic", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#e9e9e4";
+      ctx.globalAlpha = 0.5;
+      ctx.fillText(date, cx, ly + big * 0.34);
+      ctx.globalAlpha = 1;
       ctx.textAlign = "left";
     },
   };

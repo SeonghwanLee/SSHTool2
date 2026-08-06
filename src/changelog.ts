@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.60.0",
+    date: "2026-08-06",
+    notes: [
+      "화면보호기 시계 재디자인 — 얇은 활자와 은은한 광원, 위첨자 초, 1분 진행선, 한국어 날짜 표기",
+    ],
+  },
+  {
     version: "0.59.2",
     date: "2026-08-06",
     notes: [
