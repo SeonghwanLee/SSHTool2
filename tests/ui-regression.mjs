@@ -1007,6 +1007,22 @@ try {
       );
     });
 
+    await t.test("세션 검색 — 계정@호스트:포트 합성 표기와 폴더명도 걸린다", async () => {
+      const count = () => page.locator(".tree-session").count();
+      await page.fill("#session-search", "root@10.1.0.3");
+      await page.waitForTimeout(250);
+      expect((await count()) === 1, "계정@호스트 붙여 친 검색이 안 걸린다");
+      await page.fill("#session-search", ":22");
+      await page.waitForTimeout(250);
+      expect((await count()) === 3, "포트(:22) 검색이 전 세션에 안 걸린다");
+      await page.fill("#session-search", "운영");
+      await page.waitForTimeout(250);
+      expect((await count()) >= 2, "폴더명 검색이 안 걸린다");
+      await page.fill("#session-search", "");
+      await page.waitForTimeout(250);
+      expect((await count()) === 3, "검색을 지워도 목록이 복귀하지 않는다");
+    });
+
     await t.test("세션 열기 — 탭 즉시 생성, 접속 실패는 팝업 대신 탭 오버레이+재접속", async () => {
       await page.evaluate(() => {
         const prev = window.__TAURI_INTERNALS__.invoke;

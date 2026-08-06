@@ -496,11 +496,13 @@ export class Sidebar {
   private matches(s: SessionInfo): boolean {
     if (!this.filter) return true;
     const q = this.filter;
+    // 행에 보이는 세부정보 표기(계정@호스트:포트) 그대로 검색되게 한다 — 개별 필드만
+    // 보면 "root@10.0.0.1" 처럼 붙여 친 검색이 안 걸린다(0.59.2). 개별 host·user 검색은
+    // 합성 문자열 검색에 포함되므로 따로 두지 않고, 폴더명도 검색 범위에 넣는다.
     return (
       s.name.toLowerCase().includes(q) ||
-      s.host.toLowerCase().includes(q) ||
-      s.user.toLowerCase().includes(q) ||
-      s.shellExe.toLowerCase().includes(q)
+      detailText(s).toLowerCase().includes(q) ||
+      s.folder.toLowerCase().includes(q)
     );
   }
 

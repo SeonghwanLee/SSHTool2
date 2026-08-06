@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.59.2",
+    date: "2026-08-06",
+    notes: [
+      "세션 검색 범위 확대 — 이름뿐 아니라 행에 보이는 표기 그대로 \"계정@호스트:포트\"로 붙여 쳐도, 폴더명으로도 검색됩니다",
+    ],
+  },
+  {
     version: "0.59.1",
     date: "2026-08-06",
     notes: [
