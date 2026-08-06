@@ -1047,6 +1047,26 @@ try {
       expect(r.reBtn, "재접속 버튼이 없다");
     });
 
+    await t.test("수신 쓰기 펌프 — 조각 폭주에도 순서·내용이 그대로 도달한다", async () => {
+      // 위 테스트가 만든 탭에 직접 조각을 폭주시킨다(DEV 훅 __tm).
+      const out = await page.evaluate(async () => {
+        const tab = window.__tm?.tabs?.[0];
+        if (!tab) return "no-tab";
+        const enc = new TextEncoder();
+        for (let i = 0; i < 500; i++) tab.writeBytes([...enc.encode(`줄-${i} 확인—완료\r\n`)]);
+        await new Promise((r) => setTimeout(r, 900));
+        const b = tab.term.buffer.active;
+        const lines = [];
+        for (let y = Math.max(0, b.length - 40); y < b.length; y++)
+          lines.push(b.getLine(y)?.translateToString() ?? "");
+        const txt = lines.join("\n");
+        if (!txt.includes("줄-499 확인—완료")) return "tail-missing";
+        if (!txt.includes("줄-498 확인—완료")) return "order-broken";
+        return "ok";
+      });
+      expect(out === "ok", `수신 펌프 결과: ${out}`);
+    });
+
     await page.close();
   }
 

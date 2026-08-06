@@ -677,6 +677,48 @@ class TerminalTab {
   private lastCtrlEnterLf = 0; // Ctrl+Enter LF 중복(이중 keydown) 방지용 타임스탬프
   /** 수신 스트림의 UTF-8 문자 경계 정렬 — xterm 6.0.0 조각 디코더 버그 우회(utf8stream.ts). */
   private readonly utf8Gate = new Utf8Gate();
+  // ── 수신 쓰기 펌프(0.61.0) — 대량 출력에 앱이 굳던 문제의 보수적 해법 ──
+  // term.write 를 fire-and-forget 으로 쌓으면 유입이 소화보다 빠를 때 xterm 내부
+  // 버퍼가 무한정 자라 UI 가 잠식된다(cat 대용량 등). 소화 완료 콜백을 받아 다음
+  // 조각을 보내는 펌프로 바꾼다 — 내용·순서는 그대로고 밀어넣는 속도만 조절된다.
+  private writeQ: Uint8Array[] = [];
+  private draining = false;
+  private pump(): void {
+    if (this.draining) return;
+    this.draining = true;
+    const next = (): void => {
+      if (this.disposed) {
+        this.draining = false;
+        this.writeQ = [];
+        return;
+      }
+      let chunk = this.writeQ.shift();
+      if (!chunk) {
+        this.draining = false;
+        return;
+      }
+      // 작은 조각이 몰려 있으면 64KB 까지 합쳐 호출 횟수를 줄인다(순서 유지).
+      if (chunk.length < 65536 && this.writeQ.length > 0) {
+        let size = chunk.length;
+        let k = 0;
+        while (k < this.writeQ.length && size + this.writeQ[k].length <= 65536)
+          size += this.writeQ[k++].length;
+        if (k > 0) {
+          const merged = new Uint8Array(size);
+          merged.set(chunk, 0);
+          let off = chunk.length;
+          for (let j = 0; j < k; j++) {
+            merged.set(this.writeQ[j], off);
+            off += this.writeQ[j].length;
+          }
+          this.writeQ.splice(0, k);
+          chunk = merged;
+        }
+      }
+      this.term.write(chunk, next);
+    };
+    next();
+  }
   writeBytes(data: number[]): void {
     const bytes = new Uint8Array(data);
     // 서버가 실제로 무엇을 보냈는지 — 화면에 그려진 결과만 보고는 알 수 없는 것들
@@ -684,7 +726,10 @@ class TerminalTab {
     // 게이트 이전의 원본을 본다(각자 자체 스트리밍 디코더로 조각을 올바르게 잇는다).
     logBytes(`RX ${this.session.name || this.session.host}`, bytes);
     const complete = this.utf8Gate.feed(bytes);
-    if (complete.length) this.term.write(complete);
+    if (complete.length) {
+      this.writeQ.push(complete);
+      this.pump();
+    }
     if (this.session.triggers.length) this.checkTriggers(bytes);
   }
 
@@ -839,6 +884,7 @@ class TerminalTab {
     this.status = "connecting";
     this.reconnectBtn = null;
     this.utf8Gate.clear(); // 새 스트림 — 이전 접속의 반쪽 문자 꼬리와 잇지 않는다
+    this.writeQ = []; // 이전 스트림의 미출력 잔여도 버린다(새 화면에 섞이지 않게)
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="overlay-msg">접속 중…</div>`;
   }
@@ -910,6 +956,8 @@ export class TabManager {
   private dragMoved = false;
   /** 동시 명령이 겨눈 탭 키(null = 표시 안 함). 탭바 강조에만 쓴다. */
   private bcastKeys: ReadonlySet<string> | null = null;
+  /** 수신 이벤트발 상태바 갱신의 마지막 시각 — 폭주 출력에서 DOM 갱신을 초당 4회로 제한. */
+  private lastRxStatusAt = 0;
   /** 탭 구성·접속 상태가 바뀔 때 알림받을 구독자(동시 명령 창 세션 수 등). */
   private readonly tabsChanged: Array<() => void> = [];
 
@@ -956,7 +1004,15 @@ export class TabManager {
         tab.activity = true;
         this.renderTabbar();
       }
-      if (tab === this.active) this.emitStatus();
+      // 수신 조각마다 상태바 DOM 을 갱신하면 폭주 출력에서 그 비용만으로도 상당하다
+      // — 사람 눈에는 초당 4회면 충분하다(0.61.0).
+      if (tab === this.active) {
+        const now = Date.now();
+        if (now - this.lastRxStatusAt > 250) {
+          this.lastRxStatusAt = now;
+          this.emitStatus();
+        }
+      }
     });
     void onSshClosed((e) => {
       const tab = this.byLiveId.get(e.id);
