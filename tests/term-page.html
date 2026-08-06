@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- 터미널 단독 재생 페이지 — 회귀·재현 전용.
+     실제 세션에서 캡처한 raw 바이트를 앱과 같은 xterm 구성(Unicode 11, 폰트 스택)으로
+     재생해, TUI(vim 등) 화면 깨짐을 백엔드 없이 검증한다. -->
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/node_modules/@xterm/xterm/css/xterm.css" />
+    <style>
+      body { margin: 0; background: #1e1e1e; }
+      #t { padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="t"></div>
+    <script type="module">
+      import { Terminal } from "@xterm/xterm";
+      import { Unicode11Addon } from "@xterm/addon-unicode11";
+      import { fontStack } from "/src/settings.ts";
+
+      const term = new Terminal({
+        cols: 100,
+        rows: 30,
+        fontFamily: fontStack("D2Coding"),
+        fontSize: 15,
+        allowProposedApi: true,
+        theme: { background: "#1e1e1e", foreground: "#d4d4be" },
+      });
+      const uni = new Unicode11Addon();
+      term.loadAddon(uni);
+      term.unicode.activeVersion = "11";
+      term.open(document.getElementById("t"));
+
+      /** base64 raw 바이트를 재생한다(쓰기 완료 시 resolve). */
+      window.__feed = (b64) =>
+        new Promise((res) => {
+          const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          term.write(bin, res);
+        });
+      /** 화면 버퍼를 문자열 배열로 — 레이아웃(열 위치) 검증용. */
+      window.__grid = () => {
+        const b = term.buffer.active;
+        const rows = [];
+        for (let y = 0; y < term.rows; y++) rows.push(b.getLine(y + b.viewportY)?.translateToString() ?? "");
+        return rows;
+      };
+      window.__term = term;
+    </script>
+  </body>
+</html>

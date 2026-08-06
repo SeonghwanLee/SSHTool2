@@ -16,6 +16,7 @@ import type { SessionInfo } from "./types";
 import type { Settings } from "./settings";
 import { fontStack } from "./settings";
 import { themeById } from "./themes";
+import { Utf8Gate } from "./utf8stream";
 import {
   sshConnect,
   sshWrite,
@@ -674,12 +675,16 @@ class TerminalTab {
   private imeInitDone = false;
   private pendingCompositionLf = false; // Ctrl+Enter(조합 중) → compositionend 에서 LF 전송 예약
   private lastCtrlEnterLf = 0; // Ctrl+Enter LF 중복(이중 keydown) 방지용 타임스탬프
+  /** 수신 스트림의 UTF-8 문자 경계 정렬 — xterm 6.0.0 조각 디코더 버그 우회(utf8stream.ts). */
+  private readonly utf8Gate = new Utf8Gate();
   writeBytes(data: number[]): void {
     const bytes = new Uint8Array(data);
     // 서버가 실제로 무엇을 보냈는지 — 화면에 그려진 결과만 보고는 알 수 없는 것들
-    // (커서 이동, 마우스 추적 켜기, 색상 코드)이 여기에 드러난다.
+    // (커서 이동, 마우스 추적 켜기, 색상 코드)이 여기에 드러난다. 진단 로그와 트리거는
+    // 게이트 이전의 원본을 본다(각자 자체 스트리밍 디코더로 조각을 올바르게 잇는다).
     logBytes(`RX ${this.session.name || this.session.host}`, bytes);
-    this.term.write(bytes);
+    const complete = this.utf8Gate.feed(bytes);
+    if (complete.length) this.term.write(complete);
     if (this.session.triggers.length) this.checkTriggers(bytes);
   }
 
@@ -833,6 +838,7 @@ class TerminalTab {
   setConnecting(): void {
     this.status = "connecting";
     this.reconnectBtn = null;
+    this.utf8Gate.clear(); // 새 스트림 — 이전 접속의 반쪽 문자 꼬리와 잇지 않는다
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="overlay-msg">접속 중…</div>`;
   }

@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.59.1",
+    date: "2026-08-06",
+    notes: [
+      "vi 분할(:split/:vsplit) 등 TUI 화면이 깨지거나 줄이 밀려 보이던 문제를 고쳤습니다 — 터미널 엔진(xterm 6.0.0)이 수신 조각 경계에서 — … 。「」 전각공백 같은 문자를 통째로 잃는 버그가 원인이었고, 문자 경계 정렬 게이트로 우회했습니다. 출력이 큰 화면일수록 자주 발생하던 증상입니다",
+    ],
+  },
+  {
     version: "0.59.0",
     date: "2026-08-05",
     notes: [

@@ -1033,6 +1033,67 @@ try {
 
     await page.close();
   }
+
+  // ── 터미널 UTF-8 청크 경계 — vi 분할 화면 깨짐/줄 밀림 회귀(0.59.1) ────────────
+  // xterm 6.0.0 은 청크가 0x80 연속 바이트 직후에서 끊기면 그 문자를 통째로 버린다
+  // (— … 。「」 전각공백 등). Utf8Gate 가 완성 문자 경계로 재정렬해 이를 막는다.
+  {
+    const page = await openPage(browser, { url: "/tests/term-page.html" });
+    await page.waitForTimeout(500);
+
+    await t.test("UTF-8 게이트 — 어떤 절단 지점에서도 문자가 사라지지 않는다", async () => {
+      const bad = await page.evaluate(async () => {
+        const { Utf8Gate } = await import("/src/utf8stream.ts");
+        const term = window.__term;
+        const enc = new TextEncoder();
+        const errs = [];
+        const w = (u8) => new Promise((r) => (u8.length ? term.write(u8, r) : r()));
+        for (const ch of ["—", "…", "가", "│", "。", "　", "😀"]) {
+          const bytes = enc.encode("A" + ch + "B");
+          for (let cut = 1; cut < bytes.length; cut++) {
+            const gate = new Utf8Gate();
+            term.reset();
+            await w(gate.feed(bytes.subarray(0, cut)));
+            await w(gate.feed(bytes.subarray(cut)));
+            const line = term.buffer.active.getLine(0)?.translateToString().trimEnd();
+            if (line !== `A${ch}B`) errs.push(`${ch} cut@${cut} → ${JSON.stringify(line)}`);
+          }
+        }
+        return errs;
+      });
+      expect(bad.length === 0, `깨진 조합: ${bad.join(" / ")}`);
+    });
+
+    await t.test("vim 분할 캡처 — 잘게 흘려도 한 번에 흘린 화면과 동일하다", async () => {
+      const r = await page.evaluate(async () => {
+        const { Utf8Gate } = await import("/src/utf8stream.ts");
+        const buf = new Uint8Array(await (await fetch("/tests/vim-split.bin")).arrayBuffer());
+        const term = window.__term;
+        const w = (u8) => new Promise((res) => (u8.length ? term.write(u8, res) : res()));
+        term.reset();
+        await w(buf);
+        const base = window.__grid();
+        term.reset();
+        const gate = new Utf8Gate();
+        // 결정적 의사난수 1~7바이트 — 실제 SSH 청크의 임의 경계를 흉내낸다.
+        let seed = 987;
+        const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) % 7) + 1;
+        let i = 0;
+        while (i < buf.length) {
+          const n = Math.min(rnd(), buf.length - i);
+          await w(gate.feed(buf.subarray(i, i + n)));
+          i += n;
+        }
+        const diff = [];
+        const chunked = window.__grid();
+        base.forEach((l, y) => l !== chunked[y] && diff.push(y));
+        return diff;
+      });
+      expect(r.length === 0, `청크 재생이 ${r.length}개 행에서 다르다(행: ${r.join(",")})`);
+    });
+
+    await page.close();
+  }
 } finally {
   await browser.close();
   stop();
