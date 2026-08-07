@@ -212,8 +212,10 @@ export class Sidebar {
     chip.classList.toggle("live", live !== null);
     chip.classList.toggle("busy", live?.transferring === true);
     if (live?.transferring) {
-      chip.textContent = `SFTP ${live.percent}%`;
-      chip.title = `전송 중 ${live.percent}% · 우클릭하여 연결 끊기`;
+      // 전송 중에는 퍼센트만 — "SFTP 37%" 는 사이드바를 좁히면 줄바꿈으로 깨진다
+      // (사용자 보고 0.62.1). busy 색상과 %가 있어 SFTP 문구 없이도 의미가 통한다.
+      chip.textContent = `${live.percent}%`;
+      chip.title = `SFTP 전송 중 ${live.percent}% · 우클릭하여 연결 끊기`;
     } else {
       chip.textContent = "SFTP";
       chip.title = live ? "연결됨 · 우클릭하여 연결 끊기" : "SFTP 파일 전송";

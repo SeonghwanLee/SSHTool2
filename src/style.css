@@ -2569,6 +2569,7 @@ body.sftp-resizing * {
   padding: 1px 4px;
   color: var(--muted);
   width: auto;
+  white-space: nowrap; /* 사이드바를 좁혀도 칩 안에서 줄바꿈되지 않게(안전벨트) */
 }
 .tree-act.sftp-chip:hover {
   color: var(--accent-ink);

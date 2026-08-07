@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.62.1",
+    date: "2026-08-07",
+    notes: [
+      "사이드바 SFTP 전송 표시가 좁은 폭에서 줄바꿈으로 깨지던 문제 수정 — 전송 중에는 퍼센트만 표시합니다",
+    ],
+  },
+  {
     version: "0.62.0",
     date: "2026-08-07",
     notes: [
