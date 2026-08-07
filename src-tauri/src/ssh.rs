@@ -439,7 +439,7 @@ pub async fn connect(
                 "ssh://data",
                 DataPayload {
                     id: notify_id.clone(),
-                    data: format!("\r\n\x1b[36m{msg}\x1b[0m\r\n").into_bytes(),
+                    data: B64.encode(format!("\r\n\x1b[36m{msg}\x1b[0m\r\n").as_bytes()),
                 },
             );
         };
