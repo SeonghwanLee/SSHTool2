@@ -1,6 +1,6 @@
 [package]
 name = "sshtool2"
-version = "0.63.0"
+version = "0.64.0"
 description = "SSHTool2"
 authors = ["Seonghwan Lee"]
 edition = "2021"
@@ -17,7 +17,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 russh = "0.62"
-russh-sftp = "2.3"
+# 한글(비-UTF-8) 파일명 지원을 위해 문자열 처리 2곳을 바이트 보존으로 고친 사본.
+# 패치 내용은 vendor/russh-sftp/PATCH.md 참고 — 업그레이드 시 재적용 필요.
+russh-sftp = { path = "vendor/russh-sftp" }
 uuid = { version = "1", features = ["v4"] }
 aes-gcm = "0.10"
 pbkdf2 = "0.12"

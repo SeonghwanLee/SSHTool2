@@ -39,20 +39,37 @@ export function sessionDialog(
         const title = document.createElement("h3");
         title.textContent = titleText;
 
-        // ── 종류(SSH 원격 / 로컬 셸) ──
-        const kind = document.createElement("select");
-        kind.className = "sel-input";
-        for (const [val, label] of [
-          ["ssh", "SSH 원격 접속"],
-          ["local", "로컬 셸 (서버 없이 실행)"],
-          ["rdp", "원격 데스크톱 (RDP · 별도 창)"],
-        ] as [SessionKind, string][]) {
-          const o = document.createElement("option");
-          o.value = val;
-          o.textContent = label;
-          if (val === initial.kind) o.selected = true;
-          kind.appendChild(o);
+        // ── 종류(SSH 원격 / 로컬 셸 / 원격 데스크톱) ──
+        // 드롭다운은 폭이 좁아 긴 라벨이 잘렸다 — 한 줄 라디오로 세 종류를 모두 보인다.
+        // 라디오는 change 가 컨테이너로 버블링되므로 기존 change 배선이 그대로 통한다.
+        const kind = document.createElement("div");
+        kind.className = "kind-radios";
+        const KINDS: [SessionKind, string][] = [
+          ["ssh", "SSH 원격"],
+          ["local", "로컬 셸"],
+          ["rdp", "원격 데스크톱"],
+        ];
+        // 저장된 값이 없거나 알 수 없는 값이면 SSH 가 기본(새 세션의 기본값).
+        const initialKind = KINDS.some(([v]) => v === initial.kind) ? initial.kind : "ssh";
+        for (const [val, label] of KINDS) {
+          const lab = document.createElement("label");
+          lab.className = "kind-radio";
+          const radio = document.createElement("input");
+          radio.type = "radio";
+          radio.name = "session-kind";
+          radio.value = val;
+          radio.checked = val === initialKind;
+          const icon = document.createElement("span");
+          icon.className = "kind-radio-icon";
+          applyIcon(icon, val === "local" ? "local" : val === "rdp" ? "rdp" : "remote");
+          const text = document.createElement("span");
+          text.textContent = label;
+          lab.append(radio, icon, text);
+          kind.appendChild(lab);
         }
+        /** 지금 선택된 종류. 라디오 그룹에는 select 처럼 value 가 없어 헬퍼로 읽는다. */
+        const kindValue = (): SessionKind =>
+          (kind.querySelector<HTMLInputElement>("input:checked")?.value ?? "ssh") as SessionKind;
 
         const shellExe = textInput(initial.shellExe, "실행 파일 (비우면 기본 셸: cmd/pwsh)");
         const workingDir = textInput(initial.workingDir, "시작 폴더 (선택)");
@@ -224,9 +241,9 @@ export function sessionDialog(
 
         // 종류에 따라 필요한 입력만 보인다.
         const syncKind = () => {
-          const local = kind.value === "local";
+          const local = kindValue() === "local";
           // RDP 는 mstsc 가 화면·입력을 맡는다 — 터미널/SSH 전용 설정은 의미가 없다.
-          const rdp = kind.value === "rdp";
+          const rdp = kindValue() === "rdp";
           const key = auth.value === "key";
           for (const el of [hostField, portField, userField])
             (el as HTMLElement).style.display = local ? "none" : "";
@@ -247,7 +264,7 @@ export function sessionDialog(
           const DEFAULTS: Record<string, string> = { ssh: "22", rdp: "3389" };
           const cur = port.value.trim();
           if (Object.values(DEFAULTS).includes(cur) || cur === "") {
-            port.value = DEFAULTS[kind.value] ?? cur;
+            port.value = DEFAULTS[kindValue()] ?? cur;
           }
           syncKind();
         });
@@ -311,7 +328,7 @@ export function sessionDialog(
 
         // 로컬 셸은 인증 개념이 없어 "인증" 탭을 숨긴다(빈 탭 방지).
         const syncAuthTab = () => {
-          const local = kind.value === "local";
+          const local = kindValue() === "local";
           const btn = tabButtons.get("auth")!;
           btn.style.display = local ? "none" : "";
           // 서비스는 세션 호스트에 접속하므로 호스트가 없는 로컬 셸에는 의미가 없다.
@@ -325,7 +342,7 @@ export function sessionDialog(
 
         card.addEventListener("submit", (e) => {
           e.preventDefault();
-          const local = kind.value === "local";
+          const local = kindValue() === "local";
           const h = host.value.trim();
           if (!local && !h) {
             err.textContent = "호스트를 입력하세요.";
@@ -340,7 +357,7 @@ export function sessionDialog(
           const fallbackName = local ? shellExe.value.trim() || "로컬 셸" : h;
           const result: SessionInfo = {
             ...initial,
-            kind: kind.value as SessionKind,
+            kind: kindValue(),
             shellExe: shellExe.value.trim(),
             workingDir: workingDir.value.trim(),
             name: name.value.trim() || fallbackName,

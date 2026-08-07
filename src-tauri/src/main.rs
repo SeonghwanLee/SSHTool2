@@ -290,6 +290,7 @@ async fn sftp_connect(
     auth_type: String,
     private_key_path: String,
     allow_legacy_algorithms: bool,
+    charset: String,
 ) -> Result<String, String> {
     sftp::connect(
         app,
@@ -300,6 +301,7 @@ async fn sftp_connect(
         auth_type,
         private_key_path,
         allow_legacy_algorithms,
+        charset,
     )
     .await
 }

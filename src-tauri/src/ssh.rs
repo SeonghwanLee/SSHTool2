@@ -217,7 +217,7 @@ impl client::Handler for Client {
 }
 
 /// 세션 문자셋을 encoding_rs 인코딩으로 해석. UTF-8(또는 미지정)이면 None = 변환 없음.
-fn resolve_encoding(charset: &str) -> Option<&'static encoding_rs::Encoding> {
+pub fn resolve_encoding(charset: &str) -> Option<&'static encoding_rs::Encoding> {
     let label = charset.trim();
     if label.is_empty() {
         return None;

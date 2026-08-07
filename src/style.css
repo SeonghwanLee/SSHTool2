@@ -2625,3 +2625,33 @@ button:focus-visible,
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* 세션 편집 '종류' — 한 줄 라디오(드롭다운이 좁아 라벨이 잘리던 자리, 0.64.0). */
+.kind-radios {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.kind-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--fg);
+}
+.kind-radio input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.kind-radio-icon {
+  color: var(--muted);
+  font-size: 13px;
+}
+.kind-radio input:checked ~ .kind-radio-icon {
+  color: var(--accent);
+}

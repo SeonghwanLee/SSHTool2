@@ -196,6 +196,8 @@ export const sftpConnect = (
   authType: string,
   privateKeyPath: string,
   allowLegacyAlgorithms: boolean,
+  /** 파일명 문자셋 — 터미널과 같은 세션 설정. EUC-KR 서버의 한글 파일명 처리에 쓴다. */
+  charset: string,
 ): Promise<string> =>
   invoke<string>("sftp_connect", {
     host,
@@ -205,6 +207,7 @@ export const sftpConnect = (
     authType,
     privateKeyPath,
     allowLegacyAlgorithms,
+    charset,
   });
 
 export const sftpList = (id: string, path: string): Promise<SftpEntry[]> =>

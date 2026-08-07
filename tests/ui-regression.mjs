@@ -1007,6 +1007,79 @@ try {
       );
     });
 
+    await t.test("레이아웃 잘림 — 주요 화면에서 내용이 상자에 잘리지 않는다", async () => {
+      // '잘림' = overflow hidden/clip 인데 내용이 넘치는 것. 말줄임(ellipsis)은 의도된
+      // 처리라 통과시킨다(세션 이름 등은 툴팁으로 전체를 보여 준다).
+      const scan = () =>
+        page.evaluate(() => {
+          const out = [];
+          for (const el of document.querySelectorAll("body *")) {
+            const st = getComputedStyle(el);
+            if (st.display === "none" || st.visibility === "hidden" || el.offsetParent === null) continue;
+            if (el.closest(".xterm")) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width < 4 || r.height < 4) continue;
+            const clip = /hidden|clip/.test(st.overflowX + st.overflowY);
+            if (!clip) continue; // overflow visible 은 넘쳐도 읽힌다
+            if (st.textOverflow === "ellipsis") continue; // 의도된 말줄임
+            if (el.scrollWidth - el.clientWidth > 1 || el.scrollHeight - el.clientHeight > 1) {
+              const cls =
+                typeof el.className === "string" && el.className.trim()
+                  ? "." + el.className.trim().split(/\s+/)[0]
+                  : el.id
+                    ? "#" + el.id
+                    : el.tagName.toLowerCase();
+              out.push(`${cls}(${el.scrollWidth}>${el.clientWidth}) "${(el.textContent || "").trim().slice(0, 24)}"`);
+            }
+          }
+          return [...new Set(out)];
+        });
+      await dismissModals(page);
+      const bad = [];
+      bad.push(...(await scan()).map((x) => `메인:${x}`));
+      // 좁은 창에서도 확인 — 폭이 줄면 잘림이 드러난다.
+      await page.setViewportSize({ width: 900, height: 620 });
+      await page.waitForTimeout(250);
+      bad.push(...(await scan()).map((x) => `좁은창:${x}`));
+      for (const [btn, label] of [["#open-settings", "설정"], ["#new-session", "세션편집"]]) {
+        await page.click(btn);
+        await page.waitForTimeout(400);
+        bad.push(...(await scan()).map((x) => `${label}:${x}`));
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(250);
+      }
+      await page.setViewportSize({ width: 1400, height: 900 });
+      await page.waitForTimeout(250);
+      expect(bad.length === 0, `잘리는 요소: ${bad.slice(0, 6).join(" | ")}`);
+    });
+
+    await t.test("세션 편집 종류 — 한 줄 라디오 3종, 기본 SSH, 안 잘린다", async () => {
+      await dismissModals(page);
+      await page.click("#new-session");
+      await page.waitForTimeout(400);
+      const r = await page.evaluate(() => {
+        const radios = [...document.querySelectorAll(".kind-radio input")];
+        const labels = [...document.querySelectorAll(".kind-radio")];
+        const rects = labels.map((l) => l.getBoundingClientRect());
+        const row = document.querySelector(".kind-radios")?.getBoundingClientRect();
+        return {
+          count: radios.length,
+          checked: radios.find((r) => r.checked)?.value,
+          // 한 줄: 모든 항목의 세로 위치가 같아야 한다
+          oneLine: rects.every((x) => Math.abs(x.top - rects[0].top) < 2),
+          // 잘림 없음: 마지막 항목 오른쪽 끝이 줄 안에 들어와야 한다
+          fits: row ? rects[rects.length - 1].right <= row.right + 1 : false,
+          labels: labels.map((l) => l.textContent.trim()),
+        };
+      });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+      expect(r.count === 3, `라디오가 3개가 아니다: ${r.count}`);
+      expect(r.checked === "ssh", `기본 선택이 SSH 가 아니다: ${r.checked}`);
+      expect(r.oneLine, `한 줄로 배치되지 않았다: ${JSON.stringify(r.labels)}`);
+      expect(r.fits, "항목이 줄 밖으로 잘린다");
+    });
+
     await t.test("세션 검색 — 계정@호스트:포트 합성 표기와 폴더명도 걸린다", async () => {
       const count = () => page.locator(".tree-session").count();
       await page.fill("#session-search", "root@10.1.0.3");
@@ -1146,6 +1219,44 @@ try {
         r.held === 0 && r.flushed === 2 && r.empty === 0,
         `flush 동작이 다르다: ${JSON.stringify(r)}`,
       );
+    });
+
+    await t.test("한글 출력 — 조각 경계·폭(2칸)·조합형 자모가 정확히 그려진다", async () => {
+      const r = await page.evaluate(async () => {
+        const { Utf8Gate } = await import("/src/utf8stream.ts");
+        const term = window.__term;
+        const enc = new TextEncoder();
+        const w = (u8) => new Promise((res) => (u8.length ? term.write(u8, res) : res()));
+        const line = (y) => term.buffer.active.getLine(y)?.translateToString().trimEnd();
+        const bad = [];
+        const cases = [
+          "한글 출력 테스트",
+          "가나다라마바사아자차카타파하",
+          "혼합 mixed 混合 テスト",
+          "특수문자 — … 「」 。 ·",
+          "ㄱㄴㄷ ㅏㅑㅓ 조합 자모",
+        ];
+        for (const s of cases) {
+          const bytes = enc.encode(s);
+          // ① 통짜
+          term.reset();
+          await w(bytes);
+          if (line(0) !== s) bad.push(`통짜:${s}→${line(0)}`);
+          // ② 1바이트씩(게이트 경유) — 모든 경계 절단
+          term.reset();
+          const g = new Utf8Gate();
+          for (let i = 0; i < bytes.length; i++) await w(g.feed(bytes.subarray(i, i + 1)));
+          await w(g.flush());
+          if (line(0) !== s) bad.push(`조각:${s}→${line(0)}`);
+        }
+        // 한글은 2칸 폭 — Unicode11 활성 확인(폭이 1이면 커서·줄바꿈이 어긋난다)
+        term.reset();
+        await w(enc.encode("한"));
+        const cursorX = term.buffer.active.cursorX;
+        if (cursorX !== 2) bad.push(`폭:${cursorX}(2 기대)`);
+        return bad;
+      });
+      expect(r.length === 0, `한글 출력 불일치: ${r.join(" / ")}`);
     });
 
     await t.test("vim 분할 캡처 — 잘게 흘려도 한 번에 흘린 화면과 동일하다", async () => {

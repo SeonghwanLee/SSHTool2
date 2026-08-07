@@ -20,6 +20,32 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub struct SftpConn {
     sftp: SftpSession,
     _handle: Handle<Client>,
+    /// 이 서버의 파일명 문자셋(None = UTF-8). 세션 설정(charset)을 그대로 쓴다.
+    encoding: Option<&'static encoding_rs::Encoding>,
+}
+
+// ── 파일명 문자셋 변환 ────────────────────────────────────────────────────────
+// SFTP v3 는 파일명 인코딩을 규정하지 않는다 = 서버가 쓰는 바이트 그대로다. 동봉한
+// russh-sftp 사본은 와이어 바이트를 코드포인트 하나당 한 바이트로 무손실 전달하므로
+// (vendor/russh-sftp/PATCH.md), 여기서 세션 문자셋으로 해석·인코딩한다.
+// UTF-8 세션은 두 함수가 항등이라 기존 동작과 완전히 같다.
+
+/// 와이어 문자열(바이트 보존) → 화면·프런트용 UTF-8 문자열.
+fn wire_to_text(s: &str, enc: Option<&'static encoding_rs::Encoding>) -> String {
+    let bytes: Vec<u8> = s.chars().map(|c| c as u32 as u8).collect();
+    match enc {
+        Some(e) => e.decode_without_bom_handling(&bytes).0.into_owned(),
+        None => String::from_utf8_lossy(&bytes).into_owned(),
+    }
+}
+
+/// 프런트가 준 UTF-8 문자열 → 와이어 문자열(바이트 보존).
+fn text_to_wire(s: &str, enc: Option<&'static encoding_rs::Encoding>) -> String {
+    let bytes: Vec<u8> = match enc {
+        Some(e) => e.encode(s).0.into_owned(),
+        None => s.as_bytes().to_vec(),
+    };
+    bytes.into_iter().map(|b| b as char).collect()
 }
 
 pub type SftpMap = Mutex<HashMap<String, Arc<SftpConn>>>;
@@ -88,6 +114,7 @@ pub async fn connect(
     auth_type: String,
     private_key_path: String,
     allow_legacy_algorithms: bool,
+    charset: String,
 ) -> Result<String, String> {
     let config = crate::ssh::client_config(allow_legacy_algorithms);
 
@@ -149,6 +176,7 @@ pub async fn connect(
         Arc::new(SftpConn {
             sftp,
             _handle: handle,
+            encoding: crate::ssh::resolve_encoding(&charset),
         }),
     );
     Ok(id)
@@ -158,18 +186,22 @@ pub async fn list(state: &SftpMap, id: &str, path: &str) -> Result<Vec<SftpEntry
     let conn = get_conn(state, id)?;
     let dir = path.trim();
     let dir = if dir.is_empty() { "." } else { dir };
+    // 서버에 보낼 때는 세션 문자셋 바이트로, 받아온 이름은 그 반대로 되돌린다.
+    let dir_wire = text_to_wire(dir, conn.encoding);
     let entries = conn
         .sftp
-        .read_dir(dir)
+        .read_dir(&dir_wire)
         .await
         .map_err(|e| format!("목록 조회 실패: {e}"))?;
 
     let mut out: Vec<SftpEntry> = entries
         .map(|e| {
-            let name = e.file_name();
+            let name_wire = e.file_name();
+            let path_wire = join_path(&dir_wire, &name_wire);
+            let name = wire_to_text(&name_wire, conn.encoding);
             let meta = e.metadata();
             SftpEntry {
-                path: join_path(dir, &name),
+                path: wire_to_text(&path_wire, conn.encoding),
                 name,
                 is_dir: meta.is_dir(),
                 is_symlink: meta.file_type().is_symlink(),
@@ -240,7 +272,9 @@ pub async fn download(
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
     let flag = register_cancel(cancels, &transfer_id);
-    let name = base_name(&remote_path);
+    let name = base_name(&remote_path); // 화면 표시는 원래 텍스트 그대로
+    // 서버로 나가는 경로는 세션 문자셋 바이트로(로컬 경로는 OS 가 처리하므로 그대로).
+    let remote_path = text_to_wire(&remote_path, conn.encoding);
 
     // 받는 동안에는 .part 로 쓰고 성공했을 때만 대상 자리로 옮긴다.
     // (곧바로 대상에 쓰면 실패·취소 시 기존 파일이 잘리거나 지워진다)
@@ -351,6 +385,9 @@ pub async fn upload(
     let conn = get_conn(state, id)?;
     let flag = register_cancel(cancels, &transfer_id);
     let name = base_name(&local_path);
+    // 서버에 만들 파일명을 세션 문자셋으로 인코딩한다 — 이게 없으면 EUC-KR 서버에
+    // UTF-8 바이트가 그대로 올라가 터미널에서 한글 파일명이 깨진다(0.64.0).
+    let remote_path = text_to_wire(&remote_path, conn.encoding);
     // 다운로드와 같은 이유로 .part 에 올린 뒤 성공 시에만 대상 이름으로 옮긴다.
     let part_path = format!("{remote_path}.part");
 
@@ -449,15 +486,16 @@ pub async fn upload(
 pub async fn canonicalize(state: &SftpMap, id: &str, path: String) -> Result<String, String> {
     let conn = get_conn(state, id)?;
     conn.sftp
-        .canonicalize(path)
+        .canonicalize(text_to_wire(&path, conn.encoding))
         .await
+        .map(|p| wire_to_text(&p, conn.encoding))
         .map_err(|e| format!("경로 확인 실패: {e}"))
 }
 
 pub async fn mkdir(state: &SftpMap, id: &str, path: String) -> Result<(), String> {
     let conn = get_conn(state, id)?;
     conn.sftp
-        .create_dir(&path)
+        .create_dir(text_to_wire(&path, conn.encoding))
         .await
         .map_err(|e| format!("폴더 생성 실패: {e}"))
 }
@@ -466,12 +504,12 @@ pub async fn remove(state: &SftpMap, id: &str, path: String, is_dir: bool) -> Re
     let conn = get_conn(state, id)?;
     if is_dir {
         conn.sftp
-            .remove_dir(&path)
+            .remove_dir(text_to_wire(&path, conn.encoding))
             .await
             .map_err(|e| format!("폴더 삭제 실패: {e}"))
     } else {
         conn.sftp
-            .remove_file(&path)
+            .remove_file(text_to_wire(&path, conn.encoding))
             .await
             .map_err(|e| format!("파일 삭제 실패: {e}"))
     }
@@ -480,7 +518,10 @@ pub async fn remove(state: &SftpMap, id: &str, path: String, is_dir: bool) -> Re
 pub async fn rename(state: &SftpMap, id: &str, from: String, to: String) -> Result<(), String> {
     let conn = get_conn(state, id)?;
     conn.sftp
-        .rename(&from, &to)
+        .rename(
+            text_to_wire(&from, conn.encoding),
+            text_to_wire(&to, conn.encoding),
+        )
         .await
         .map_err(|e| format!("이름 변경 실패: {e}"))
 }
