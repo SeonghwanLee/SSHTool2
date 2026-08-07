@@ -296,8 +296,18 @@ export const sftpDisconnect = (id: string): Promise<void> => invoke("sftp_discon
 
 export interface DataEvent {
   id: string;
-  data: number[];
+  /** 수신 바이트의 base64 — b64ToBytes 로 복원. JSON 숫자 배열(원본의 ~3.7배 크기)
+   *  직렬화·파싱 비용을 없앤다(0.63.0). */
+  data: string;
 }
+
+/** base64 → 바이트. 수신 이벤트 전용(성능상 atob 직행). */
+export const b64ToBytes = (b64: string): Uint8Array =>
+  Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+/** 수신 일시정지/재개(역압) — 쓰기 큐 워터마크가 호출. 끊긴 세션이면 백엔드가 무시. */
+export const sshPause = (id: string, on: boolean): Promise<void> =>
+  invoke("ssh_pause", { id, on });
 export interface ClosedEvent {
   id: string;
   message: string;

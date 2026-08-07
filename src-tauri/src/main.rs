@@ -103,6 +103,11 @@ fn rdp_launch(host: String, port: u16, user: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn ssh_pause(app: AppHandle, id: String, on: bool) {
+    ssh::pause(&app, &id, on);
+}
+
+#[tauri::command]
 fn ssh_write(app: AppHandle, id: String, data: Vec<u8>) -> Result<(), String> {
     ssh::write(&app, &id, data)
 }
@@ -675,6 +680,7 @@ fn main() {
             debug_log_reset,
             debug_log_path,
             ssh_write,
+            ssh_pause,
             ssh_resize,
             ssh_close,
             sessions_load,

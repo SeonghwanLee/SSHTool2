@@ -5,6 +5,7 @@ use std::time::Duration;
 use russh::client::{self, Config, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::ssh_key;
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use russh::{cipher, kex, mac, ChannelMsg, Disconnect, Preferred};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -128,13 +129,19 @@ pub struct SessionHandle {
 enum SessionCommand {
     Write(Vec<u8>),
     Resize { cols: u32, rows: u32 },
+    /// 수신 일시정지(역압). true 면 채널에서 데이터를 꺼내지 않는다 — russh 가 수신
+    /// 윈도우를 되채우지 않으므로 SSH 흐름제어로 서버 송신까지 자연히 멈춘다.
+    /// 프런트 쓰기 큐가 상한을 넘으면 걸고, 빠지면 푼다(0.63.0).
+    Pause(bool),
     Close,
 }
 
 #[derive(Clone, Serialize)]
 struct DataPayload {
     id: String,
-    data: Vec<u8>,
+    /// 수신 바이트의 base64. Vec<u8> 를 그대로 두면 JSON 숫자 배열([72,101,…] —
+    /// 원본의 ~3.7배)로 직렬화되어 대량 출력에서 웹뷰 파싱 비용이 컸다(0.63.0).
+    data: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -489,31 +496,65 @@ pub async fn connect(
             }};
         }
 
+        // 수신 데이터 → base64 로 프론트에 emit(공용 — Data/ExtendedData 동일 처리).
+        macro_rules! emit_data {
+            ($raw:expr) => {{
+                let out = to_utf8!($raw);
+                if let Some(f) = log_file.as_mut() {
+                    use std::io::Write;
+                    let _ = f.write_all(&out);
+                }
+                let _ = app.emit(
+                    "ssh://data",
+                    DataPayload { id: task_id.clone(), data: B64.encode(&out) },
+                );
+            }};
+        }
+        // 쓰기(문자셋 변환 포함) — 일시정지 중에도 입력(Ctrl+C 등)은 나가야 한다.
+        macro_rules! do_write {
+            ($bytes:expr) => {{
+                // 프론트는 항상 UTF-8 로 보낸다 → 세션 문자셋으로 변환해 전송.
+                let bytes: Vec<u8> = $bytes;
+                let bytes = match encoding {
+                    Some(e) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let (cow, _, _) = e.encode(&text);
+                        cow.into_owned()
+                    }
+                    None => bytes,
+                };
+                if channel.data(&bytes[..]).await.is_err() {
+                    reason = "쓰기 실패로 연결이 끊어졌습니다".into();
+                    break;
+                }
+            }};
+        }
+
+        let mut paused = false;
         loop {
+            // 일시정지(역압): 채널에서 데이터를 꺼내지 않고 명령만 처리한다.
+            // russh 는 소비된 만큼만 수신 윈도우를 되채우므로, 안 꺼내면 윈도우가
+            // 바닥나 서버 송신이 SSH 규격대로 멈춘다 — 메모리가 어느 쪽에도 안 쌓인다.
+            if paused {
+                match rx.recv().await {
+                    Some(SessionCommand::Pause(p)) => paused = p,
+                    Some(SessionCommand::Write(bytes)) => do_write!(bytes),
+                    Some(SessionCommand::Resize { cols, rows }) => {
+                        let _ = channel.window_change(cols, rows, 0, 0).await;
+                    }
+                    Some(SessionCommand::Close) | None => {
+                        let _ = channel.eof().await;
+                        break;
+                    }
+                }
+                continue;
+            }
             tokio::select! {
                 msg = channel.wait() => {
                     match msg {
-                        Some(ChannelMsg::Data { data }) => {
-                            let out = to_utf8!(data.to_vec());
-                            if let Some(f) = log_file.as_mut() {
-                                use std::io::Write;
-                                let _ = f.write_all(&out);
-                            }
-                            let _ = app.emit(
-                                "ssh://data",
-                                DataPayload { id: task_id.clone(), data: out },
-                            );
-                        }
+                        Some(ChannelMsg::Data { data }) => emit_data!(data.to_vec()),
                         Some(ChannelMsg::ExtendedData { data, .. }) => {
-                            let out = to_utf8!(data.to_vec());
-                            if let Some(f) = log_file.as_mut() {
-                                use std::io::Write;
-                                let _ = f.write_all(&out); // stderr 도 화면에 나오므로 함께 기록
-                            }
-                            let _ = app.emit(
-                                "ssh://data",
-                                DataPayload { id: task_id.clone(), data: out },
-                            );
+                            emit_data!(data.to_vec()) // stderr 도 화면·로그에 동일 반영
                         }
                         Some(ChannelMsg::ExitStatus { exit_status }) => {
                             reason = format!("종료 코드 {exit_status}");
@@ -525,24 +566,11 @@ pub async fn connect(
                 }
                 cmd = rx.recv() => {
                     match cmd {
-                        Some(SessionCommand::Write(bytes)) => {
-                            // 프론트는 항상 UTF-8 로 보낸다 → 세션 문자셋으로 변환해 전송.
-                            let bytes = match encoding {
-                                Some(e) => {
-                                    let text = String::from_utf8_lossy(&bytes);
-                                    let (cow, _, _) = e.encode(&text);
-                                    cow.into_owned()
-                                }
-                                None => bytes,
-                            };
-                            if channel.data(&bytes[..]).await.is_err() {
-                                reason = "쓰기 실패로 연결이 끊어졌습니다".into();
-                                break;
-                            }
-                        }
+                        Some(SessionCommand::Write(bytes)) => do_write!(bytes),
                         Some(SessionCommand::Resize { cols, rows }) => {
                             let _ = channel.window_change(cols, rows, 0, 0).await;
                         }
+                        Some(SessionCommand::Pause(p)) => paused = p,
                         Some(SessionCommand::Close) | None => {
                             let _ = channel.eof().await;
                             break;
@@ -576,6 +604,16 @@ pub fn write(app: &AppHandle, id: &str, data: Vec<u8>) -> Result<(), String> {
         .tx
         .send(SessionCommand::Write(data))
         .map_err(|_| "세션이 이미 종료되었습니다".to_string())
+}
+
+/// 수신 일시정지/재개(역압) — 프런트 쓰기 큐 워터마크가 호출한다. 세션이 이미
+/// 없으면 조용히 무시한다(끊긴 세션에 재개를 보내는 경합은 정상 경로다).
+pub fn pause(app: &AppHandle, id: &str, on: bool) {
+    let state = app.state::<SessionMap>();
+    let map = state.lock().unwrap();
+    if let Some(handle) = map.get(id) {
+        let _ = handle.tx.send(SessionCommand::Pause(on));
+    }
 }
 
 pub fn resize(app: &AppHandle, id: &str, cols: u32, rows: u32) -> Result<(), String> {

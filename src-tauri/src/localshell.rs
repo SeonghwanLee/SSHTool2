@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -22,7 +23,8 @@ pub struct LocalHandle {
 #[derive(Clone, Serialize)]
 struct DataPayload {
     id: String,
-    data: Vec<u8>,
+    /// base64 — ssh.rs DataPayload 와 같은 소비자(ssh://data)라 표현도 같아야 한다.
+    data: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -126,7 +128,7 @@ pub fn open(
                         "ssh://data",
                         DataPayload {
                             id: task_id.clone(),
-                            data: chunk.to_vec(),
+                            data: B64.encode(chunk),
                         },
                     );
                 }

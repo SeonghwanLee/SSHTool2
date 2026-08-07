@@ -1053,7 +1053,7 @@ try {
         const tab = window.__tm?.tabs?.[0];
         if (!tab) return "no-tab";
         const enc = new TextEncoder();
-        for (let i = 0; i < 500; i++) tab.writeBytes([...enc.encode(`줄-${i} 확인—완료\r\n`)]);
+        for (let i = 0; i < 500; i++) tab.writeBytes(enc.encode(`줄-${i} 확인—완료\r\n`));
         await new Promise((r) => setTimeout(r, 900));
         const b = tab.term.buffer.active;
         const lines = [];
