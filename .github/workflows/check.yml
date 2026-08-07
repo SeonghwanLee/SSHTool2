@@ -61,4 +61,12 @@ jobs:
 
       - name: cargo check
         working-directory: src-tauri
-        run: cargo check --target x86_64-pc-windows-msvc --message-format short
+        shell: bash
+        # 실패 시 오류 줄을 어노테이션으로 내보낸다 — 개발 장비(리눅스)는 로그 API 에
+        # 인증이 필요해 못 읽지만, 어노테이션은 공개 저장소에서 비인증으로 읽힌다.
+        run: |
+          set -o pipefail
+          cargo check --target x86_64-pc-windows-msvc --message-format short 2>&1 | tee /tmp/check.log || {
+            grep -m 12 -E "^error|error\[" /tmp/check.log | while IFS= read -r l; do echo "::error::${l}"; done
+            exit 1
+          }
