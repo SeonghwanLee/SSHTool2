@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.65.0",
+    date: "2026-08-07",
+    notes: [
+      "SFTP 창을 머리말을 끌어 원하는 자리로 옮길 수 있습니다 — 옮긴 자리는 다음에 열 때도 유지되고, 화면 밖으로는 나가지 않습니다",
+      "버전정보 창의 변경 이력을 최근 5개로 줄였습니다 — 전체 이력은 홈페이지(sshtool2.vercel.app/changelog.html)에서 봅니다",
+    ],
+  },
+  {
     version: "0.64.0",
     date: "2026-08-07",
     notes: [

@@ -2228,6 +2228,13 @@ body.sftp-resizing * {
   gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
+  /* 끌어서 창 이동(0.65.0) — 잡을 수 있는 자리임을 커서로 알린다. */
+  cursor: move;
+  user-select: none;
+}
+/* 창 버튼 위에서는 이동 커서를 쓰지 않는다(누르는 자리라는 신호가 우선). */
+.sftp-header .sftp-winbtn {
+  cursor: pointer;
 }
 .sftp-title {
   font-weight: 600;

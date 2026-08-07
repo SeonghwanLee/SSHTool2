@@ -6,9 +6,11 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openModal, confirmDialog } from "./dialogs";
 import { CHANGELOG } from "./changelog";
-import { openConfigDir } from "./ipc";
+import { openConfigDir, browserOpen } from "./ipc";
 
 const RECENT = 5;
+/** 전체 변경 이력 페이지 — 앱에는 최근 5개만 두고 나머지는 여기서 본다. */
+const SITE_CHANGELOG = "https://sshtool2.vercel.app/changelog.html";
 
 export function aboutDialog(
   liveCount: () => number = () => 0,
@@ -104,15 +106,15 @@ export function aboutDialog(
         // ── 변경 이력 ──
         const logHead = document.createElement("div");
         logHead.className = "settings-section";
-        logHead.textContent = `변경 이력 (총 ${CHANGELOG.length}개 버전)`;
+        // 전체 이력은 홈페이지에서만 본다(0.65.0) — 창에 92개를 쌓아 둘 이유가 없다.
+        logHead.textContent = "변경 이력 (최근 5개)";
 
         const logBox = document.createElement("div");
         logBox.className = "bulk-list";
-        let expanded = false;
 
         const drawLog = () => {
           logBox.innerHTML = "";
-          const items = expanded ? CHANGELOG : CHANGELOG.slice(0, RECENT);
+          const items = CHANGELOG.slice(0, RECENT);
           for (const e of items) {
             const head = document.createElement("div");
             head.className = "bulk-group";
@@ -125,16 +127,19 @@ export function aboutDialog(
               logBox.appendChild(li);
             }
           }
-          more.textContent = expanded ? "최근 5개만 보기" : "더보기";
           more.style.display = CHANGELOG.length > RECENT ? "" : "none";
         };
 
+        // 전체 이력은 홈페이지에서 — 앱에 다 넣지 않고 링크로 보낸다.
         const more = document.createElement("button");
         more.type = "button";
         more.className = "about-more";
+        more.textContent = "전체 변경 이력 보기 (홈페이지)";
+        more.title = SITE_CHANGELOG;
         more.addEventListener("click", () => {
-          expanded = !expanded;
-          drawLog();
+          void browserOpen("default", SITE_CHANGELOG).catch(() => {
+            status.textContent = "브라우저를 열지 못했습니다 — 주소: " + SITE_CHANGELOG;
+          });
         });
 
         // ── 동작 ──

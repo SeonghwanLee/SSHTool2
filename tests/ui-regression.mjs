@@ -493,6 +493,39 @@ try {
       await page.keyboard.press("Escape");
     });
 
+    await t.test("버전정보 변경 이력 — 최근 5개만, 전체는 홈페이지 버튼", async () => {
+      await dismissModals(page);
+      await page.click("#open-about");
+      await page.waitForTimeout(400);
+      const r = await page.evaluate(() => {
+        const heads = [...document.querySelectorAll(".about-card .bulk-group")];
+        const more = document.querySelector(".about-more");
+        return {
+          versions: heads.length,
+          head:
+            [...document.querySelectorAll(".about-card .settings-section")]
+              .map((x) => x.textContent ?? "")
+              .find((t) => t.includes("변경 이력")) ?? "",
+          btn: more?.textContent ?? "",
+          href: more?.title ?? "",
+        };
+      });
+      // 홈페이지 버튼이 브라우저를 여는지(IPC 호출) 확인.
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.click(".about-more");
+      await page.waitForTimeout(300);
+      const opened = await page.evaluate(() =>
+        window.__ipc.filter(([c]) => c === "browser_open").map(([, a]) => a?.url),
+      );
+      await page.keyboard.press("Escape");
+      expect(r.versions === 5, `버전 항목이 5개가 아니다: ${r.versions}`);
+      expect(r.head.includes("최근 5개"), `머리말이 다르다: "${r.head}"`);
+      expect(
+        opened.length === 1 && String(opened[0]).includes("sshtool2.vercel.app"),
+        `홈페이지를 열지 않는다: ${JSON.stringify(opened)}`,
+      );
+    });
+
     await t.test("바깥 클릭 — 창이 닫히지 않고 반짝이며 유지 (설정·버전정보, Esc 는 닫힘)", async () => {
       await dismissModals(page);
       const probe = (cardSel) =>
@@ -762,6 +795,39 @@ try {
       await page.waitForTimeout(200);
       const back = await rect();
       expect(back.w === before.w && back.h === before.h, `되돌린 크기가 다르다: ${JSON.stringify({ before, back })}`);
+    });
+
+    await t.test("SFTP 창 이동 — 머리말을 끌면 따라오고, 화면 밖으로 안 나간다", async () => {
+      const rect = () =>
+        page.evaluate(() => {
+          const r = document.querySelector(".sftp-panel").getBoundingClientRect();
+          return { l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+        });
+      const before = await rect();
+      const head = await page.locator(".sftp-header").boundingBox();
+      // 제목 왼쪽(버튼 없는 자리)을 잡고 옮긴다.
+      await page.mouse.move(head.x + 60, head.y + head.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(head.x + 60 - 120, head.y + head.height / 2 + 80, { steps: 6 });
+      await page.mouse.up();
+      const after = await rect();
+      expect(
+        after.l - before.l === -120 && after.t - before.t === 80,
+        `이동량이 다르다: ${JSON.stringify({ before, after })}`,
+      );
+      expect(after.w === before.w && after.h === before.h, "이동 중 크기가 변했다");
+      // 화면 밖으로 끌어도 머리말을 잡을 수 있어야 한다.
+      await page.mouse.move(after.l + 60, after.t + head.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(-3000, -3000, { steps: 6 });
+      await page.mouse.up();
+      const out = await rect();
+      expect(out.t >= 0 && out.l + out.w > 100, `화면 밖으로 사라졌다: ${JSON.stringify(out)}`);
+      // 다음 테스트를 위해 대충 가운데로 돌려 둔다.
+      await page.mouse.move(out.l + 60, out.t + head.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(400, 200, { steps: 4 });
+      await page.mouse.up();
     });
 
     await t.test("SFTP 창 크기 기억 — 닫았다 다시 열면 유지", async () => {

@@ -64,8 +64,15 @@ import {
 // 기존 소비자(main.ts·sidebar.ts)가 "./sftpui" 에서 가져가던 공개 API 는 그대로 통한다.
 export { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp } from "./sftpcommon";
 
-/** 창 크기 기억(세션 간 공유) — 닫았다 다시 열 때 직전 크기로. */
-let savedPanelSize: { w: number; h: number } | null = null;
+/** 창 크기·위치 기억(세션 간 공유) — 닫았다 다시 열 때 직전 자리·크기로.
+ *  left/top 이 null 이면 가운데 정렬(기본) 상태다. */
+let savedPanelSize: { w: number; h: number; left: number | null; top: number | null } | null = null;
+
+/** 창이 화면 밖으로 나가지 않게 좌표를 다듬는다. 머리말은 항상 잡을 수 있어야 한다. */
+const clampLeft = (left: number, w: number): number =>
+  Math.max(-(w - 120), Math.min(window.innerWidth - 120, left));
+const clampTop = (top: number, _h: number): number =>
+  Math.max(0, Math.min(window.innerHeight - 40, top));
 
 export async function openSftpBrowser(
   session: SessionInfo,
@@ -81,8 +88,18 @@ export async function openSftpBrowser(
   panel.className = "sftp-panel sftp-dual";
   if (savedPanelSize) {
     // 지난번 크기를 이어받는다. 앱 창보다 크면 그만큼 줄인다(최소치는 CSS min-* 가 지킨다).
-    panel.style.width = `${Math.min(savedPanelSize.w, window.innerWidth - 8)}px`;
-    panel.style.height = `${Math.min(savedPanelSize.h, window.innerHeight - 8)}px`;
+    const w = Math.min(savedPanelSize.w, window.innerWidth - 8);
+    const h = Math.min(savedPanelSize.h, window.innerHeight - 8);
+    panel.style.width = `${w}px`;
+    panel.style.height = `${h}px`;
+    // 옮겨 둔 자리도 되살린다. 앱 창이 작아졌으면 화면 안으로 끌어들인다 —
+    // 밖에 복원되면 창을 잡을 수 없다.
+    if (savedPanelSize.left !== null && savedPanelSize.top !== null) {
+      panel.style.position = "fixed";
+      panel.style.margin = "0";
+      panel.style.left = `${clampLeft(savedPanelSize.left, w)}px`;
+      panel.style.top = `${clampTop(savedPanelSize.top, h)}px`;
+    }
   }
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
@@ -194,6 +211,7 @@ export async function openSftpBrowser(
   const title = document.createElement("div");
   title.className = "sftp-title";
   title.textContent = `SFTP · ${session.name || session.host}`;
+  header.title = "끌어서 창 이동 · 더블클릭으로 최대화";
   const status = document.createElement("div");
   status.className = "sftp-status";
   // 우측 상단 창 버튼 — 일반 창과 같은 [–][□][X] 표준 매핑(0.57.0).
@@ -241,6 +259,41 @@ export async function openSftpBrowser(
     maxBtn.title = on ? "최대화 전 크기로 되돌립니다" : "창 크기에 맞게 최대화 (되돌리려면 다시 누르세요)";
   };
   maxBtn.addEventListener("click", () => setMaximized(beforeMax === null));
+  // 머리말을 끌어 창을 옮긴다(0.65.0). 크기 조절과 같은 방식으로, 끄는 동안에는
+  // 가운데 정렬을 끊고 지금 자리에 못 박은 뒤 좌표만 움직인다.
+  header.addEventListener("mousedown", (down) => {
+    if (down.button !== 0) return;
+    if ((down.target as HTMLElement).closest("button")) return; // 창 버튼은 제 일을 한다
+    if (beforeMax !== null) return; // 최대화 중에는 이동하지 않는다(되돌린 뒤에)
+    down.preventDefault();
+    const r = panel.getBoundingClientRect();
+    panel.style.position = "fixed";
+    panel.style.margin = "0";
+    panel.style.left = `${r.left}px`;
+    panel.style.top = `${r.top}px`;
+    panel.style.width = `${r.width}px`;
+    panel.style.height = `${r.height}px`;
+    const dx = down.clientX - r.left;
+    const dy = down.clientY - r.top;
+    const onMove = (m: MouseEvent) => {
+      if (m.buttons === 0) {
+        onUp(); // 창 밖에서 버튼을 놓아 mouseup 을 놓친 경우 정리
+        return;
+      }
+      panel.style.left = `${clampLeft(m.clientX - dx, r.width)}px`;
+      panel.style.top = `${clampTop(m.clientY - dy, r.height)}px`;
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("sftp-resizing");
+      document.body.style.cursor = "";
+    };
+    document.body.classList.add("sftp-resizing"); // 끄는 동안 내부 선택 방지
+    document.body.style.cursor = "move";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
   // 헤더를 더블클릭해도 토글된다 — 창에서 흔히 쓰는 방식이라 눌러 보게 된다.
   header.addEventListener("dblclick", (e) => {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -347,11 +400,28 @@ export async function openSftpBrowser(
       // 최대화 중 — 되돌릴 크기(인라인 width/height)를 파싱해 남긴다. 없으면 기본 크기였다.
       const w = /width:\s*([\d.]+)px/.exec(beforeMax);
       const h = /height:\s*([\d.]+)px/.exec(beforeMax);
-      savedPanelSize = w && h ? { w: parseFloat(w[1]), h: parseFloat(h[1]) } : null;
+      const l = /left:\s*([\d.-]+)px/.exec(beforeMax);
+      const t = /top:\s*([\d.-]+)px/.exec(beforeMax);
+      savedPanelSize =
+        w && h
+          ? {
+              w: parseFloat(w[1]),
+              h: parseFloat(h[1]),
+              left: l ? parseFloat(l[1]) : null,
+              top: t ? parseFloat(t[1]) : null,
+            }
+          : null;
       return;
     }
     const r = panel.getBoundingClientRect();
-    savedPanelSize = { w: Math.round(r.width), h: Math.round(r.height) };
+    // position:fixed 면 사용자가 옮긴 자리다 — 그 좌표까지 기억한다.
+    const moved = panel.style.position === "fixed";
+    savedPanelSize = {
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+      left: moved ? Math.round(r.left) : null,
+      top: moved ? Math.round(r.top) : null,
+    };
   };
 
   /** 마지막 화면 위치를 레지스트리에 남긴다(다시 열 때 그 자리로 돌아가기 위해). */

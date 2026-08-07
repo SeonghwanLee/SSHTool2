@@ -73,6 +73,11 @@ for (const [rel, from, to] of targets) {
   console.log(`  ${rel}: ${cur} → ${next}`);
 }
 
+// 전체 변경 이력 페이지(홈페이지용)를 원본에서 다시 만든다 — 앱에는 최근 5개만 보이므로
+// 이 파일이 유일한 전체 기록이다. 손으로 맞추면 반드시 어긋난다.
+const { execFileSync } = await import("node:child_process");
+execFileSync(process.execPath, [path.join(root, "scripts/gen-site-changelog.mjs")], { stdio: "inherit" });
+
 console.log(`\n완료. 다음 순서:`);
 console.log(`  npm run build        # 타입 검사`);
 console.log(`  npm run check:ui     # UI 회귀 검사`);
