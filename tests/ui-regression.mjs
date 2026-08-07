@@ -1100,6 +1100,54 @@ try {
       expect(bad.length === 0, `깨진 조합: ${bad.join(" / ")}`);
     });
 
+    await t.test("설정 읽기 실패 시 저장 잠금 — 기본값이 파일을 덮어쓰지 않는다", async () => {
+      const r = await page.evaluate(async () => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "settings_load") throw "읽기 실패(테스트)";
+          if (cmd === "settings_save") {
+            window.__settingsSaved = true;
+            return null;
+          }
+          return prev(cmd, args);
+        };
+        const m = await import("/src/settings.ts");
+        const s = await m.loadSettings(); // 실패 → 기본값 + 저장 잠금
+        let threw = false;
+        try {
+          await m.saveSettings(s);
+        } catch {
+          threw = true;
+        }
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return { threw, saved: !!window.__settingsSaved, usable: m.settingsUsable };
+      });
+      // 잠금 안내 모달이 떠 있을 수 있다 — 다음 테스트를 위해 걷는다.
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".modal-card button")].pop()?.click(),
+      );
+      expect(
+        r.threw && !r.saved && !r.usable,
+        `저장 잠금이 동작하지 않는다: ${JSON.stringify(r)}`,
+      );
+    });
+
+    await t.test("UTF-8 게이트 flush — 세션 종료 시 잘린 꼬리를 내보낸다", async () => {
+      const r = await page.evaluate(async () => {
+        const { Utf8Gate } = await import("/src/utf8stream.ts");
+        const g = new Utf8Gate();
+        const bytes = new TextEncoder().encode("가"); // EA B0 80
+        const out1 = g.feed(bytes.subarray(0, 2)); // 미완성 — 보류
+        const tail = g.flush();
+        const tail2 = g.flush();
+        return { held: out1.length, flushed: tail.length, empty: tail2.length };
+      });
+      expect(
+        r.held === 0 && r.flushed === 2 && r.empty === 0,
+        `flush 동작이 다르다: ${JSON.stringify(r)}`,
+      );
+    });
+
     await t.test("vim 분할 캡처 — 잘게 흘려도 한 번에 흘린 화면과 동일하다", async () => {
       const r = await page.evaluate(async () => {
         const { Utf8Gate } = await import("/src/utf8stream.ts");

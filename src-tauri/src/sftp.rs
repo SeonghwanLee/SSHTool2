@@ -298,11 +298,31 @@ pub async fn download(
             .await
             .map_err(|e| format!("로컬 flush 실패: {e}"))?;
         drop(local); // 파일 핸들을 닫아야 Windows 에서 rename 이 가능하다
-        // 완전히 받은 뒤에만 대상 자리로 옮긴다(덮어쓰기 대상이 있으면 그때 교체).
-        let _ = tokio::fs::remove_file(&local_path).await;
-        tokio::fs::rename(&part_path, &local_path)
-            .await
-            .map_err(|e| format!("파일 교체 실패: {e}"))?;
+        // 완전히 받은 뒤에만 대상 자리로 옮긴다. 덮어쓰기 대상을 **먼저 지우면**
+        // rename 실패 시 원본까지 잃는다(진단 0.62.0) — 백업 이름으로 비켜 두고
+        // 새 파일을 넣은 뒤 백업을 지운다. 어느 시점에 끊겨도 원본이나 새 파일이 남는다.
+        let bak_path = format!("{local_path}.stbakold");
+        let had_old = tokio::fs::metadata(&local_path).await.is_ok();
+        if had_old {
+            let _ = tokio::fs::remove_file(&bak_path).await;
+            tokio::fs::rename(&local_path, &bak_path)
+                .await
+                .map_err(|e| format!("기존 파일 대피 실패: {e}"))?;
+        }
+        match tokio::fs::rename(&part_path, &local_path).await {
+            Ok(()) => {
+                if had_old {
+                    let _ = tokio::fs::remove_file(&bak_path).await;
+                }
+            }
+            Err(e) => {
+                // 복원 실패 시 .stbakold 가 남는다 — 원본을 지우는 것보다 낫다.
+                if had_old {
+                    let _ = tokio::fs::rename(&bak_path, &local_path).await;
+                }
+                return Err(format!("파일 교체 실패: {e}"));
+            }
+        }
         let _ = app.emit(
             "sftp://progress",
             ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total: total.max(done) },
@@ -383,12 +403,32 @@ pub async fn upload(
             .shutdown()
             .await
             .map_err(|e| format!("close 실패: {e}"))?;
-        // SFTP rename 은 대상이 있으면 실패하므로 먼저 치운다(덮어쓰기를 택한 경우).
-        let _ = conn.sftp.remove_file(&remote_path).await;
-        conn.sftp
-            .rename(&part_path, &remote_path)
-            .await
-            .map_err(|e| format!("원격 파일 교체 실패: {e}"))?;
+        // SFTP rename 은 대상이 있으면 실패한다. 대상을 **먼저 지우면** rename 실패 시
+        // 원본까지 잃는다(진단 0.62.0) — 백업 이름으로 비켜 두고 새 파일을 넣은 뒤
+        // 백업을 지운다. 어느 시점에 끊겨도 원본이나 새 파일이 서버에 남는다.
+        let bak_path = format!("{remote_path}.stbakold");
+        let had_old = conn.sftp.metadata(remote_path.clone()).await.is_ok();
+        if had_old {
+            let _ = conn.sftp.remove_file(&bak_path).await;
+            conn.sftp
+                .rename(&remote_path, &bak_path)
+                .await
+                .map_err(|e| format!("기존 원격 파일 대피 실패: {e}"))?;
+        }
+        match conn.sftp.rename(&part_path, &remote_path).await {
+            Ok(()) => {
+                if had_old {
+                    let _ = conn.sftp.remove_file(&bak_path).await;
+                }
+            }
+            Err(e) => {
+                // 복원 실패 시 .stbakold 가 남는다 — 원본을 지우는 것보다 낫다.
+                if had_old {
+                    let _ = conn.sftp.rename(&bak_path, &remote_path).await;
+                }
+                return Err(format!("원격 파일 교체 실패: {e}"));
+            }
+        }
         let _ = app.emit(
             "sftp://progress",
             ProgressPayload { transfer_id: transfer_id.clone(), name: name.clone(), done, total: total.max(done) },

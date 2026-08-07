@@ -142,13 +142,34 @@ export async function loadSettings(): Promise<Settings> {
     // 삭제된 화면보호기(생명게임·프롬프트 등)를 골라 뒀던 파일 방어 — 무작위로 되돌린다.
     if (merged.screensaver !== "random" && !(SAVER_NAMES as readonly string[]).includes(merged.screensaver))
       merged.screensaver = "random";
+    settingsUsable = true;
     return merged;
   } catch {
+    // 읽기 실패(키스토어 일시 오류 등)면 기본값으로 뜨되 **저장을 잠근다** —
+    // 안 그러면 이후 아무 설정 변경이 기본값으로 파일을 덮어써 폴더 트리·정렬·
+    // 접힘 상태가 통째로 유실된다(진단 0.62.0, 세션 쪽 잠금과 같은 원리).
+    settingsUsable = false;
     return { ...DEFAULT_SETTINGS };
   }
 }
 
+/** 설정 파일을 정상적으로 읽었는가 — 실패 상태에서는 저장을 거부해 덮어쓰기를 막는다. */
+export let settingsUsable = true;
+let lockAlerted = false; // 잠김 안내는 한 번만 — 설정 변경 때마다 뜨면 그것대로 공해다
+
 export async function saveSettings(s: Settings): Promise<void> {
+  if (!settingsUsable) {
+    // 조용히 버리면 사용자는 저장된 줄 안다 — 한 번 알리고, 던져서 호출부 처리를 태운다.
+    if (!lockAlerted) {
+      lockAlerted = true;
+      // await 하지 않는다 — 사용자가 확인을 누를 때까지 저장 호출부가 붙들리면 안 된다.
+      void saveFailureAlert(
+        "설정",
+        new Error("시작할 때 설정 파일을 읽지 못해 저장을 잠갔습니다(기존 설정 보호). 앱을 재시작해 보세요."),
+      );
+    }
+    throw new Error("설정 저장 잠김(읽기 실패 보호)");
+  }
   try {
     await settingsSave(s);
   } catch (e) {

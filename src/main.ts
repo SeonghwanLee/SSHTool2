@@ -625,6 +625,12 @@ async function renameSessionFlow(s: SessionInfo): Promise<string | null> {
 const isSavedSession = (s: SessionInfo): boolean => sessions.some((x) => x.id === s.id);
 
 async function openSftpFor(s: SessionInfo): Promise<void> {
+  // 살아있는 연결을 재사용할 때는 자격증명이 필요 없다 — 묻지도 않는다(0.62.0).
+  // 묻고 나서 버리면, 오타 난 비밀번호가 검증 없이 저장될 입구만 열어 준다.
+  if (liveSftpOf(s.id)) {
+    await openSftpBrowser(s, "", undefined, settings.sftpLocalDir);
+    return;
+  }
   // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
   const creds = await credentials.resolve(s);
   if (creds === null) return;
@@ -1531,12 +1537,15 @@ function wireCommandBar(tabs: TabManager): void {
     if (!bar.classList.contains("hidden")) updateCount();
   });
 
-  const run = () => {
+  const run = async () => {
     const line = input.value;
     if (!line) return;
     history.push(line);
     histIdx = history.length;
-    const bytes = new TextEncoder().encode(line + "\n");
+    // 실행 키는 CR — 키보드 Enter 가 보내는 그 바이트다. LF 는 원격 셸에서만 우연히
+    // 통하고 로컬 PowerShell(ConPTY)에서는 텍스트만 붙고 실행되지 않는다
+    // (시작 명령 경로와 같은 수정 — 진단 0.62.0에서 이 경로만 남은 것을 확인).
+    const bytes = new TextEncoder().encode(line + "\r");
     if (mode.value === "active") {
       const r = tabs.sendActive(bytes);
       status.textContent =
@@ -1547,11 +1556,14 @@ function wireCommandBar(tabs: TabManager): void {
         status.textContent = "대상을 고르세요";
         return;
       }
-      const { sent, locked } = tabs.broadcast(bytes, keys ?? undefined);
-      // 잠겨서 빠진 세션은 반드시 밝힌다 — 보냈다고 믿고 넘어가는 것이 가장 위험하다.
+      const { sent, locked, failed } = await tabs.broadcast(bytes, keys ?? undefined);
+      // 잠겨서 빠졌거나 실패한 세션은 반드시 밝힌다 — 보냈다고 믿고 넘어가는 것이
+      // 가장 위험하다(9대만 들어갔는데 10대 성공으로 보이면 안 된다).
       status.textContent =
-        sent > 0
-          ? `${sent}개 세션 전송` + (locked > 0 ? ` · 잠김 ${locked}개 제외` : "")
+        sent > 0 || failed.length > 0
+          ? `${sent}개 세션 전송` +
+            (failed.length > 0 ? ` · 실패 ${failed.length}개(${failed.join(", ")})` : "") +
+            (locked > 0 ? ` · 잠김 ${locked}개 제외` : "")
           : locked > 0
             ? `모두 잠겨 있어 보내지 않음 (${locked}개)`
             : "접속된 세션 없음";
@@ -1560,11 +1572,11 @@ function wireCommandBar(tabs: TabManager): void {
     input.focus();
   };
 
-  send.addEventListener("click", run);
+  send.addEventListener("click", () => void run());
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      run();
+      void run();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       if (histIdx > 0) input.value = history[--histIdx];

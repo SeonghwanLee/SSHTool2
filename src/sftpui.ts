@@ -168,6 +168,26 @@ let savedPanelSize: { w: number; h: number } | null = null;
 const TYPEAHEAD_RESET_MS = 900;
 
 const liveSftp = new Map<string, LiveSftp>();
+
+/**
+ * 전송 상태 — 모달 인스턴스가 아니라 **연결(세션)** 소속(0.62.0). 모달을 접었다 다시
+ * 열면 새 인스턴스가 생기는데, 상태가 인스턴스 지역이면 같은 연결에 이중 전송이
+ * 시작되고 취소 버튼이 옛 전송에 닿지 않는다. 연결이 끊길 때 함께 지운다.
+ */
+interface TransferState {
+  transferring: boolean;
+  cancelled: boolean;
+  current: string | null;
+}
+const transferStates = new Map<string, TransferState>();
+const transferStateOf = (id: string): TransferState => {
+  let t = transferStates.get(id);
+  if (!t) {
+    t = { transferring: false, cancelled: false, current: null };
+    transferStates.set(id, t);
+  }
+  return t;
+};
 const liveWatchers = new Set<() => void>();
 let progressHooked = false;
 
@@ -189,6 +209,7 @@ export async function disconnectLiveSftp(sessionId: string): Promise<void> {
   const live = liveSftp.get(sessionId);
   if (!live) return;
   liveSftp.delete(sessionId);
+  transferStates.delete(sessionId);
   notifyLive();
   if (live.transferId) await sftpCancel(live.transferId).catch(() => {});
   await sftpDisconnect(live.sftpId).catch(() => {});
@@ -332,9 +353,8 @@ export async function openSftpBrowser(
 
   let sftpId: string | null = null;
   let unlisten: (() => void) | null = null;
-  let currentTransfer: string | null = null;
-  let cancelled = false;
-  let transferring = false; // 동시 전송 방지(진행바·취소 대상이 뒤섞이지 않게)
+  // 전송 상태(진행·취소·현재 전송 id)는 연결 소속 공유 객체 — 위 TransferState 참조.
+  const xfer = transferStateOf(session.id);
   /** 이번 묶음의 측정 단계에서 읽어 둔 폴더 목록(경로 → 자식). 전송이 재사용한다. */
   let listedCache = new Map<string, Entry[]>();
   // 이번 전송 묶음 전체의 바이트. 0 이면 미리 재지 못한 경우로 파일 단위 진행률로 돌아간다.
@@ -429,8 +449,8 @@ export async function openSftpBrowser(
   applyIcon(cancelBtn, "cancel");
   cancelBtn.title = "전송 취소";
   cancelBtn.addEventListener("click", () => {
-    cancelled = true;
-    if (currentTransfer) void sftpCancel(currentTransfer);
+    xfer.cancelled = true;
+    if (xfer.current) void sftpCancel(xfer.current);
   });
   strip.append(pName, bar, pInfo, cancelBtn);
 
@@ -466,7 +486,7 @@ export async function openSftpBrowser(
   const hideProgress = () => strip.classList.add("hidden");
 
   onSftpProgress((e) => {
-    if (disposed || e.transferId !== currentTransfer) return;
+    if (disposed || e.transferId !== xfer.current) return;
     // 파일 하나가 아니라 묶음 전체 기준으로 보여 준다 — 열 개를 보내는데 파일마다
     // 0%→100% 를 반복하면 얼마나 남았는지 알 수 없다.
     if (bundleTotal > 0) showProgress(e.name, Math.min(bundleTotal, bundleDone + e.done), bundleTotal);
@@ -483,7 +503,7 @@ export async function openSftpBrowser(
 
   /** 진행 중 전송을 레지스트리에도 반영한다(모달이 닫혀도 사이드바가 상태를 안다). */
   const setTransfer = (id: string | null) => {
-    currentTransfer = id;
+    xfer.current = id;
     const live = liveSftp.get(session.id);
     if (live) {
       live.transferId = id;
@@ -515,7 +535,7 @@ export async function openSftpBrowser(
     if (!live) return;
     live.localDir = local.path;
     live.remoteDir = remote.path;
-    live.transferId = currentTransfer;
+    live.transferId = xfer.current;
   };
 
   /**
@@ -536,11 +556,12 @@ export async function openSftpBrowser(
   const disconnectNow = () => {
     disposed = true;
     rememberSize();
-    cancelled = true;
-    if (currentTransfer) void sftpCancel(currentTransfer);
+    xfer.cancelled = true;
+    if (xfer.current) void sftpCancel(xfer.current);
     unlisten?.();
     window.removeEventListener("resize", onWinResize);
     liveSftp.delete(session.id);
+    transferStates.delete(session.id);
     if (sftpId) void sftpDisconnect(sftpId);
     overlay.remove();
     notifyLive();
@@ -554,7 +575,7 @@ export async function openSftpBrowser(
   // X = 끊고 닫기. 끊기는 되돌릴 수 없다 — 전송 중이면 한 번 확인한다.
   closeBtn.addEventListener("click", () => {
     void (async () => {
-      if (currentTransfer) {
+      if (xfer.current) {
         const ok = await confirmDialog("파일을 전송 중입니다. 전송을 취소하고 연결을 끊을까요?");
         if (!ok || disposed) return;
       }
@@ -1179,15 +1200,15 @@ export async function openSftpBrowser(
         setStatus("원격에 접속되지 않았습니다.");
         return;
       }
-      if (transferring) {
+      if (xfer.transferring) {
         setStatus("전송 중입니다. 끝난 뒤 다시 시도하세요.");
         return;
       }
       // 원격 파일명은 서버가 준 값 — 경로 구분자/상위(..)를 걸러 임시폴더 밖으로 새지 않게 한다.
       const rawName = baseName(entry.name).replace(/[\\/]/g, "_");
       const safeName = rawName === "" || rawName === "." || rawName === ".." ? "download" : rawName;
-      transferring = true; // 동시 전송/열기 방지 — currentTransfer 가 뒤섞이지 않게
-      cancelled = false;
+      xfer.transferring = true; // 동시 전송/열기 방지 — xfer.current 가 뒤섞이지 않게
+      xfer.cancelled = false;
       try {
         setStatus(`여는 중… ${entry.name}`);
         const dir = await localTempDir();
@@ -1205,7 +1226,7 @@ export async function openSftpBrowser(
         hideProgress();
         setStatus(`열기 실패: ${String(e)}`);
       } finally {
-        transferring = false;
+        xfer.transferring = false;
       }
     }
 
@@ -1419,13 +1440,13 @@ export async function openSftpBrowser(
       setStatus("원격에 접속되지 않았습니다.");
       return;
     }
-    if (transferring) {
+    if (xfer.transferring) {
       setStatus("이미 전송 중입니다. 끝난 뒤 다시 시도하세요.");
       return;
     }
 
-    transferring = true;
-    cancelled = false;
+    xfer.transferring = true;
+    xfer.cancelled = false;
 
     const destDir = destDirOverride ?? dest.path;
     // 지정 폴더로 보낼 때는 dest 패널 목록이 그 폴더가 아니므로 충돌 검사용 이름을 따로
@@ -1457,7 +1478,7 @@ export async function openSftpBrowser(
     let failed = 0;
 
     for (let i = 0; i < items.length; i++) {
-      if (cancelled) break;
+      if (xfer.cancelled) break;
       if (items.length > 1) setOverall(`${i + 1}/${items.length}`);
       const item = items[i];
       let targetName = item.name;
@@ -1486,13 +1507,13 @@ export async function openSftpBrowser(
     hideProgress();
     setOverall("");
     setTransfer(null);
-    transferring = false;
+    xfer.transferring = false;
     bundleTotal = 0;
     bundleDone = 0;
     listedCache = new Map();
     setBundle();
     setStatus(
-      cancelled
+      xfer.cancelled
         ? "전송 취소됨"
         : failed > 0
           ? `전송 완료 (${failed}개 실패/건너뜀)`
@@ -1514,7 +1535,7 @@ export async function openSftpBrowser(
   ): Promise<number> {
     let sum = 0;
     for (const item of items) {
-      if (cancelled) return 0;
+      if (xfer.cancelled) return 0;
       if (!item.isDir) {
         sum += item.size;
         continue;
@@ -1550,7 +1571,7 @@ export async function openSftpBrowser(
     destDir: string,
     destName: string,
   ): Promise<void> {
-    if (cancelled) return;
+    if (xfer.cancelled) return;
     const destPath = joinPath(destDir, destName);
 
     if (!entry.isDir) {
@@ -1578,7 +1599,7 @@ export async function openSftpBrowser(
         ? await localList(entry.path)
         : await sftpList(sftpId!, entry.path)) as Entry[]);
     for (const child of children) {
-      if (cancelled) return;
+      if (xfer.cancelled) return;
       if (child.name === "." || child.name === "..") continue;
       try {
         await transferOne(from, child, destPath, child.name);
@@ -1643,7 +1664,7 @@ export async function openSftpBrowser(
       return;
     }
     for (let off = 0; off < f.size; off += STAGE_CHUNK) {
-      if (cancelled) throw new Error("취소");
+      if (xfer.cancelled) throw new Error("취소");
       const end = Math.min(f.size, off + STAGE_CHUNK);
       const buf = new Uint8Array(await f.slice(off, end).arrayBuffer());
       await stageWrite(target, buf, off > 0);
@@ -1671,13 +1692,13 @@ export async function openSftpBrowser(
       setStatus("원격에 접속되지 않았습니다.");
       return;
     }
-    if (transferring) {
+    if (xfer.transferring) {
       setStatus("이미 전송 중입니다. 끝난 뒤 다시 시도하세요.");
       return;
     }
 
-    transferring = true;
-    cancelled = false;
+    xfer.transferring = true;
+    xfer.cancelled = false;
     void stageSweep().catch(() => undefined);
     const root = joinPath(
       (await localTempDir()).replace(/[\\/]+$/, ""),
@@ -1718,12 +1739,12 @@ export async function openSftpBrowser(
       }
     } catch (e) {
       hideProgress();
-      transferring = false;
-      setStatus(cancelled ? "가져오기 취소됨" : `탐색기 항목을 읽지 못했습니다: ${e}`);
+      xfer.transferring = false;
+      setStatus(xfer.cancelled ? "가져오기 취소됨" : `탐색기 항목을 읽지 못했습니다: ${e}`);
       await localRemove(root, true).catch(() => undefined);
       return;
     }
-    transferring = false;
+    xfer.transferring = false;
     await transferItems(remote, items, destDir);
     // 스테이징 사본 정리 — 전송이 실패했어도 임시 파일을 남길 이유가 없다.
     await localRemove(root, true).catch(() => undefined);
@@ -1755,12 +1776,12 @@ export async function openSftpBrowser(
   try {
     if (existing) {
       sftpId = existing.sftpId;
-      currentTransfer = existing.transferId;
+      xfer.current = existing.transferId;
       remote.tree.init(["/"]);
       await remote.go(existing.remoteDir || ".");
-      setStatus(currentTransfer ? "연결됨 · 전송 중" : "연결됨");
+      setStatus(xfer.current ? "연결됨 · 전송 중" : "연결됨");
       // 닫혀 있는 동안 진행된 전송이 있으면 진행바를 이어서 보여 준다.
-      if (currentTransfer && existing.total > 0) {
+      if (xfer.current && existing.total > 0) {
         showProgress(existing.name, existing.done, existing.total);
       }
     } else {
@@ -1796,9 +1817,11 @@ export async function openSftpBrowser(
         grandTotal: 0,
       });
       notifyLive();
+      // 인증이 확인된 뒤에만 저장 제안 등을 수행한다(틀린 비번을 볼트에 넣지 않도록).
+      // **새로 접속해 성공한 이 분기에서만** 부른다 — 살아있는 연결 재사용 분기에서
+      // 부르면 방금 입력한(검증 안 된) 비밀번호가 볼트에 저장된다(진단 0.62.0).
+      void onAuthenticated?.();
     }
-    // 인증이 확인된 뒤에만 저장 제안 등을 수행한다(틀린 비번을 볼트에 넣지 않도록).
-    void onAuthenticated?.();
   } catch (e) {
     setStatus(`SFTP 접속 실패: ${String(e)}`);
   }

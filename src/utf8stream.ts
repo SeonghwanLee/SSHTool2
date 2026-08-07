@@ -49,4 +49,15 @@ export class Utf8Gate {
   clear(): void {
     this.tail = new Uint8Array(0);
   }
+
+  /**
+   * 스트림이 끝날 때(세션 종료) 남은 꼬리를 내보낸다 — 잘린/유효하지 않은 UTF-8 로
+   * 끝나는 출력(바이너리 열람 등)의 마지막 바이트가 조용히 사라지지 않도록.
+   * xterm 은 불완전 시퀀스를 대체 글리프로 그린다(진단 0.62.0).
+   */
+  flush(): Uint8Array {
+    const t = this.tail;
+    this.tail = new Uint8Array(0);
+    return t;
+  }
 }

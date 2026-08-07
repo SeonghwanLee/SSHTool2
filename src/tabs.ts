@@ -910,6 +910,10 @@ class TerminalTab {
     }
     // 원격 앱이 켜 둔 마우스 추적 등이 남아 있으면 재접속 후 마우스 이동이 그대로
     // 입력된다. 화면은 남기고 모드만 되돌린다.
+    // 잘린 UTF-8 로 끝난 출력의 마지막 바이트를 내보낸다 — 게이트가 물고 있던
+    // 꼬리는 다음 데이터가 없으면 영영 안 나온다(진단 0.62.0).
+    const tail = this.utf8Gate.flush();
+    if (tail.length) this.term.write(tail);
     this.term.write(RESET_INPUT_MODES);
     this.term.writeln(`\r\n\x1b[33m[세션 종료] ${message}\x1b[0m`);
     this.overlay.style.display = "flex";
@@ -993,10 +997,17 @@ export class TabManager {
       const tab = this.byLiveId.get(e.id);
       if (!tab) {
         // 아직 이 id 가 탭에 연결되기 전 — 버려지지 않게 보관해 두었다가 연결 시 반영.
-        const buf = this.pendingData.get(e.id) ?? [];
-        buf.push(e.data);
-        if (buf.length <= 200) this.pendingData.set(e.id, buf); // 폭주 방지 상한
-        window.setTimeout(() => this.pendingData.delete(e.id), 10_000);
+        // 상한은 push **전에** 검사해야 한다 — get() 이 준 배열을 밀어 넣고 set 만
+        // 생략하는 방식은 Map 안의 같은 배열이라 아무것도 못 막았다(진단 0.62.0).
+        // 상한 초과 시 새 조각을 버린다(가장 오래된 것을 버리면 이스케이프 시퀀스가
+        // 중간부터 재생돼 화면이 깨진다 — 늦은 출력이 잘리는 쪽이 안전하다).
+        const buf = this.pendingData.get(e.id);
+        if (!buf) {
+          this.pendingData.set(e.id, [e.data]);
+          window.setTimeout(() => this.pendingData.delete(e.id), 10_000);
+        } else if (buf.length < 200) {
+          buf.push(e.data);
+        }
         return;
       }
       tab.writeBytes(e.data);
@@ -1212,9 +1223,12 @@ export class TabManager {
    * 그 사고가 가장 크게 번지는 경로다(운영 서버 10개에 한 줄). 몇 개를 건너뛰었는지
    * 돌려줘 호출부가 조용히 넘기지 않게 한다.
    */
-  broadcast(data: Uint8Array, keys?: ReadonlySet<string>): { sent: number; locked: number } {
-    let sent = 0;
+  async broadcast(
+    data: Uint8Array,
+    keys?: ReadonlySet<string>,
+  ): Promise<{ sent: number; locked: number; failed: string[] }> {
     let locked = 0;
+    const writes: { label: string; p: Promise<void> }[] = [];
     for (const t of this.tabs) {
       if (!t.liveId) continue;
       if (keys && !keys.has(t.key)) continue;
@@ -1222,10 +1236,16 @@ export class TabManager {
         locked++;
         continue;
       }
-      void writeTo(t.session, t.liveId, data);
-      sent++;
+      writes.push({
+        label: t.session.name || `${t.session.user}@${t.session.host}`,
+        p: writeTo(t.session, t.liveId, data),
+      });
     }
-    return { sent, locked };
+    // 쓰기 실패를 버리면 '전송됨'이 거짓말이 된다(진단 0.62.0) — 백엔드가 세션을
+    // 못 찾는 경합 창(방금 죽었는데 closed 이벤트가 아직 안 닿음)에서 실제로 난다.
+    const results = await Promise.allSettled(writes.map((w) => w.p));
+    const failed = writes.filter((_, i) => results[i].status === "rejected").map((w) => w.label);
+    return { sent: writes.length - failed.length, locked, failed };
   }
 
   sendActive(data: Uint8Array): "sent" | "none" | "locked" {

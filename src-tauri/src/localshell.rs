@@ -55,11 +55,22 @@ pub fn open(
     } else {
         shell
     };
-    // "pwsh -NoLogo" 처럼 인자를 함께 적을 수 있게 공백으로 나눈다.
-    let mut parts = exe.split_whitespace();
-    let program = parts.next().unwrap_or("").to_string();
+    // "pwsh -NoLogo" 처럼 인자를 함께 적을 수 있게 공백으로 나눈다 — 단, 문자열
+    // 전체가 실재하는 파일이면 통째로 프로그램 경로다. 무조건 나누면
+    // "C:\\Program Files\\...\\pwsh.exe" 가 "C:\\Program" + 인자들로 쪼개져
+    // 표준 설치 경로가 그대로 실행 실패한다(진단 0.62.0).
+    let trimmed = exe.trim();
+    let (program, args): (String, Vec<String>) = if std::path::Path::new(trimmed).is_file() {
+        (trimmed.to_string(), Vec::new())
+    } else {
+        let mut parts = exe.split_whitespace();
+        (
+            parts.next().unwrap_or("").to_string(),
+            parts.map(str::to_string).collect(),
+        )
+    };
     let mut cmd = CommandBuilder::new(&program);
-    for a in parts {
+    for a in args {
         cmd.arg(a);
     }
     if !cwd.trim().is_empty() {

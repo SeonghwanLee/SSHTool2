@@ -173,39 +173,52 @@ fn vault_status(app: AppHandle, state: State<'_, VaultState>) -> Result<vault::V
     vault::status(&app, &state)
 }
 
+// 볼트 잠금해제·생성·마스터 변경은 PBKDF2 300k 라운드를 돈다. 동기 커맨드는
+// 메인 스레드에서 실행되어 그동안 창 전체가 굳으므로(진단 0.62.0), backup_export_zip
+// 과 같은 spawn_blocking 패턴으로 뺀다. State 는 'static 이 아니라 클로저에 못
+// 넘기므로 AppHandle 에서 다시 꺼낸다.
+
 /// 볼트 생성. 반환값 = 1회성 복구 키(사용자에게 보여주고 보관하게 할 것).
 #[tauri::command]
-fn vault_init(app: AppHandle, state: State<'_, VaultState>, master: String) -> Result<String, String> {
-    vault::init(&app, &state, master)
+async fn vault_init(app: AppHandle, master: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        use tauri::Manager;
+        vault::init(&app, &app.state::<VaultState>(), master)
+    })
+    .await
+    .map_err(|e| format!("볼트 작업 실패: {e}"))?
 }
 
 /// 마스터를 잊었을 때 복구 키로 해제. 이후 vault_change_master 로 새 비밀번호를 설정한다.
 #[tauri::command]
-fn vault_unlock_recovery(
-    app: AppHandle,
-    state: State<'_, VaultState>,
-    recovery: String,
-) -> Result<bool, String> {
-    vault::unlock_with_recovery(&app, &state, recovery)
+async fn vault_unlock_recovery(app: AppHandle, recovery: String) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        use tauri::Manager;
+        vault::unlock_with_recovery(&app, &app.state::<VaultState>(), recovery)
+    })
+    .await
+    .map_err(|e| format!("볼트 작업 실패: {e}"))?
 }
 
 /// 마스터 변경(해제 상태에서). 반환값 = 새 복구 키(기존 키는 무효).
 #[tauri::command]
-fn vault_change_master(
-    app: AppHandle,
-    state: State<'_, VaultState>,
-    new_master: String,
-) -> Result<String, String> {
-    vault::change_master(&app, &state, new_master)
+async fn vault_change_master(app: AppHandle, new_master: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        use tauri::Manager;
+        vault::change_master(&app, &app.state::<VaultState>(), new_master)
+    })
+    .await
+    .map_err(|e| format!("볼트 작업 실패: {e}"))?
 }
 
 #[tauri::command]
-fn vault_unlock(
-    app: AppHandle,
-    state: State<'_, VaultState>,
-    master: String,
-) -> Result<vault::UnlockOutcome, String> {
-    vault::unlock(&app, &state, master)
+async fn vault_unlock(app: AppHandle, master: String) -> Result<vault::UnlockOutcome, String> {
+    tokio::task::spawn_blocking(move || {
+        use tauri::Manager;
+        vault::unlock(&app, &app.state::<VaultState>(), master)
+    })
+    .await
+    .map_err(|e| format!("볼트 작업 실패: {e}"))?
 }
 
 #[tauri::command]
