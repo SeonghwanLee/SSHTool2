@@ -30,6 +30,7 @@ import {
 } from "./ipc";
 import { TabManager, type CredentialProvider, type ResolvedCreds, type StatusInfo } from "./tabs";
 import { wireCommandBar } from "./cmdbar";
+import { updateErrorText } from "./updateerror";
 import { applyStaticIcons, wireNavigationGuard, wireBrowserKeyGuard } from "./bootguards";
 import { reorderSession, applyDrop } from "./sessionorder";
 import { Sidebar, type DropTarget } from "./sidebar";
@@ -1291,7 +1292,7 @@ async function checkForUpdates(): Promise<void> {
     // '인터넷 불가'로 단정하거나 사용자를 방해하지 않는다(WPF 동작).
     // 실패를 눈으로 확인하려면 버전 정보 창의 '업데이트 확인' 버튼을 쓴다.
     console.error("시작 시 업데이트 확인 실패(무시)", e);
-    logLine("업데이트 확인 실패", String(e));
+    logLine("업데이트 확인 실패", updateErrorText(e)); // 주소는 로그에도 남기지 않는다
     // 다만 '연결 자체가 안 되는' 실패라면 내부망일 수 있으므로 한 번 묻는다.
     if (looksOffline(e)) await offerOfflineMode();
     return;

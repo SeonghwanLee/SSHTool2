@@ -493,7 +493,29 @@ try {
       await page.keyboard.press("Escape");
     });
 
-    await t.test("버전정보 변경 이력 — 최근 5개만, 전체는 홈페이지 버튼", async () => {
+    await t.test("업데이트 실패 문구 — GitHub 주소가 새지 않는다", async () => {
+      const bad = await page.evaluate(async () => {
+        const { updateErrorText } = await import("/src/updateerror.ts");
+        const samples = [
+          "Could not fetch a valid release JSON from the remote: https://github.com/SeonghwanLee/SSHTool2/releases/latest/download/latest.json",
+          "error sending request for url (https://github.com/x/y/latest.json): error trying to connect: dns error: failed to lookup address information",
+          "network error: connection refused (github.com:443)",
+          "io error: timed out",
+        ];
+        const out = [];
+        for (const s of samples) {
+          const t = updateErrorText(s);
+          if (/https?:\/\//.test(t) || /github/i.test(t)) out.push(t);
+          if (!t.includes("업데이트")) out.push("안내 문구 없음: " + t);
+        }
+        // 연결 실패는 '인터넷 차단' 쪽 안내여야 한다.
+        if (!updateErrorText(samples[1]).includes("연결할 수 없습니다")) out.push("오프라인 안내 누락");
+        return out;
+      });
+      expect(bad.length === 0, `주소·안내 문제: ${bad.join(" | ")}`);
+    });
+
+    await t.test("버전정보 변경 이력 — 최근 5개만, 홈페이지 버튼은 없다", async () => {
       await dismissModals(page);
       await page.click("#open-about");
       await page.waitForTimeout(400);
@@ -510,20 +532,10 @@ try {
           href: more?.title ?? "",
         };
       });
-      // 홈페이지 버튼이 브라우저를 여는지(IPC 호출) 확인.
-      await page.evaluate(() => (window.__ipc.length = 0));
-      await page.click(".about-more");
-      await page.waitForTimeout(300);
-      const opened = await page.evaluate(() =>
-        window.__ipc.filter(([c]) => c === "browser_open").map(([, a]) => a?.url),
-      );
       await page.keyboard.press("Escape");
       expect(r.versions === 5, `버전 항목이 5개가 아니다: ${r.versions}`);
       expect(r.head.includes("최근 5개"), `머리말이 다르다: "${r.head}"`);
-      expect(
-        opened.length === 1 && String(opened[0]).includes("sshtool2.vercel.app"),
-        `홈페이지를 열지 않는다: ${JSON.stringify(opened)}`,
-      );
+      expect(r.btn === "" && r.href === "", `홈페이지 버튼이 남아 있다: "${r.btn}"`);
     });
 
     await t.test("바깥 클릭 — 창이 닫히지 않고 반짝이며 유지 (설정·버전정보, Esc 는 닫힘)", async () => {

@@ -6,11 +6,10 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openModal, confirmDialog } from "./dialogs";
 import { CHANGELOG } from "./changelog";
-import { openConfigDir, browserOpen } from "./ipc";
+import { openConfigDir } from "./ipc";
+import { updateErrorText } from "./updateerror";
 
 const RECENT = 5;
-/** 전체 변경 이력 페이지 — 앱에는 최근 5개만 두고 나머지는 여기서 본다. */
-const SITE_CHANGELOG = "https://sshtool2.vercel.app/changelog.html";
 
 export function aboutDialog(
   liveCount: () => number = () => 0,
@@ -127,20 +126,7 @@ export function aboutDialog(
               logBox.appendChild(li);
             }
           }
-          more.style.display = CHANGELOG.length > RECENT ? "" : "none";
         };
-
-        // 전체 이력은 홈페이지에서 — 앱에 다 넣지 않고 링크로 보낸다.
-        const more = document.createElement("button");
-        more.type = "button";
-        more.className = "about-more";
-        more.textContent = "전체 변경 이력 보기 (홈페이지)";
-        more.title = SITE_CHANGELOG;
-        more.addEventListener("click", () => {
-          void browserOpen("default", SITE_CHANGELOG).catch(() => {
-            status.textContent = "브라우저를 열지 못했습니다 — 주소: " + SITE_CHANGELOG;
-          });
-        });
 
         // ── 동작 ──
         const status = document.createElement("div");
@@ -177,8 +163,9 @@ export function aboutDialog(
               await relaunch();
             }
           } catch (e) {
-            // 내부망 등 인터넷이 안 되는 환경에서는 조용히 실패하지 않도록 알린다.
-            status.textContent = `업데이트 확인 실패: ${String(e)}`;
+            // 내부망 등 인터넷이 안 되는 환경에서는 조용히 실패하지 않도록 알리되,
+            // 배포 서버 주소(GitHub URL)는 화면에 내보내지 않는다(0.66.0).
+            status.textContent = updateErrorText(e);
           } finally {
             updateBtn.disabled = false;
             updateBtn.textContent = label;
@@ -241,7 +228,7 @@ export function aboutDialog(
         credit.textContent = "© 2026 이성환 · SSHTool2 — WPF SSHTool 후속(개인 프로젝트)";
 
         drawLog();
-        card.append(banner, info, oss, ossBox, logHead, logBox, more, status, actions, credit);
+        card.append(banner, info, oss, ossBox, logHead, logBox, status, actions, credit);
         return card;
       },
       () => resolve(),

@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.66.0",
+    date: "2026-08-07",
+    notes: [
+      "버전정보의 '전체 변경 이력 보기' 버튼을 제거했습니다 — 창에는 최근 5개만 보입니다",
+      "인터넷이 차단된 환경에서 업데이트 확인이 실패해도 배포 서버 주소가 화면·진단 로그에 노출되지 않습니다",
+    ],
+  },
+  {
     version: "0.65.0",
     date: "2026-08-07",
     notes: [
