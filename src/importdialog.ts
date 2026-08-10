@@ -1,4 +1,4 @@
-// 다른 SSH 클라이언트에서 세션 가져오기 — PuTTY/SecureCRT/MobaXterm.
+// 외부 프로그램 세션 가져오기 — PuTTY/SecureCRT/MobaXterm/WinSCP/FileZilla.
 // 프로그램 → 원본 폴더(중첩 트리) → 세션 미리보기, 체크박스 선택(폴더 체크=하위 전체, 부분선택 중간표시),
 // 검색 필터(선택 유지), host+user 중복 제외. 비밀번호는 가져오지 않음(첫 접속 시 입력).
 
@@ -30,7 +30,7 @@ export async function importDialog(existing: SessionInfo[]): Promise<SessionInfo
         card.className = "settings-card";
 
         const title = document.createElement("h3");
-        title.textContent = "다른 SSH 클라이언트에서 가져오기";
+        title.textContent = "외부 프로그램 세션 가져오기";
         const sub = document.createElement("div");
         sub.className = "modal-sub";
         sub.textContent =

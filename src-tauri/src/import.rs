@@ -1,4 +1,4 @@
-//! 외부 SSH 클라이언트(PuTTY·SecureCRT·MobaXterm)의 세션 가져오기.
+//! 외부 SSH 클라이언트(PuTTY·SecureCRT·MobaXterm·WinSCP·FileZilla)의 세션 가져오기.
 //!
 //! Host/Port/계정/폴더 구조만 가져온다 — 세 프로그램 모두 비밀번호는 미저장(PuTTY)이거나
 //! 자체 암호화라 안전하게 옮길 수 없다. 빈 자격증명은 이 앱의 "첫 접속 시 입력 → 성공하면
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportedSession {
-    /// "PuTTY" | "SecureCRT" | "MobaXterm"
+    /// "PuTTY" | "SecureCRT" | "MobaXterm" | "WinSCP" | "FileZilla"
     pub source: String,
     /// 원본 프로그램에서의 하위 폴더 경로. 없으면 "". "/" 구분자, 소스명은 포함하지 않는다.
     pub folder: String,
@@ -33,6 +33,8 @@ pub fn scan() -> Vec<ImportedSession> {
     found.extend(scan_putty());
     found.extend(scan_securecrt());
     found.extend(scan_mobaxterm());
+    found.extend(scan_winscp());
+    found.extend(scan_filezilla());
     found
 }
 
@@ -409,4 +411,235 @@ fn moba_session_type(value: &str) -> Option<u32> {
         .filter(|token| !token.is_empty())
         .filter_map(|token| token.parse::<u32>().ok())
         .next_back()
+}
+
+
+// ─────────────────────────── WinSCP ───────────────────────────
+// HKCU\Software\Martin Prikryl\WinSCP 2\Sessions — 서브키 1개 = 세션 1개.
+// 키 이름은 PuTTY 와 같은 %XX 이스케이프라 디코더를 함께 쓴다.
+// 값: HostName(문자열) · UserName(문자열) · PortNumber(DWORD, 없으면 22) ·
+//     FSProtocol(DWORD) — SSH 계열(SCP/SFTP)만 가져온다. FTP·WebDAV·S3 는 이 앱이 못 연다.
+// INI 저장(설정에서 바꿀 수 있다) 사용자를 위해 %APPDATA%\WinSCP.ini 도 함께 훑는다.
+
+/// WinSCP FSProtocol 값 중 SSH 계열만 true. 0=SCP, 2=SFTP, 1=SFTP(구 SCP 폴백).
+/// 5=FTP · 6=WebDAV · 7=S3 는 제외한다 — 가져와 봐야 접속할 수 없다.
+fn winscp_is_ssh(protocol: u32) -> bool {
+    matches!(protocol, 0 | 1 | 2)
+}
+
+#[cfg(windows)]
+fn scan_winscp_registry() -> Vec<ImportedSession> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let Ok(root) = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Martin Prikryl\WinSCP 2\Sessions")
+    else {
+        return Vec::new(); // WinSCP 미설치(또는 INI 저장) — 조용히 건너뛴다.
+    };
+
+    root.enum_keys()
+        .flatten()
+        .filter(|name| name != "Default%20Settings")
+        .filter_map(|encoded| {
+            let key = root.open_subkey(&encoded).ok()?;
+            let host: String = key.get_value("HostName").ok()?;
+            let protocol: u32 = key.get_value("FSProtocol").unwrap_or(0);
+            if !winscp_is_ssh(protocol) {
+                return None;
+            }
+            let user: String = key.get_value("UserName").unwrap_or_default();
+            let port: u32 = key.get_value("PortNumber").unwrap_or(DEFAULT_PORT as u32);
+            Some(make_winscp(&decode_putty_name(&encoded), &host, &user, sanitize_port(port)))
+        })
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn scan_winscp_registry() -> Vec<ImportedSession> {
+    Vec::new()
+}
+
+fn make_winscp(name: &str, host: &str, user: &str, port: u16) -> ImportedSession {
+    // WinSCP 도 "user@host" 를 HostName 에 담을 수 있다(PuTTY 와 같은 처리).
+    let (u, h) = match host.split_once('@') {
+        Some((left, right)) if !right.is_empty() => (left.to_string(), right.to_string()),
+        _ => (user.to_string(), host.to_string()),
+    };
+    ImportedSession {
+        source: "WinSCP".into(),
+        folder: String::new(),
+        name: if name.is_empty() { h.clone() } else { name.to_string() },
+        host: h,
+        port,
+        user: u,
+    }
+}
+
+/// WinSCP INI 저장 방식 — `[Sessions\이름]` 섹션에 같은 키들이 들어 있다.
+fn parse_winscp_ini(text: &str) -> Vec<ImportedSession> {
+    let mut out = Vec::new();
+    let mut name = String::new();
+    let mut host = String::new();
+    let mut user = String::new();
+    let mut port: u32 = DEFAULT_PORT as u32;
+    let mut protocol: u32 = 0;
+    let mut in_session = false;
+
+    let flush = |out: &mut Vec<ImportedSession>,
+                 name: &str,
+                 host: &str,
+                 user: &str,
+                 port: u32,
+                 protocol: u32| {
+        if !host.is_empty() && winscp_is_ssh(protocol) {
+            out.push(make_winscp(name, host, user, sanitize_port(port)));
+        }
+    };
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            if in_session {
+                flush(&mut out, &name, &host, &user, port, protocol);
+            }
+            let section = &line[1..line.len() - 1];
+            in_session = section.starts_with("Sessions\\");
+            name = section
+                .strip_prefix("Sessions\\")
+                .map(decode_putty_name)
+                .unwrap_or_default();
+            host.clear();
+            user.clear();
+            port = DEFAULT_PORT as u32;
+            protocol = 0;
+            continue;
+        }
+        if !in_session {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        match key.trim() {
+            "HostName" => host = value.trim().to_string(),
+            "UserName" => user = value.trim().to_string(),
+            "PortNumber" => port = value.trim().parse().unwrap_or(DEFAULT_PORT as u32),
+            "FSProtocol" => protocol = value.trim().parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+    if in_session {
+        flush(&mut out, &name, &host, &user, port, protocol);
+    }
+    out
+}
+
+fn scan_winscp() -> Vec<ImportedSession> {
+    let mut found = scan_winscp_registry();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let ini = PathBuf::from(appdata).join("WinSCP.ini");
+        if ini.is_file() {
+            if let Some(text) = read_text_best_effort(&ini) {
+                found.extend(parse_winscp_ini(&text));
+            }
+        }
+    }
+    found
+}
+
+// ─────────────────────────── FileZilla ───────────────────────────
+// %APPDATA%\FileZilla\sitemanager.xml — <Folder> 중첩이 곧 폴더 구조,
+// <Server> 하나가 세션 하나. <Protocol> 1 = SFTP 만 가져온다(FTP 계열은 못 연다).
+// 의존성을 늘리지 않으려고 태그를 직접 훑는다 — 이 파일은 구조가 단순하고
+// 우리가 필요한 값(호스트·포트·계정·이름)은 모두 평문 자식 태그다.
+
+/// `<태그>값</태그>` 에서 값 하나를 꺼낸다(첫 번째만). 없으면 None.
+fn xml_tag<'a>(chunk: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}");
+    let start = chunk.find(&open)?;
+    let after = chunk[start..].find('>')? + start + 1;
+    let end = chunk[after..].find(&format!("</{tag}>"))? + after;
+    Some(chunk[after..end].trim())
+}
+
+/// XML 엔티티 최소 복원 — 이름·경로에 흔한 것만(&amp; &lt; &gt; &quot; &apos;).
+fn xml_unescape(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+/// sitemanager.xml 파싱. 폴더 중첩은 `<Folder>` 여는 태그를 따라 경로로 쌓는다.
+pub fn parse_filezilla(text: &str) -> Vec<ImportedSession> {
+    let mut out = Vec::new();
+    let mut folders: Vec<String> = Vec::new();
+    let mut rest = text;
+
+    while let Some(pos) = rest.find('<') {
+        let tail = &rest[pos..];
+        if tail.starts_with("<Folder") {
+            // <Folder expanded="1">이름\n  <Server>… — 여는 태그 뒤 첫 줄이 폴더명이다.
+            let after = match tail.find('>') {
+                Some(i) => &tail[i + 1..],
+                None => break,
+            };
+            let name = after
+                .lines()
+                .next()
+                .map(|l| xml_unescape(l.trim()))
+                .unwrap_or_default();
+            folders.push(name);
+            rest = after;
+            continue;
+        }
+        if tail.starts_with("</Folder>") {
+            folders.pop();
+            rest = &tail["</Folder>".len()..];
+            continue;
+        }
+        // 컨테이너 태그 <Servers> 가 "<Server" 로 시작해 함께 걸리면, 그 안의 폴더가
+        // 통째로 삼켜진다(시뮬레이션에서 잡은 버그) — 정확히 세션 태그만 본다.
+        if tail.starts_with("<Server>") || tail.starts_with("<Server ") {
+            let end = match tail.find("</Server>") {
+                Some(i) => i,
+                None => break,
+            };
+            let chunk = &tail[..end];
+            let protocol: u32 = xml_tag(chunk, "Protocol").and_then(|v| v.parse().ok()).unwrap_or(0);
+            let host = xml_tag(chunk, "Host").map(xml_unescape).unwrap_or_default();
+            // Protocol 1 = SFTP. 0(FTP)·3(FTPS) 등은 이 앱이 열 수 없어 건너뛴다.
+            if protocol == 1 && !host.is_empty() {
+                let port: u32 = xml_tag(chunk, "Port").and_then(|v| v.parse().ok()).unwrap_or(22);
+                let user = xml_tag(chunk, "User").map(xml_unescape).unwrap_or_default();
+                let name = xml_tag(chunk, "Name")
+                    .map(xml_unescape)
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| host.clone());
+                out.push(ImportedSession {
+                    source: "FileZilla".into(),
+                    folder: folders.join("/"),
+                    name,
+                    host,
+                    port: sanitize_port(port),
+                    user,
+                });
+            }
+            rest = &tail[end + "</Server>".len()..];
+            continue;
+        }
+        rest = &tail[1..];
+    }
+    out
+}
+
+fn scan_filezilla() -> Vec<ImportedSession> {
+    let Ok(appdata) = std::env::var("APPDATA") else {
+        return Vec::new();
+    };
+    let path = PathBuf::from(appdata).join("FileZilla").join("sitemanager.xml");
+    if !path.is_file() {
+        return Vec::new();
+    }
+    read_text_best_effort(&path).map(|t| parse_filezilla(&t)).unwrap_or_default()
 }

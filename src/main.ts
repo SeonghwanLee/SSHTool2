@@ -462,7 +462,7 @@ async function main(): Promise<void> {
     const prevTitle = btn.title;
     btn.disabled = true;
     btn.classList.add("busy");
-    btn.title = "다른 클라이언트 세션을 찾는 중…";
+    btn.title = "외부 프로그램 세션을 찾는 중…";
     try {
       await runImportBody();
     } finally {

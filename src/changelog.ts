@@ -9,6 +9,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.68.0",
+    date: "2026-08-08",
+    notes: [
+      "WinSCP·FileZilla 세션도 가져올 수 있습니다 — 기존 PuTTY·SecureCRT·MobaXterm 에 더해 5종. FileZilla 는 사이트 폴더 구조까지 그대로 옮겨옵니다",
+      "SSH 로 열 수 없는 항목(FTP·WebDAV·S3)은 목록에 넣지 않습니다. 비밀번호는 어느 프로그램에서도 가져오지 않습니다(설계)",
+      "메뉴 이름 변경 — '다른 SSH 클라이언트에서 가져오기' → '외부 프로그램 세션 가져오기'",
+    ],
+  },
+  {
     version: "0.67.0",
     date: "2026-08-08",
     notes: [

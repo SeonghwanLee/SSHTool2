@@ -184,7 +184,7 @@ export class Sidebar {
         // 루트에 바로 놓인 세션들의 정렬. 폴더 안은 각 폴더 메뉴에서 따로 정한다.
         ...this.sortItems(""),
         { separator: true },
-        { label: "다른 클라이언트에서 가져오기…", accel: "i", action: () => this.cb.onImport() },
+        { label: "외부 프로그램 세션 가져오기…", accel: "i", action: () => this.cb.onImport() },
         { separator: true },
         { label: "세션 일괄 삭제…", accel: "b", danger: true, action: () => this.cb.onBulkDelete() },
       ]);
@@ -564,7 +564,7 @@ export class Sidebar {
       empty.className = "tree-empty";
       empty.textContent = this.filter
         ? "검색 결과가 없습니다."
-        : "저장된 세션이 없습니다.\n＋ 로 추가하거나, 빈 곳을 우클릭해\n다른 클라이언트에서 가져오세요.";
+        : "저장된 세션이 없습니다.\n＋ 로 추가하거나, 빈 곳을 우클릭해\n외부 프로그램에서 가져오세요.";
       this.tree.appendChild(empty);
       this.restoreNavFocus(hadFocus);
       return;

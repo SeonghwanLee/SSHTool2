@@ -97,7 +97,7 @@ export const sessionsLoad = (): Promise<SessionInfo[]> =>
 export const sessionsSave = (sessions: SessionInfo[]): Promise<void> =>
   invoke("sessions_save", { sessions });
 
-/** 다른 SSH 클라이언트에서 스캔한 세션 후보(백엔드 import::ImportedSession). */
+/** 외부 프로그램에서 스캔한 세션 후보(백엔드 import::ImportedSession). */
 export interface ImportedSession {
   source: string;
   folder: string;
