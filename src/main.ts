@@ -31,6 +31,54 @@ import {
 import { TabManager, type CredentialProvider, type ResolvedCreds, type StatusInfo } from "./tabs";
 import { wireCommandBar } from "./cmdbar";
 import { updateErrorText } from "./updateerror";
+import {
+  ensureVaultUnlocked,
+  toggleAutoUnlock,
+  tryAutoUnlock,
+  changeMasterFlow,
+  reflectLock,
+  refreshLockIndicator,
+} from "./vaultflow";
+import {
+  moveFolder,
+  extractSecrets,
+  hydrateSecrets,
+  allFolderPaths,
+  editSessionFlow,
+  renameSessionFlow,
+  openSftpFor,
+  isSavedSession,
+} from "./sessionflow";
+import { credentials } from "./credentials";
+import {
+  wireSettings,
+  wireViewModes,
+  wireHostKeyPrompt,
+  wireSidebarResize,
+  wireAutoLock,
+  wireSidebarSearch,
+  wireWindowControls,
+  wireLockKeys,
+  updateStatusBar,
+  restartAutoLock,
+  restartScreensaver,
+} from "./wiring";
+import {
+  sessions,
+  setSessions,
+  settings,
+  setSettings,
+  sessionsLoaded,
+  setSessionsLoaded,
+  tabManager,
+  setTabManager,
+  redraw,
+  applyDisplayOptions,
+  runImport,
+  newFolderFlow,
+  injectActions,
+  persist,
+} from "./appstate";
 import { applyStaticIcons, wireNavigationGuard, wireBrowserKeyGuard } from "./bootguards";
 import { reorderSession, applyDrop } from "./sessionorder";
 import { Sidebar, type DropTarget } from "./sidebar";
@@ -75,39 +123,8 @@ const $ = <T extends HTMLElement>(id: string): T => {
   return el as T;
 };
 
-let sessions: SessionInfo[] = [];
-let settings: Settings;
-/** 자동 업데이트 경고 등에서 접속 세션 수를 참조하기 위한 모듈 레벨 핸들. */
-let tabManager: TabManager | undefined;
-/** 사이드바 재그리기 — main() 에서 Sidebar 생성 후 실제 구현이 주입된다. */
-let redraw: () => void = () => {};
-/** 사이드바 표시 옵션 적용(정렬·세부정보) — 마찬가지로 main() 에서 주입된다. */
-let applyDisplayOptions: (s: Settings) => void = () => {};
-/** 세션 가져오기 — main() 에서 실제 구현 주입. */
-let runImport: () => Promise<void> = async () => {};
-/** 새 폴더 — main() 에서 실제 구현 주입. */
-let newFolderFlow: (parent: string) => Promise<void> = async () => {};
-
-/**
- * 세션 파일을 정상적으로 읽었을 때만 true. 읽기에 실패한 상태에서 저장하면
- * 빈 목록으로 기존 파일을 덮어써 데이터가 유실되므로 저장을 잠근다.
- */
-let sessionsLoaded = false;
-
-async function persist(): Promise<void> {
-  if (!sessionsLoaded) {
-    console.error("세션 로드 실패 상태 — 데이터 보호를 위해 저장을 건너뜁니다.");
-    return;
-  }
-  try {
-    await sessionsSave(sessions);
-  } catch (e) {
-    // 파일 암호화 키를 못 읽으면 백엔드가 평문 덮어쓰기를 거부한다 — 조용히 넘기면
-    // 사용자는 저장된 줄 알고 계속 편집하게 된다.
-    console.error("세션 저장 실패", e);
-    await saveFailureAlert("세션 목록", e);
-  }
-}
+// 앱 전역 가변 상태는 appstate.ts 로 옮겼다(0.67.0 정지작업) — 흐름별 모듈이
+// 같은 상태를 보도록 하기 위함이다. 읽기는 import 한 이름 그대로, 쓰기는 set* 로 한다.
 
 /** 세션별 글자 크기 저장 — Ctrl+휠 조절 시 세션에 기록해 다음 접속에 복원.
  *  휠은 빠르게 연속 발생하므로 저장은 디바운스한다. 임시(미저장) 세션은 무시. */
@@ -116,215 +133,10 @@ function onSessionFontSize(session: SessionInfo, size: number): void {
   const idx = sessions.findIndex((x) => x.id === session.id);
   if (idx < 0) return; // 빠른 접속 등 저장되지 않은 세션
   if (sessions[idx].fontSize === size) return;
-  sessions = sessions.map((x) => (x.id === session.id ? { ...x, fontSize: size } : x));
+  setSessions(sessions.map((x) => (x.id === session.id ? { ...x, fontSize: size } : x)));
   window.clearTimeout(fontSaveTimer);
   fontSaveTimer = window.setTimeout(() => void persist(), 500);
 }
-
-/**
- * 폴더를 다른 폴더 안(destParent) 또는 루트("")로 옮긴다.
- * 하위 폴더·세션 경로 접두사를 함께 바꿔 안의 것들이 모두 따라 이동한다.
- */
-async function moveFolder(sourcePath: string, destParent: string): Promise<void> {
-  const seg = sourcePath.split("/").pop() ?? sourcePath;
-  const newPath = destParent ? `${destParent}/${seg}` : seg;
-  if (newPath === sourcePath) return; // 제자리
-  if (destParent === sourcePath || destParent.startsWith(`${sourcePath}/`)) {
-    await alertDialog("폴더를 자기 자신이나 그 하위로 옮길 수 없습니다.");
-    return;
-  }
-  const rePrefix = (folder: string): string => {
-    if (folder === sourcePath) return newPath;
-    if (folder.startsWith(`${sourcePath}/`)) return newPath + folder.slice(sourcePath.length);
-    return folder;
-  };
-  sessions = sessions.map((s) => ({ ...s, folder: rePrefix(s.folder) }));
-  settings = { ...settings, folders: settings.folders.map(rePrefix) };
-  await persist();
-  await saveSettings(settings);
-  redraw();
-}
-
-/** 볼트가 잠겨 있으면 마스터 입력을 받아 해제(없으면 최초 생성). 준비되면 true. */
-async function ensureVaultUnlocked(): Promise<boolean> {
-  const st = await vaultStatus();
-  if (st.unlocked) return true;
-
-  if (!st.exists) {
-    const master = await masterPrompt(
-      "볼트 마스터 비밀번호 설정",
-      "비밀번호를 저장하려면 볼트를 보호할 마스터 비밀번호를 정하세요.",
-      "설정",
-      true,
-    );
-    if (master === null) return false;
-    const recovery = await vaultInit(master);
-    await showRecoveryKey(recovery);
-    return true;
-  }
-
-  for (let i = 0; i < 3; i++) {
-    const master = await masterPrompt(
-      "볼트 잠금 해제",
-      i === 0
-        ? "저장된 비밀번호를 사용하려면 마스터 비밀번호를 입력하세요."
-        : "마스터 비밀번호가 올바르지 않습니다. 다시 입력하세요.",
-      "해제",
-    );
-    if (master === null) return false;
-    const outcome = await vaultUnlock(master);
-    if (outcome.ok) {
-      // 구형 볼트가 방금 이관됐다면 새로 발급된 복구 키를 반드시 보여준다.
-      if (outcome.migratedRecovery) await showRecoveryKey(outcome.migratedRecovery);
-      return true;
-    }
-  }
-
-  // 3회 실패 → 복구 키로 열 기회를 준다.
-  const useRecovery = await confirmDialog(
-    "마스터 비밀번호로 열지 못했습니다. 복구 키로 잠금을 해제할까요?",
-  );
-  if (!useRecovery) return false;
-  const key = await textPrompt("복구 키 입력 (XXXX-XXXX-… 형식)", "", "해제");
-  if (!key) return false;
-  try {
-    if (!(await vaultUnlockRecovery(key))) {
-      await alertDialog("복구 키가 올바르지 않습니다.");
-      return false;
-    }
-  } catch (e) {
-    await alertDialog(`복구 해제 실패: ${String(e)}`);
-    return false;
-  }
-  // 복구로 열었으면 새 마스터를 반드시 설정하게 한다.
-  const next = await masterPrompt(
-    "새 마스터 비밀번호 설정",
-    "복구 키로 열었습니다. 새 마스터 비밀번호를 설정하세요.",
-    "설정",
-    true,
-  );
-  if (next === null) {
-    await alertDialog(
-      "새 마스터 비밀번호를 설정하지 않았습니다.\n" +
-        "이번 실행에서는 볼트를 쓸 수 있지만, 다시 시작하면 예전 마스터 비밀번호나 복구 키가 다시 필요합니다.",
-    );
-    return true;
-  }
-  const newRecovery = await vaultChangeMaster(next);
-  await showRecoveryKey(newRecovery);
-  return true;
-}
-
-/** 복구 키를 1회 표시하고 클립보드 복사를 돕는다(다시 볼 수 없음). */
-async function showRecoveryKey(recovery: string): Promise<void> {
-  let copied = false;
-  try {
-    await navigator.clipboard.writeText(recovery);
-    copied = true;
-  } catch {
-    copied = false; // 복사 실패를 숨기면 사용자가 키를 잃는다
-  }
-  await alertDialog(
-    `복구 키: ${recovery}\n\n` +
-      "마스터 비밀번호를 잊었을 때 볼트를 여는 유일한 수단입니다.\n" +
-      (copied
-        ? "클립보드에 복사해 두었습니다 — 안전한 곳에 보관하세요."
-        : "⚠ 클립보드 복사에 실패했습니다. 위 키를 직접 옮겨 적으세요.") +
-      "\n이 화면 이후에는 다시 볼 수 없습니다.",
-    "복구 키 (1회 표시)",
-  );
-}
-
-/**
- * 자격증명 해결:
- * - savePassword + 볼트에 저장돼 있고 사용자 이름도 있으면 → 그대로 사용(프롬프트 없음)
- * - 사용자 이름이 없으면 → 로그인(아이디+비밀번호) 입력
- * - 그 외 → 비밀번호만 입력
- */
-const credentials: CredentialProvider = {
-  async resolve(session) {
-    try {
-      if (session.savePassword && session.user && (await ensureVaultUnlocked())) {
-        const stored = await vaultGetPassword(session.id);
-        if (stored !== null) return { user: session.user, password: stored, prompted: false };
-      }
-    } catch (e) {
-      console.error("볼트 사용 실패 — 직접 입력받습니다", e);
-      await alertDialog(`저장된 비밀번호를 사용할 수 없습니다: ${String(e)}`);
-    }
-
-    // 여기부터는 사용자에게 물어봐야 한다. 묻기 전에 **서버가 실제로 붙는지 먼저 확인**한다
-    // — 예전에는 네트워크에 손도 대기 전에 비밀번호 창부터 떴다. 호스트가 죽었거나
-    // 호스트키가 바뀐 경우에도 비밀번호를 받아 놓고 나서야 실패했다.
-    // probe 는 TCP·키교환·호스트키 확인까지 마치고, 계정을 알린 뒤 서버 응답까지 받아 온다.
-    // 로컬 셸은 이 경로를 타지 않는다(인증 자체가 없다).
-    try {
-      await sshProbe(session.host, session.port, session.user, session.allowLegacyAlgorithms);
-    } catch (e) {
-      // 붙지도 않는 서버에 비밀번호를 묻지 않는다. 실패 사유는 팝업이 아니라
-      // 탭의 재접속 오버레이로 보여 준다(0.59.0 — 팝업은 늦게 떠서 불편했다).
-      return { failed: String(e) };
-    }
-
-    if (!session.user) {
-      // 가져온 세션 등 계정이 없는 경우 — 아이디+비밀번호를 함께 입력받는다.
-      const login = await loginPrompt(session);
-      if (login === null) return null;
-      return { user: login.user, password: login.password, prompted: true };
-    }
-    const pw = await passwordPrompt(session);
-    if (pw === null) return null;
-    return { user: session.user, password: pw, prompted: true };
-  },
-
-  async onConnected(session, creds) {
-    void refreshLockIndicator();
-    // 저장된 자격증명을 그대로 쓴 경우엔 물어볼 게 없다.
-    if (!creds.prompted) return;
-    // 임시(빠른 접속) 세션은 목록에 없으니 저장 제안 안 함.
-    const saved = sessions.find((x) => x.id === session.id);
-    if (!saved) return;
-
-    const persistCreds = async (updateUser: boolean) => {
-      if (updateUser || !saved.savePassword) {
-        sessions = sessions.map((x) =>
-          x.id === session.id ? { ...x, user: creds.user, savePassword: true } : x,
-        );
-        // 이 탭에서의 재접속도 저장된 계정을 쓰도록 라이브 세션도 갱신.
-        session.user = creds.user;
-        session.savePassword = true;
-        await persist();
-        redraw();
-      }
-      try {
-        if (await ensureVaultUnlocked()) await vaultSetPassword(session.id, creds.password);
-      } catch (e) {
-        console.error("비밀번호 저장 실패", e);
-      }
-    };
-
-    if (saved.savePassword) {
-      // 이미 저장 대상 — 조용히 최신 값으로 갱신(사용자 이름이 바뀌었으면 함께).
-      await persistCreds(saved.user !== creds.user);
-      return;
-    }
-    // 저장 안 하던 세션 — 입력한 계정 정보를 저장할지 물어본다(WPF 0.42.0).
-    const yes = await confirmDialog("입력한 계정 정보를 이 세션에 저장할까요?");
-    if (yes) await persistCreds(true);
-  },
-
-  async onError(session, error) {
-    // 저장된 비밀번호가 틀렸을 수 있으니 '인증 실패' 면 폐기 → 다음엔 다시 물어봄.
-    // (백엔드는 자격증명 오류에 항상 '인증 실패' 를 쓴다 — '인증서' 등 오탐 회피)
-    if (session.savePassword && error.includes("인증 실패")) {
-      try {
-        await vaultDeletePassword(session.id);
-      } catch {
-        /* 무시 */
-      }
-    }
-  },
-};
 
 function appToast(message: string): void {
   const el = document.createElement("div");
@@ -344,152 +156,12 @@ function appToast(message: string): void {
 // 않으므로, 볼트를 설정하지 않은 사용자도 무해한 트리거를 그대로 쓸 수 있다.
 // 세션 파일에는 빈 값 + 플래그만 남고, 실제 값은 접속 직전에 다시 채운다.
 
-const trigKey = (id: string): string => `${id}:triggers`;
-const startKey = (id: string): string => `${id}:startup`;
-
-/** 세션에 볼트로 보낼 비밀 값이 하나라도 있는가. */
-const hasSecrets = (s: SessionInfo): boolean =>
-  s.startupCommandsSecret || s.triggers.some((t) => t.secret);
-
-/**
- * 저장 직전 호출 — 비밀 값을 볼트에 넣고, 파일에 남길 세션에서는 그 값을 비운다.
- * 볼트 해제를 취소하면 null 을 돌려 저장 자체를 중단시킨다(평문으로 새어 나가지 않게).
- */
-async function extractSecrets(s: SessionInfo): Promise<SessionInfo | null> {
-  if (!hasSecrets(s)) {
-    // 체크를 해제한 경우 볼트에 남아 있던 항목을 정리한다(실패는 무시 — 저장을 막지 않는다).
-    await vaultDeleteSecret(trigKey(s.id)).catch(() => {});
-    await vaultDeleteSecret(startKey(s.id)).catch(() => {});
-    return s;
-  }
-  if (!(await ensureVaultUnlocked())) return null;
-
-  const secretTriggers = s.triggers.filter((t) => t.secret);
-  if (secretTriggers.length) {
-    // 비밀 규칙의 send 만 모아 한 항목으로 — 패턴은 비밀이 아니라 파일에 남는다.
-    await vaultSetSecret(trigKey(s.id), JSON.stringify(secretTriggers.map((t) => t.send)));
-  } else {
-    await vaultDeleteSecret(trigKey(s.id)).catch(() => {});
-  }
-
-  if (s.startupCommandsSecret) await vaultSetSecret(startKey(s.id), s.startupCommands);
-  else await vaultDeleteSecret(startKey(s.id)).catch(() => {});
-
-  return {
-    ...s,
-    startupCommands: s.startupCommandsSecret ? "" : s.startupCommands,
-    triggers: s.triggers.map((t) => (t.secret ? { ...t, send: "" } : t)),
-  };
-}
-
-/**
- * 접속 직전 호출 — 볼트에서 비밀 값을 꺼내 메모리 상의 세션을 원래대로 되돌린다.
- * 해제를 취소하면 값이 빈 채로 접속한다(트리거가 안 걸릴 뿐, 접속 자체는 막지 않는다).
- */
-async function hydrateSecrets(s: SessionInfo): Promise<SessionInfo> {
-  if (!hasSecrets(s)) return s;
-  if (!(await ensureVaultUnlocked())) return s;
-
-  let startup = s.startupCommands;
-  if (s.startupCommandsSecret) startup = (await vaultGetSecret(startKey(s.id))) ?? "";
-
-  let triggers = s.triggers;
-  if (s.triggers.some((t) => t.secret)) {
-    const raw = await vaultGetSecret(trigKey(s.id));
-    const sends: string[] = raw ? JSON.parse(raw) : [];
-    let n = 0;
-    triggers = s.triggers.map((t) => (t.secret ? { ...t, send: sends[n++] ?? "" } : t));
-  }
-  return { ...s, startupCommands: startup, triggers };
-}
-
-/**
- * 지금 존재하는 폴더 경로 전부 — 명시적으로 만든 폴더(settings.folders)와 세션이 실제로
- * 들어 있는 폴더를 합치고, 중간 경로(`운영/DB` 의 `운영`)까지 펼쳐서 돌려준다.
- * 세션 편집 창의 폴더 제안 목록으로 쓴다.
- */
-function allFolderPaths(): string[] {
-  const out = new Set<string>();
-  for (const raw of [...settings.folders, ...sessions.map((s) => s.folder)]) {
-    const path = (raw ?? "").trim();
-    if (!path) continue;
-    let acc = "";
-    for (const seg of path.split("/").filter(Boolean)) {
-      acc = acc ? `${acc}/${seg}` : seg;
-      out.add(acc);
-    }
-  }
-  return [...out].sort((a, b) => a.localeCompare(b, "ko"));
-}
-
-/**
- * 세션 하나에 대해 SFTP 브라우저를 연다. 사이드바(세션·최근 접속)와 세션 탭 우클릭이
- * 같은 경로를 쓰도록 한 곳에 둔다.
- */
-/**
- * 세션 편집 창을 열고 결과를 저장한다. 사이드바와 세션 탭 우클릭이 같은 경로를 쓰도록
- * 한 곳에 둔다. 반환값은 편집 결과(볼트 값이 채워진 메모리 상의 세션) — 열려 있는 탭이
- * 들고 있는 세션을 갱신하는 데 쓴다. 취소하거나 저장이 중단되면 null.
- */
-async function editSessionFlow(s: SessionInfo): Promise<SessionInfo | null> {
-  // 편집 창에는 볼트에 있던 값도 채워서 보여 준다(빈 칸으로 열리면 지운 걸로 오해한다).
-  const edited = await sessionDialog(await hydrateSecrets(s), "세션 편집", allFolderPaths());
-  if (!edited) return null;
-  const stripped = await extractSecrets(edited);
-  if (!stripped) return null; // 볼트 해제 취소 — 평문으로 새지 않도록 저장 자체를 중단
-  sessions = sessions.map((x) => (x.id === stripped.id ? stripped : x));
-  await persist();
-  redraw();
-  return edited;
-}
-
-/**
- * 세션 이름 변경 — 사이드바와 세션 탭 우클릭 공용. 바뀐 이름을 돌려주면
- * 호출한 쪽(탭)이 라벨을 즉시 갱신한다. 취소하면 null.
- */
-async function renameSessionFlow(s: SessionInfo): Promise<string | null> {
-  const next = await textPrompt("이름 변경", s.name, "변경");
-  if (!next) return null;
-  sessions = sessions.map((x) => (x.id === s.id ? { ...x, name: next } : x));
-  await persist();
-  redraw();
-  return next;
-}
-
-/** 저장 목록에 있는 세션인지 — 빠른 접속 등 임시 세션과 구분한다. */
-const isSavedSession = (s: SessionInfo): boolean => sessions.some((x) => x.id === s.id);
-
-async function openSftpFor(s: SessionInfo): Promise<void> {
-  // 살아있는 연결을 재사용할 때는 자격증명이 필요 없다 — 묻지도 않는다(0.62.0).
-  // 묻고 나서 버리면, 오타 난 비밀번호가 검증 없이 저장될 입구만 열어 준다.
-  if (liveSftpOf(s.id)) {
-    await openSftpBrowser(s, "", undefined, settings.sftpLocalDir);
-    return;
-  }
-  // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
-  const creds = await credentials.resolve(s);
-  if (creds === null) return;
-  if ("failed" in creds) {
-    // 세션 탭과 달리 SFTP 는 실패를 담아 둘 화면이 없다 — 여기서는 팝업으로 알린다.
-    await alertDialog(creds.failed, "접속 실패");
-    return;
-  }
-  const target = creds.user !== s.user ? { ...s, user: creds.user } : s;
-  // 저장은 SFTP 인증이 '성공한 뒤에만' — 틀린 비번을 볼트에 넣지 않는다.
-  await openSftpBrowser(
-    target,
-    creds.password,
-    () => credentials.onConnected(s, creds),
-    settings.sftpLocalDir,
-  );
-}
-
 async function main(): Promise<void> {
   applyStaticIcons();
   wireBrowserKeyGuard();
   wireNavigationGuard();
   // 설정 로드 + 테마 즉시 적용(첫 페인트 전).
-  settings = await loadSettings();
+  setSettings(await loadSettings());
   applyAppTheme(themeById(settings.theme));
   // 진단 로깅은 설정을 읽자마자 붙인다 — 시작 과정에서 나는 문제도 잡으려는 것이다.
   void setDebugLogging(settings.verboseLog);
@@ -516,7 +188,7 @@ async function main(): Promise<void> {
       isSaved: isSavedSession,
     },
   );
-  tabManager = tabs;
+  setTabManager(tabs);
 
   const sidebar = new Sidebar(
     $("session-tree"),
@@ -525,7 +197,7 @@ async function main(): Promise<void> {
         // 최근 접속순 정렬용으로 마지막 접속 시각을 기록한다(저장 세션만).
         if (sessions.some((x) => x.id === s.id)) {
           const now = Math.floor(Date.now() / 1000);
-          sessions = sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: now } : x));
+          setSessions(sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: now } : x)));
           void persist().then(redraw);
         }
         // RDP 는 터미널 탭을 만들지 않는다 — mstsc 가 별도 창으로 화면을 맡는다.
@@ -544,7 +216,7 @@ async function main(): Promise<void> {
       onDelete: async (s) => {
         const ok = await confirmDialog(`'${s.name || s.host}' 세션을 삭제할까요?`);
         if (!ok) return;
-        sessions = sessions.filter((x) => x.id !== s.id);
+        setSessions(sessions.filter((x) => x.id !== s.id));
         await persist();
         try {
           await vaultDeletePassword(s.id); // 저장된 비밀번호도 함께 정리
@@ -556,7 +228,7 @@ async function main(): Promise<void> {
       onSftp: openSftpFor,
       // 폴더 접힘은 설정에 저장한다 — 재시작할 때마다 다시 접는 건 번거롭다.
       onCollapsedChange: (paths) => {
-        settings = { ...settings, collapsedFolders: paths };
+        setSettings({ ...settings, collapsedFolders: paths });
         void saveSettings(settings).catch(() => {});
       },
       // 모달을 닫아도 연결이 살아 있으므로, 그 사실과 진행률을 칩에 드러낸다.
@@ -573,7 +245,7 @@ async function main(): Promise<void> {
         if (!created) return;
         const stripped = await extractSecrets(created);
         if (!stripped) return;
-        sessions = [...sessions, stripped];
+        setSessions([...sessions, stripped]);
         await persist();
         redraw();
       },
@@ -595,7 +267,7 @@ async function main(): Promise<void> {
           startupCommandsSecret: false,
           triggers: s.triggers.map((t) => (t.secret ? { ...t, send: "", secret: false } : t)),
         };
-        sessions = [...sessions, copy];
+        setSessions([...sessions, copy]);
         await persist();
         redraw();
       },
@@ -604,7 +276,7 @@ async function main(): Promise<void> {
         if (next === null) return; // 취소 — 빈 값 확인(루트 이동)과 구분됨
         const folder = next.trim();
         if (folder === s.folder) return;
-        sessions = sessions.map((x) => (x.id === s.id ? { ...x, folder } : x));
+        setSessions(sessions.map((x) => (x.id === s.id ? { ...x, folder } : x)));
         await persist();
         redraw();
       },
@@ -612,7 +284,7 @@ async function main(): Promise<void> {
         await renameSessionFlow(s);
       },
       onReorder: async (s, dir) => {
-        sessions = reorderSession(sessions, s, dir);
+        setSessions(reorderSession(sessions, s, dir));
         await persist();
         redraw();
       },
@@ -621,7 +293,7 @@ async function main(): Promise<void> {
         if (!ids || ids.length === 0) return;
         const ok = await confirmDialog(`${ids.length}개 세션을 삭제할까요? 되돌릴 수 없습니다.`);
         if (!ok) return;
-        sessions = sessions.filter((x) => !ids.includes(x.id));
+        setSessions(sessions.filter((x) => !ids.includes(x.id)));
         await persist();
         for (const id of ids) {
           try {
@@ -634,14 +306,14 @@ async function main(): Promise<void> {
       },
       onRemoveRecent: async (s) => {
         // 세션은 유지하고 접속 이력(lastConnectedUtc)만 지운다.
-        sessions = sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: 0 } : x));
+        setSessions(sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: 0 } : x)));
         await persist();
         redraw();
       },
       onClearRecent: async () => {
         const ok = await confirmDialog("최근 접속 기록을 모두 지울까요? (세션은 삭제되지 않습니다)");
         if (!ok) return;
-        sessions = sessions.map((x) => (x.lastConnectedUtc > 0 ? { ...x, lastConnectedUtc: 0 } : x));
+        setSessions(sessions.map((x) => (x.lastConnectedUtc > 0 ? { ...x, lastConnectedUtc: 0 } : x)));
         await persist();
         redraw();
       },
@@ -655,16 +327,16 @@ async function main(): Promise<void> {
           const path = moved?.folder ?? "";
           const mode = settings.folderSort[path];
           if (mode && mode !== "manual") {
-            settings = {
+            setSettings({
               ...settings,
               folderSort: { ...settings.folderSort, [path]: "manual" },
-            };
+            });
             sidebar.setFolderSort(settings.folderSort);
             void saveSettings(settings).catch(() => {});
             appToast(`'${path || "루트"}' 정렬을 '수동'으로 바꿨습니다`);
           }
         }
-        sessions = applyDrop(sessions, sourceId, target);
+        setSessions(applyDrop(sessions, sourceId, target));
         await persist();
         redraw();
       },
@@ -680,7 +352,7 @@ async function main(): Promise<void> {
         );
       },
       onFolderSort: async (path, mode) => {
-        settings = { ...settings, folderSort: { ...settings.folderSort, [path]: mode } };
+        setSettings({ ...settings, folderSort: { ...settings.folderSort, [path]: mode } });
         sidebar.setFolderSort(settings.folderSort);
         redraw();
         await saveSettings(settings).catch(() => {});
@@ -695,17 +367,17 @@ async function main(): Promise<void> {
         if (!next || next === last) return;
         const parent = path.split("/").slice(0, -1).join("/");
         const newPath = parent ? `${parent}/${next}` : next;
-        sessions = sessions.map((x) =>
+        setSessions(sessions.map((x) =>
           x.folder === path || x.folder.startsWith(`${path}/`)
             ? { ...x, folder: newPath + x.folder.slice(path.length) }
             : x,
-        );
-        settings = {
+        ));
+        setSettings({
           ...settings,
           folders: settings.folders.map((f) =>
             f === path || f.startsWith(`${path}/`) ? newPath + f.slice(path.length) : f,
           ),
-        };
+        });
         await persist();
         await saveSettings(settings);
         redraw();
@@ -733,7 +405,7 @@ async function main(): Promise<void> {
           );
           if (!ok) return;
           const removed = sessions.filter(inFolder);
-          sessions = sessions.filter((x) => !inFolder(x));
+          setSessions(sessions.filter((x) => !inFolder(x)));
           for (const s of removed) {
             try {
               await vaultDeletePassword(s.id);
@@ -743,12 +415,12 @@ async function main(): Promise<void> {
           }
         } else {
           // 폴더만: 안의 세션은 루트로 이동.
-          sessions = sessions.map((x) => (inFolder(x) ? { ...x, folder: "" } : x));
+          setSessions(sessions.map((x) => (inFolder(x) ? { ...x, folder: "" } : x)));
         }
-        settings = {
+        setSettings({
           ...settings,
           folders: settings.folders.filter((f) => f !== path && !f.startsWith(`${path}/`)),
-        };
+        });
         await persist();
         await saveSettings(settings);
         redraw();
@@ -759,10 +431,10 @@ async function main(): Promise<void> {
   );
 
   // PuTTY/SecureCRT/MobaXterm 세션 가져오기 — 헤더 버튼과 우클릭 메뉴 공용.
-  runImport = async () => {
+  const runImportImpl = async (): Promise<void> => {
     const imported = await importDialog(sessions);
     if (imported.length === 0) return;
-    sessions = [...sessions, ...imported];
+    setSessions([...sessions, ...imported]);
     await persist();
     redraw();
   };
@@ -770,23 +442,31 @@ async function main(): Promise<void> {
   // 테마는 환경설정(⚙) 다이얼로그 안에 통합됨 — 별도 테마 버튼 없음.
   wireWindowControls(tabs);
 
-  newFolderFlow = async (parent) => {
+  const newFolderFlowImpl = async (parent: string): Promise<void> => {
     const name = await textPrompt("새 폴더 이름 ('A/B' 로 중첩 가능)", "", "만들기");
     if (!name) return;
     const path = parent ? `${parent}/${name}` : name;
     if (!settings.folders.includes(path)) {
-      settings = { ...settings, folders: [...settings.folders, path] };
+      setSettings({ ...settings, folders: [...settings.folders, path] });
       await saveSettings(settings);
     }
     redraw();
   };
 
   // 사이드바 재그리기(세션 + 빈 폴더).
-  redraw = () => sidebar.render(sessions, settings.folders);
-  applyDisplayOptions = (s) => {
+  const redrawImpl = (): void => sidebar.render(sessions, settings.folders);
+  const applyDisplayOptionsImpl = (s: Settings): void => {
     sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail, s.recentLimit);
     sidebar.setFolderSort(s.folderSort);
   };
+  // 사이드바가 만들어진 지금에서야 실제 구현을 넣는다 — 다른 모듈(세션·볼트 흐름)도
+  // 이 통로로 같은 동작을 부른다.
+  injectActions({
+    redraw: redrawImpl,
+    applyDisplayOptions: applyDisplayOptionsImpl,
+    runImport: runImportImpl,
+    newFolderFlow: newFolderFlowImpl,
+  });
   applyDisplayOptions(settings);
   // 저장돼 있던 폴더 접힘 상태 복원(설정 로드 후 첫 렌더에 반영).
   sidebar.setCollapsed(settings.collapsedFolders ?? []);
@@ -867,11 +547,11 @@ async function main(): Promise<void> {
 
   try {
     // 옛 sessions.json(신규 필드 없음)도 안전하게 읽도록 정규화.
-    sessions = (await sessionsLoad()).map(normalizeSession);
-    sessionsLoaded = true;
+    setSessions((await sessionsLoad()).map(normalizeSession));
+    setSessionsLoaded(true);
   } catch (e) {
     console.error("세션 로드 실패", e);
-    sessions = [];
+    setSessions([]);
     void alertDialog(
       "세션 목록을 읽지 못했습니다. 기존 파일을 덮어쓰지 않도록 저장이 비활성화됩니다.\n" +
         "설정 폴더의 sessions.json 을 확인한 뒤 앱을 다시 시작하세요.",
@@ -890,365 +570,6 @@ async function main(): Promise<void> {
  * 설정 버튼(⚙): 변경은 라이브 미리보기로 즉시 반영하되, 저장은 '저장' 버튼을 눌러야만 한다.
  * 취소/Esc/바깥클릭은 미리보기를 되돌리고 저장하지 않는다(사용자 요청).
  */
-function wireSettings(tabs: TabManager): void {
-  const applyLive = (live: Settings) => {
-    settings = live;
-    applyAppTheme(themeById(live.theme));
-    tabs.applySettings(live);
-    applyDisplayOptions(live);
-    restartAutoLock();
-    restartScreensaver();
-  };
-  $("open-settings").addEventListener("click", async () => {
-    const { saved, settings: result } = await settingsDialog(
-      settings,
-      applyLive,
-      () => void changeMasterFlow(),
-      {
-        initial: await keystoreHas().catch(() => false),
-        toggle: (enable) => toggleAutoUnlock(enable),
-      },
-    );
-    if (saved) {
-      // '저장'을 누른 경우에만 디스크에 기록한다.
-      applyLive(result);
-      // 켜면 파일을 새로 시작하고, 끄면 남은 줄을 흘려보낸다.
-      void setDebugLogging(settings.verboseLog);
-      try {
-        await saveSettings(settings);
-      } catch (e) {
-        console.error("설정 저장 실패", e);
-      }
-    }
-    // 취소면 settingsDialog 가 이미 onLive(original) 로 되돌렸으므로 아무것도 하지 않는다.
-  });
-}
-
-/** 뷰 모드(탭/세로 분할/가로 분할) 버튼. 선택은 설정에 저장된다. */
-function wireViewModes(tabs: TabManager): void {
-  const buttons: [string, ViewModeSetting][] = [
-    ["view-tabs", "tabs"],
-    ["view-vertical", "vertical"],
-    ["view-horizontal", "horizontal"],
-  ];
-  const mark = (mode: ViewModeSetting) => {
-    for (const [id, m] of buttons) $(id).classList.toggle("active", m === mode);
-  };
-  for (const [id, mode] of buttons) {
-    $(id).addEventListener("click", async () => {
-      tabs.setViewMode(mode);
-      mark(mode);
-      settings = { ...settings, viewMode: mode };
-      try {
-        await saveSettings(settings);
-      } catch (e) {
-        console.error("뷰 모드 저장 실패", e);
-      }
-    });
-  }
-  // 저장된 배치 복원.
-  tabs.setViewMode(settings.viewMode);
-  mark(settings.viewMode);
-}
-
-/** '이 PC 자동 잠금 해제' 토글. 켜면 마스터를 확인해 OS 키체인에 저장, 끄면 삭제. 최종 상태 반환. */
-async function toggleAutoUnlock(enable: boolean): Promise<boolean> {
-  if (!enable) {
-    try {
-      await keystoreClear();
-    } catch (e) {
-      console.error("키체인 삭제 실패", e);
-    }
-    return false;
-  }
-  // 켤 때는 마스터를 확인받아 저장한다(볼트가 없으면 먼저 생성 흐름).
-  const st = await vaultStatus();
-  if (!st.exists) {
-    await alertDialog("먼저 비밀번호를 저장할 세션에 접속해 볼트를 만든 뒤 사용하세요.");
-    return false;
-  }
-  const master = await masterPrompt(
-    "이 PC 자동 잠금 해제",
-    "확인을 위해 마스터 비밀번호를 입력하세요. OS 키체인(이 PC·이 계정)에 저장됩니다.",
-    "저장",
-  );
-  if (master === null) return false;
-  if (!(await vaultUnlock(master)).ok) {
-    await alertDialog("마스터 비밀번호가 올바르지 않습니다.");
-    return false;
-  }
-  try {
-    await keystoreStore(master);
-    return true;
-  } catch (e) {
-    await alertDialog(`키체인 저장 실패: ${String(e)}`);
-    return false;
-  }
-}
-
-/** 시작 시 OS 키체인에 저장된 마스터가 있으면 볼트를 자동 해제한다. */
-async function tryAutoUnlock(): Promise<void> {
-  try {
-    const master = await keystoreGet();
-    if (!master) return;
-    // vaultUnlock 이 ok:false 를 '정상 반환'하면 마스터가 틀린 것(파일 손상 등은 Rust 가
-    // Err 를 던져 여기 catch 로 빠지므로, 이 분기는 '마스터 불일치'로 안전하게 단정 가능).
-    const outcome = await vaultUnlock(master);
-    if (!outcome.ok) {
-      await keystoreClear(); // 마스터가 바뀜 — 낡은 키 정리(다음엔 프롬프트)
-    } else if (outcome.migratedRecovery) {
-      await showRecoveryKey(outcome.migratedRecovery);
-    }
-  } catch (e) {
-    // 볼트 파일 잠김/손상 등 일시적 오류 — 키체인은 보존한다(잘못 지우지 않음).
-    console.error("자동 잠금 해제 실패(키체인 보존)", e);
-  }
-}
-
-/** 마스터 비밀번호 변경 — 잠겨 있으면 먼저 해제한 뒤 새 비밀번호를 받는다. */
-async function changeMasterFlow(): Promise<void> {
-  try {
-    if (!(await ensureVaultUnlocked())) return;
-    const next = await masterPrompt(
-      "새 마스터 비밀번호",
-      "저장된 비밀번호는 다시 암호화하지 않아도 됩니다(키만 재포장). 기존 복구 키는 무효가 됩니다.",
-      "변경",
-    );
-    if (next === null) return;
-    const recovery = await vaultChangeMaster(next);
-    // 자동 해제가 켜져 있었다면 키체인의 마스터도 새 값으로 갱신한다.
-    try {
-      if (await keystoreHas().catch(() => false)) await keystoreStore(next);
-    } catch (e) {
-      console.error("키체인 갱신 실패", e);
-    }
-    await showRecoveryKey(recovery);
-  } catch (e) {
-    await alertDialog(`마스터 변경 실패: ${String(e)}`);
-  }
-}
-
-/**
- * 처음 보는 호스트키 확인 요청 처리. 백엔드의 접속은 이 응답이 갈 때까지 멈춰 있으므로,
- * 어떤 경로로 끝나든 반드시 답을 보낸다(안 보내면 백엔드 타임아웃까지 매달린다).
- */
-function wireHostKeyPrompt(): void {
-  void onHostKeyPrompt(async (e) => {
-    let accept = false;
-    try {
-      accept = await hostKeyPrompt(e);
-    } catch (err) {
-      console.error("호스트키 확인 창 오류 — 거부로 처리합니다", err);
-    }
-    try {
-      await hostKeyAnswer(e.id, accept);
-    } catch (err) {
-      console.error("호스트키 확인 응답 전달 실패", err);
-    }
-  });
-}
-
-/** 사이드바 폭 조절(드래그) + 접기(더블클릭). 폭·접힘은 설정에 저장. */
-function wireSidebarResize(): void {
-  const app = document.getElementById("app")!;
-  const resizer = $("sidebar-resizer");
-  // 시작 시 복원.
-  app.style.setProperty("--sidebar-w", `${settings.sidebarWidth}px`);
-  app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
-
-  const toggleCollapse = async () => {
-    settings = { ...settings, sidebarCollapsed: !settings.sidebarCollapsed };
-    app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
-    syncToggleBtn();
-    try {
-      await saveSettings(settings);
-    } catch {
-      /* 무시 */
-    }
-  };
-
-  // 눈에 보이는 접기/펼치기 버튼(화살표) — 호버 시 표시, 접힌 상태에선 항상 보임.
-  const toggleBtn = document.createElement("button");
-  toggleBtn.type = "button";
-  toggleBtn.className = "sidebar-toggle";
-  const syncToggleBtn = () => {
-    const collapsed = settings.sidebarCollapsed;
-    toggleBtn.textContent = collapsed ? "»" : "«";
-    toggleBtn.title = collapsed ? "세션 목록 펼치기" : "세션 목록 접기";
-  };
-  // 버튼 조작이 폭조절 드래그/더블클릭 접기로 이중 처리되지 않도록 전파 차단.
-  toggleBtn.addEventListener("mousedown", (e) => e.stopPropagation());
-  toggleBtn.addEventListener("dblclick", (e) => e.stopPropagation());
-  toggleBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    void toggleCollapse();
-  });
-  resizer.appendChild(toggleBtn);
-  syncToggleBtn();
-
-  resizer.addEventListener("dblclick", () => void toggleCollapse());
-  resizer.addEventListener("mousedown", (down) => {
-    if (settings.sidebarCollapsed) return;
-    down.preventDefault();
-    const startX = down.clientX;
-    const startW = settings.sidebarWidth;
-    const onMove = (m: MouseEvent) => {
-      if (m.buttons === 0) return onUp();
-      const w = Math.max(160, Math.min(560, startW + (m.clientX - startX)));
-      app.style.setProperty("--sidebar-w", `${w}px`);
-      settings.sidebarWidth = w;
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      void saveSettings(settings).catch(() => undefined);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  });
-}
-
-/** 잠금 상태를 사이드바 오버레이에 반영(잠김 시 세션명 숨김). */
-function reflectLock(locked: boolean): void {
-  const sidebar = document.getElementById("sidebar")!;
-  sidebar.classList.toggle("locked", locked);
-  $("lock-overlay").classList.toggle("hidden", !locked);
-  // 버튼 아이콘·툴팁으로 현재 상태와 클릭 동작을 함께 표시.
-  const btn = $("vault-lock");
-  applyIcon(btn, locked ? "lock" : "unlock");
-  btn.title = locked ? "잠김 — 클릭하여 마스터 비밀번호로 잠금 해제" : "볼트 잠금";
-}
-
-/** 실제 볼트 상태를 조회해 잠금 표시를 맞춘다(존재하고 잠겨 있으면 잠금). */
-async function refreshLockIndicator(): Promise<void> {
-  try {
-    const st = await vaultStatus();
-    reflectLock(st.exists && !st.unlocked);
-  } catch {
-    /* 무시 */
-  }
-}
-
-/** 무활동 자동 잠금 — 설정된 시간 동안 입력이 없으면 볼트를 잠근다. */
-let autoLockTimer = 0;
-function restartAutoLock(): void {
-  window.clearTimeout(autoLockTimer);
-  const minutes = settings?.autoLockMinutes ?? 0;
-  if (minutes <= 0) return;
-  autoLockTimer = window.setTimeout(
-    () => {
-      void vaultLock();
-      reflectLock(true);
-    },
-    minutes * 60 * 1000,
-  );
-}
-
-/** 화면보호기 유휴 타이머(무활동 자동잠금=0 일 때만). 기본 5분. */
-let screensaverTimer = 0;
-const SCREENSAVER_IDLE_MS = 5 * 60 * 1000;
-function restartScreensaver(): void {
-  window.clearTimeout(screensaverTimer);
-  if (isScreensaverOn()) hideScreensaver();
-  // 자동 잠금이 켜져 있으면(>0) 잠금이 우선 — 화면보호기는 띄우지 않는다.
-  if ((settings?.autoLockMinutes ?? 0) !== 0) return;
-  screensaverTimer = window.setTimeout(() => {
-    const pick = settings.screensaver;
-    showScreensaver(pick === "random" ? undefined : pick);
-  }, SCREENSAVER_IDLE_MS);
-}
-
-function wireAutoLock(): void {
-  const onActivity = () => {
-    if (isScreensaverOn()) hideScreensaver();
-    restartAutoLock();
-    restartScreensaver();
-  };
-  for (const ev of ["keydown", "mousedown", "mousemove", "wheel"]) {
-    window.addEventListener(ev, onActivity, { passive: true });
-  }
-  restartAutoLock();
-  restartScreensaver();
-}
-
-/** 사이드바 검색(250ms 디바운스 + ✕ 클리어). */
-function wireSidebarSearch(sidebar: Sidebar): void {
-  const input = $<HTMLInputElement>("session-search");
-  const clear = $("session-search-clear");
-  let timer = 0;
-  input.addEventListener("input", () => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(() => sidebar.setFilter(input.value), 250);
-  });
-  clear.addEventListener("click", () => {
-    input.value = "";
-    sidebar.setFilter("");
-    input.focus();
-  });
-}
-
-/** 커스텀 타이틀바 창 버튼(최소화/최대화/닫기) 배선 + 종료 경고. */
-function wireWindowControls(tabs: TabManager): void {
-  const win = getCurrentWindow();
-  $("win-min").addEventListener("click", () => void win.minimize());
-  $("win-max").addEventListener("click", () => void win.toggleMaximize());
-  $("win-close").addEventListener("click", () => void win.close());
-
-  // 최대화 상태에 따라 최대화/복원 아이콘을 토글한다.
-  const syncMaxIcon = async () => {
-    try {
-      applyIcon($("win-max"), (await win.isMaximized()) ? "restore" : "maximize");
-    } catch {
-      /* 무시 */
-    }
-  };
-  void syncMaxIcon();
-  void win.onResized(() => void syncMaxIcon());
-  // 접속 중인 세션이 있으면 종료 전 확인 — 커스텀 버튼·Alt+F4·작업표시줄 닫기 모두 커버.
-  // win.close() 는 이 이벤트를 거치고, win.destroy() 는 우회하므로 확인 후 destroy 로 강제 종료.
-  let closing = false;
-  void win.onCloseRequested(async (event) => {
-    const n = tabs.connectedCount();
-    if (n === 0) return; // 접속 세션 없음 → 그대로 종료
-    event.preventDefault(); // 확인 전엔 항상 닫힘 차단
-    if (closing) return; // 이미 확인창이 떠 있으면 중복 생성 방지
-    closing = true;
-    const ok = await confirmDialog(`접속 중인 세션이 ${n}개 있습니다. 프로그램을 종료할까요?`);
-    closing = false;
-    if (ok) await win.destroy();
-  });
-}
-
-/** 한/CapsLock/NumLock 표시 — 키·IME 상태를 상태바에 반영. */
-function wireLockKeys(): void {
-  const update = (e: KeyboardEvent) => {
-    if (typeof e.getModifierState !== "function") return;
-    $("st-caps").classList.toggle("on", e.getModifierState("CapsLock"));
-    $("st-num").classList.toggle("on", e.getModifierState("NumLock"));
-  };
-  window.addEventListener("keydown", update, true);
-  window.addEventListener("keyup", update, true);
-  // 한글 입력(IME) 조합 중이면 '한' 을 켠다 — 웹뷰에서 얻을 수 있는 최선의 신호.
-  window.addEventListener("compositionstart", () => $("st-hangul").classList.add("on"), true);
-  window.addEventListener("compositionend", () => $("st-hangul").classList.remove("on"), true);
-}
-
-/** 하단 정보바 갱신(TabManager onStatus 콜백). */
-function updateStatusBar(info: StatusInfo): void {
-  const session = $("st-session");
-  session.textContent = info.label;
-  session.className = "st-left st-" + info.state;
-  $("st-enc").textContent = info.cipher;
-  $("st-charset").textContent = info.encoding;
-  $("st-cursor").textContent = info.cursor ? `⌖ ${info.cursor}` : "";
-  $("st-size").textContent = info.size;
-  const uptime = $("st-uptime");
-  uptime.textContent = info.uptime ? `⏱ ${info.uptime}` : "";
-  // 끊긴 세션은 최종 유지시간이 멈춘 값이므로 흐리게 — 흘러가는 값과 구분한다.
-  uptime.classList.toggle("stale", info.state === "disconnected");
-}
-
-/** 동시 명령 창: 접속된 모든 세션(또는 활성 탭)에 명령 한 줄을 동시에 전송. */
 function looksOffline(e: unknown): boolean {
   const m = String(e).toLowerCase();
   return (
@@ -1276,7 +597,7 @@ async function offerOfflineMode(): Promise<void> {
       "설정 > 일반의 '시작 시 업데이트 확인'을 다시 켜면 원래대로 돌아옵니다.",
   );
   if (!ok) return;
-  settings = { ...settings, checkUpdateOnStartup: false, offlineMode: true };
+  setSettings({ ...settings, checkUpdateOnStartup: false, offlineMode: true });
   await saveSettings(settings).catch(() => {});
 }
 
