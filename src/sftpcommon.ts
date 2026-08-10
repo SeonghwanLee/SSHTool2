@@ -2,6 +2,7 @@
 // sftpui.ts(창 본체)에서 분리(0.63.0 정지작업). 로직 변경 없음.
 
 import { sftpDisconnect, sftpCancel, sftpList, localList, onSftpProgress, type SftpEntry } from "./ipc";
+import { applyIcon } from "./icons";
 
 export interface Entry {
   name: string;
@@ -199,3 +200,15 @@ export function hookProgressOnce(): void {
   });
 }
 
+
+export function span(): HTMLElement {
+  return document.createElement("span");
+}
+
+export function mkBtn(iconName: string, title: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "sftp-btn";
+  applyIcon(b, iconName);
+  b.title = title;
+  return b;
+}

@@ -48,6 +48,8 @@ import {
   type TabActions,
   type StatusInfo,
 } from "./termtab";
+import { beginTabDrag } from "./tabdrag";
+import { tabMenu } from "./tabmenu";
 // 기존 소비자(main.ts 등)가 "./tabs" 에서 가져가던 공개 타입·상수는 그대로 통한다.
 export type { CredentialProvider, ResolvedCreds, CredResolution, StatusInfo, TabActions, ViewMode } from "./termtab";
 export class TabManager {
@@ -677,147 +679,7 @@ export class TabManager {
     });
   }
 
-  /**
-   * 세션 탭 우클릭 메뉴 구성. 성격별로 묶어 구분선을 넣는다 —
-   * 세션 정의(편집·이름 변경) → 열기 계열 → 접속 계열 → 닫기·전체 종료.
-   * 상황에 맞지 않는 항목은 아예 넣지 않는다(임시 세션의 편집, 로컬 셸의 SFTP 등).
-   */
-  private tabMenu(tab: TerminalTab): MenuItem[] {
-    const s = tab.session;
-    // 빠른 접속처럼 저장 목록에 없는 세션은 편집·이름 변경이 아무것도 남기지 못한다.
-    const saved = this.actions.isSaved?.(s) ?? false;
-    const items: MenuItem[] = [];
 
-    if (saved && this.actions.edit) {
-      items.push({ label: "세션 편집", accel: "e", action: () => void this.runEdit(tab) });
-    }
-    if (saved && this.actions.rename) {
-      items.push({ label: "세션 이름 변경", accel: "n", action: () => void this.runRename(tab) });
-    }
-    if (items.length) items.push({ separator: true });
-
-    // 같은 세션으로 접속을 하나 더 연다. tab.session 을 그대로 쓰므로 볼트에서 꺼낸
-    // 비밀 값(트리거·시작 명령)이 이미 채워져 있어 다시 묻지 않는다.
-    items.push({ label: "세션 하나 더 열기", accel: "d", action: () => void this.openSession(s) });
-    // 로컬 셸과 SFTP 를 끈 세션에는 전송 항목을 넣지 않는다(사이드바와 같은 기준).
-    if (this.actions.sftp && s.kind === "ssh" && s.enableSftp) {
-      items.push({ label: "SFTP 파일 전송", accel: "f", action: () => this.actions.sftp?.(s) });
-    }
-
-    items.push({ separator: true });
-    items.push({ label: "재접속", accel: "r", action: () => void this.reconnectFromMenu(tab) });
-    if (tab.status === "connected") {
-      // '닫기' 와 다르다 — 연결만 끊고 탭은 남겨 재접속 화면이 되게 한다.
-      items.push({ label: "세션 종료", accel: "t", action: () => void this.runDisconnect(tab) });
-    }
-
-    // 이 탭만의 잠금이다. 앱 전체 볼트 잠금과 헷갈리지 않도록 '세션' 을 붙여 부른다.
-    items.push({ separator: true });
-    items.push(
-      tab.locked
-        ? { label: "세션 잠금 해제", accel: "l", action: () => this.setTabLocked(tab, false) }
-        : { label: "세션 잠금", accel: "l", action: () => this.setTabLocked(tab, true) },
-    );
-
-    items.push({ separator: true });
-    items.push({
-      label: "세션 닫기",
-      accel: "c",
-      danger: true,
-      action: () => void this.closeTab(tab),
-    });
-    // 접속이 하나뿐이면 위의 '세션 종료' 와 결과가 같아 굳이 내놓지 않는다.
-    if (this.connectedCount() >= 2) {
-      items.push({
-        label: "접속된 모든 세션 종료",
-        accel: "a",
-        danger: true,
-        action: () => void this.disconnectAll(),
-      });
-    }
-    // 탭이 둘 이상일 때만 — 하나뿐이면 '세션 닫기' 와 같은 동작이라 메뉴만 늘어난다.
-    if (this.tabs.length > 1) {
-      items.push({
-        label: "모든 세션 닫기",
-        accel: "w",
-        danger: true,
-        action: () => void this.closeAll(),
-      });
-    }
-    return items;
-  }
-
-  /**
-   * 탭을 끌어 순서를 바꾼다.
-   *
-   * HTML5 드래그앤드롭 대신 마우스 이벤트로 처리한다. 탭바는 폭이 좁고 항목이 촘촘해
-   * 놓을 자리를 픽셀 단위로 보여 줘야 하는데, dragover 는 자식 요소를 지날 때마다
-   * 들락거려 표시가 깜빡인다. 좌표를 직접 보면 그 문제가 없다.
-   *
-   * 5px 을 넘겨야 드래그로 친다 — 그 전에는 그냥 클릭(탭 전환)이다.
-   */
-  private beginTabDrag(tab: TerminalTab, item: HTMLElement, down: MouseEvent): void {
-    if (this.tabs.length < 2) return;
-    const startX = down.clientX;
-    this.dragMoved = false;
-    let dropAt = -1; // 삽입될 위치(this.tabs 기준 인덱스)
-
-    const clearMarks = () => {
-      for (const el of this.tabbar.children) el.classList.remove("drop-before", "drop-after");
-    };
-
-    const onMove = (m: MouseEvent) => {
-      if (!this.dragMoved) {
-        if (Math.abs(m.clientX - startX) < 5) return;
-        this.dragMoved = true;
-        item.classList.add("dragging");
-        document.body.classList.add("dragging-tab");
-      }
-      clearMarks();
-      // 커서가 어느 탭의 어느 쪽에 있는지로 삽입 위치를 정한다.
-      const items = [...this.tabbar.children] as HTMLElement[];
-      dropAt = items.length; // 기본값 = 맨 끝
-      for (let i = 0; i < items.length; i++) {
-        const r = items[i].getBoundingClientRect();
-        if (m.clientX < r.left + r.width / 2) {
-          dropAt = i;
-          break;
-        }
-      }
-      const from = this.tabs.indexOf(tab);
-      // 제자리(자기 앞/뒤)면 표시하지 않는다 — 옮겨지지 않는데 선이 보이면 헷갈린다.
-      if (dropAt === from || dropAt === from + 1) {
-        dropAt = -1;
-        return;
-      }
-      if (dropAt < items.length) items[dropAt].classList.add("drop-before");
-      else items[items.length - 1].classList.add("drop-after");
-    };
-
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.classList.remove("dragging-tab");
-      item.classList.remove("dragging");
-      clearMarks();
-      if (this.dragMoved && dropAt >= 0) {
-        const from = this.tabs.indexOf(tab);
-        this.tabs.splice(from, 1);
-        // 앞쪽에서 빼냈으면 목표 인덱스가 하나 당겨진다.
-        this.tabs.splice(dropAt > from ? dropAt - 1 : dropAt, 0, tab);
-        this.renderTabbar();
-        // 타일 모드에서는 탭 순서가 곧 화면 배치 순서라 다시 깔아야 한다.
-        if (this.viewMode !== "tabs") this.layout(false);
-      }
-      // click 은 mouseup 뒤에 온다 — 다음 프레임에 풀어야 그 클릭을 걸러낼 수 있다.
-      setTimeout(() => {
-        this.dragMoved = false;
-      }, 0);
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
 
   private renderTabbar(): void {
     this.tabbar.innerHTML = "";
@@ -864,12 +726,44 @@ export class TabManager {
           void this.closeTab(tab);
           return;
         }
-        if (ev.button === 0) this.beginTabDrag(tab, item, ev);
+        if (ev.button === 0)
+          beginTabDrag(
+            {
+              tabbar: this.tabbar,
+              tabs: this.tabs,
+              viewMode: this.viewMode,
+              getDragMoved: () => this.dragMoved,
+              setDragMoved: (v) => {
+                this.dragMoved = v;
+              },
+              layout: (f) => this.layout(f),
+              renderTabbar: () => this.renderTabbar(),
+            },
+            tab,
+            item,
+            ev,
+          );
       });
       item.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
         this.activate(tab); // 어느 탭에 대한 메뉴인지 눈으로 분명히
-        showContextMenu(ev.clientX, ev.clientY, this.tabMenu(tab));
+        showContextMenu(ev.clientX, ev.clientY, tabMenu(
+            {
+              tabs: this.tabs,
+              actions: this.actions,
+              connectedCount: () => this.connectedCount(),
+              openSession: (x) => this.openSession(x),
+              closeTab: (t) => this.closeTab(t),
+              closeAll: () => this.closeAll(),
+              disconnectAll: () => this.disconnectAll(),
+              runDisconnect: (t) => this.runDisconnect(t),
+              reconnectFromMenu: (t) => this.reconnectFromMenu(t),
+              runRename: (t) => this.runRename(t),
+              runEdit: (t) => this.runEdit(t),
+              setTabLocked: (t, v) => this.setTabLocked(t, v),
+            },
+            tab,
+          ));
       });
       this.tabbar.appendChild(item);
     }
