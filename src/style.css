@@ -2662,3 +2662,35 @@ button:focus-visible,
 .kind-radio input:checked ~ .kind-radio-icon {
   color: var(--accent);
 }
+
+/* ── 세션 색 태그(0.67.0) — 목록 행·탭 왼쪽에 얇은 띠 ─────────────────────── */
+.tree-session.has-color {
+  box-shadow: inset 3px 0 0 0 var(--session-color);
+}
+.tab.has-color {
+  box-shadow: inset 0 -2px 0 0 var(--session-color);
+}
+/* 세션 편집 창의 색 선택 — 드롭다운 옆 견본. */
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.color-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+/* 자동 재접속 안내 — 끊김 오버레이의 재접속 버튼 아래(0.67.0). */
+.overlay-retry {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* 오래 걸리는 버튼(가져오기 스캔 등) — 도는 동안 눌리지 않음을 눈으로도 알린다. */
+button.busy {
+  opacity: 0.55;
+  cursor: progress;
+}

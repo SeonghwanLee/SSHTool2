@@ -479,3 +479,21 @@ export function choiceDialog(
     );
   });
 }
+
+// 숫자 입력 상자와 값 정리 — 설정창·세션편집이 함께 쓴다(0.67.0 에 이리로 모음).
+export function numInput(value: string, min: number, max: number, step: number): HTMLInputElement {
+  const el = document.createElement("input");
+  el.type = "number";
+  el.min = String(min);
+  el.max = String(max);
+  el.step = String(step);
+  el.value = value;
+  el.className = "num-input";
+  return el;
+}
+
+export function clampNum(el: HTMLInputElement, min: number, max: number, fallback: number): number {
+  const v = Math.min(max, Math.max(min, Number(el.value) || fallback));
+  el.value = String(v);
+  return v;
+}

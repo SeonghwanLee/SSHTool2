@@ -3,6 +3,7 @@
 // 컨텍스트(RowCtx)를 렌더 시점에 만들어 넘긴다.
 
 import type { SessionInfo } from "./types";
+import { sessionColorCss } from "./types";
 import { showContextMenu, type MenuItem } from "./contextmenu";
 import { applyIcon } from "./icons";
 import {
@@ -142,6 +143,12 @@ export function renderRecent(ctx: RowCtx): void {
 export function sessionRow(ctx: RowCtx, s: SessionInfo, depth: number): HTMLElement {
   const row = document.createElement("div");
   row.className = "tree-session";
+  // 색 태그(0.67.0) — 운영/개발을 목록에서 눈으로 가른다.
+  const tagCss = sessionColorCss(s.color);
+  if (tagCss) {
+    row.classList.add("has-color");
+    row.style.setProperty("--session-color", tagCss);
+  }
   row.style.paddingLeft = `${8 + depth * 14}px`;
 
   const icon = document.createElement("span");

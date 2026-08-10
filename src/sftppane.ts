@@ -47,6 +47,8 @@ export interface PaneCtx {
   downloadToPicked: (items: Entry[]) => Promise<void>;
   onOsFilesDropped: (dt: DataTransfer, destDir?: string) => Promise<void>;
   setTransfer: (id: string | null) => void;
+  /** 원격 파일을 임시본으로 연 뒤, 그 파일이 바뀌면 서버로 되올린다(0.67.0). */
+  watchEdit: (localPath: string, remotePath: string, name: string) => void;
   showProgress: (name: string, done: number, total: number) => void;
   hideProgress: () => void;
 }
@@ -553,7 +555,9 @@ export class Pane {
       this.ctx.setTransfer(null);
       this.ctx.hideProgress();
       await openPath(localPath);
-      this.ctx.setStatus("연결됨");
+      // 편집 감시 시작(0.67.0) — 이 임시본을 고쳐 저장하면 서버로 되올린다.
+      this.ctx.watchEdit(localPath, entry.path, entry.name);
+      this.ctx.setStatus(`열었습니다 — 저장하면 서버에 반영됩니다: ${entry.name}`);
     } catch (e) {
       this.ctx.setTransfer(null);
       this.ctx.hideProgress();

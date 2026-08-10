@@ -24,6 +24,7 @@ import {
   attentionPulse,
 } from "./dialogs";
 import { helpIcon } from "./help";
+import { numInput, clampNum } from "./dialogs";
 import { showScreensaver } from "./screensaver";
 
 export interface SettingsResult {
@@ -603,22 +604,6 @@ function checkRow(label: string, checked: boolean, onChange: (v: boolean) => voi
   return row;
 }
 
-function numInput(value: string, min: number, max: number, step: number): HTMLInputElement {
-  const el = document.createElement("input");
-  el.type = "number";
-  el.min = String(min);
-  el.max = String(max);
-  el.step = String(step);
-  el.value = value;
-  el.className = "num-input";
-  return el;
-}
-
-function clampNum(el: HTMLInputElement, min: number, max: number, fallback: number): number {
-  const v = Math.min(max, Math.max(min, Number(el.value) || fallback));
-  el.value = String(v);
-  return v;
-}
 
 function mkSmallButton(label: string, onClick: () => void | Promise<void>): HTMLButtonElement {
   const b = document.createElement("button");

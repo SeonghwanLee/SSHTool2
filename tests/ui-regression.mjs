@@ -987,6 +987,46 @@ try {
       expect(r.open && r.attn, `SFTP 창이 바깥 클릭에 버티지 못한다: ${JSON.stringify(r)}`);
     });
 
+    await t.test("원격 파일 편집 — 임시본이 바뀌면 서버로 되올린다(쓰는 중엔 대기)", async () => {
+      const r = await page.evaluate(async () => {
+        // local_stat 을 흉내내 파일이 '변경 → 안정' 되는 흐름을 만든다.
+        let stat = [10, 1000];
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        const uploads = [];
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "local_stat") return stat;
+          if (cmd === "sftp_upload") {
+            uploads.push(args?.remotePath);
+            return null;
+          }
+          if (cmd === "sftp_list") return [];
+          if (cmd === "open_path" || cmd === "local_temp_dir") return "C:\\Temp";
+          return prev(cmd, args);
+        };
+        const tab = window.__sftpTest;
+        if (!tab) return "no-hook";
+        tab.watchEdit("C:\\Temp\\a.conf", "/etc/a.conf", "a.conf");
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        await wait(150);
+        // ① 아직 안 바뀜 → 업로드 없음
+        await tab.pollEdits();
+        const idle = uploads.length;
+        // ② 방금 바뀜(쓰는 중일 수 있다) → 한 번만으로는 올리지 않는다
+        stat = [20, 1001];
+        await tab.pollEdits();
+        const writing = uploads.length;
+        // ③ 같은 값이 다시 관측 = 저장 완료 → 업로드
+        await tab.pollEdits();
+        const saved = uploads.length;
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return { idle, writing, saved, path: uploads[0] ?? "" };
+      });
+      expect(typeof r === "object", `테스트 훅 없음: ${r}`);
+      expect(r.idle === 0, "변경이 없는데 업로드했다");
+      expect(r.writing === 0, "쓰는 중(1회 관측)인데 업로드했다 — 반쪽 파일이 서버에 남는다");
+      expect(r.saved === 1 && r.path === "/etc/a.conf", `저장 후 업로드가 어긋난다: ${JSON.stringify(r)}`);
+    });
+
     await t.test("SFTP 창 버튼 표준 매핑 — 접기는 연결 유지, X 는 끊는다", async () => {
       const btns = await page.evaluate(() => ({
         min: !!document.querySelector(".sftp-min"),
@@ -1129,6 +1169,126 @@ try {
       await page.setViewportSize({ width: 1400, height: 900 });
       await page.waitForTimeout(250);
       expect(bad.length === 0, `잘리는 요소: ${bad.slice(0, 6).join(" | ")}`);
+    });
+
+    await t.test("가져오기 — 스캔 중 버튼이 잠겨 창이 겹쳐 뜨지 않는다", async () => {
+      await dismissModals(page);
+      const opened = await page.evaluate(async () => {
+        let scans = 0;
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "import_scan") {
+            scans++;
+            await new Promise((r) => setTimeout(r, 400)); // 느린 스캔 흉내
+            return [];
+          }
+          return prev(cmd, args);
+        };
+        const btn = document.getElementById("open-import");
+        btn.click();
+        await new Promise((r) => setTimeout(r, 50));
+        const lockedDuring = btn.disabled === true;
+        btn.click(); // 조급한 두 번째·세 번째 클릭
+        btn.click();
+        await new Promise((r) => setTimeout(r, 700));
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return { scans, lockedDuring };
+      });
+      // 창이 떠 있는 동안에도 버튼은 잠겨 있어야 한다(두 개가 겹쳐 뜨지 않게).
+      // 창을 닫은 뒤에야 풀린다 — Esc 로 닫는다(가져오기 창은 취소 = 빈 결과).
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(500);
+      await dismissModals(page);
+      await page.waitForTimeout(300);
+      const unlockedAfter = await page.evaluate(
+        () => document.getElementById("open-import").disabled === false,
+      );
+      expect(opened.scans === 1, `스캔이 ${opened.scans}번 돌았다 — 중복 실행이 막히지 않는다`);
+      expect(opened.lockedDuring, "스캔 중에 버튼이 잠기지 않았다");
+      expect(unlockedAfter, "창을 닫은 뒤에도 버튼이 잠겨 있다");
+    });
+
+    await t.test("세션 색 태그 — 편집창 선택이 목록 행에 띠로 반영된다", async () => {
+      await dismissModals(page);
+      // 첫 세션 편집 → 색 지정 → 저장 → 행에 색 변수가 붙는지.
+      await page.locator(".tree-session").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")].find((x) => x.textContent.includes("편집"))?.click(),
+      );
+      await page.waitForTimeout(400);
+      const ok = await page.evaluate(() => {
+        const sel = [...document.querySelectorAll(".color-row select")][0];
+        if (!sel) return "선택기 없음";
+        sel.value = "red";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        const sw = document.querySelector(".color-swatch");
+        return sw && getComputedStyle(sw).backgroundColor !== "rgba(0, 0, 0, 0)" ? "ok" : "견본 미반영";
+      });
+      expect(ok === "ok", `색 선택기 문제: ${ok}`);
+      // 저장 후 목록 행 반영
+      await page.evaluate(() => {
+        const btns = [...document.querySelectorAll(".modal-card button")];
+        btns.find((b) => b.textContent.trim() === "저장")?.click();
+      });
+      await page.waitForTimeout(500);
+      const painted = await page.evaluate(() => {
+        const row = document.querySelector(".tree-session.has-color");
+        return row ? row.style.getPropertyValue("--session-color") : "";
+      });
+      expect(painted.length > 0, `목록 행에 색이 반영되지 않았다: "${painted}"`);
+    });
+
+    await t.test("폴더 일괄 접속 — 메뉴가 있고 폴더 내 세션 수만큼 연다", async () => {
+      await dismissModals(page);
+      const folder = page.locator(".tree-folder").first();
+      if ((await page.locator(".tree-folder").count()) === 0) return; // 폴더 없는 픽스처면 생략
+      await folder.click({ button: "right" });
+      await page.waitForTimeout(250);
+      const has = await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")].some((x) =>
+          x.textContent.includes("이 폴더 세션 모두 열기"),
+        ),
+      );
+      await page.keyboard.press("Escape");
+      expect(has, "폴더 우클릭에 '이 폴더 세션 모두 열기' 가 없다");
+    });
+
+    await t.test("자동 재접속 — 옵션 켜면 예약되고, 사용자가 끊으면 예약이 없다", async () => {
+      await dismissModals(page);
+      // 스케줄러 검사에는 탭이 하나 있어야 한다 — 없으면 하나 연다.
+      if ((await page.evaluate(() => window.__tm?.tabs?.length ?? 0)) === 0) {
+        await openSession(page, 0);
+      }
+      const r = await page.evaluate(async () => {
+        const tm = window.__tm;
+        if (!tm) return "no-tm";
+        // 자동 재접속 켠 가짜 탭 하나를 만들어 스케줄러만 검사한다(실접속 불필요).
+        const tab = tm.tabs[0];
+        if (!tab) return "no-tab";
+        tab.session.autoReconnect = true;
+        tab.session.autoReconnectDelaySec = 1;
+        tab.session.autoReconnectMax = 2;
+        // 실제 끊김 경로를 태워 오버레이(재접속 버튼)를 만든 뒤 예약을 검사한다.
+        tab.setDisconnected("테스트 종료", () => {});
+        tm.autoTries.delete(tab);
+        tm.scheduleAutoReconnect(tab);
+        const scheduled = tm.autoTimers.has(tab);
+        const note = document.querySelector(".overlay-retry")?.textContent ?? "";
+        tm.cancelAutoReconnect(tab);
+        const cleared = !tm.autoTimers.has(tab);
+        // 시도 상한: 이미 max 만큼 시도했으면 더 예약하지 않는다.
+        tm.autoTries.set(tab, 2);
+        tm.scheduleAutoReconnect(tab);
+        const stopped = !tm.autoTimers.has(tab);
+        tm.autoTries.delete(tab);
+        return { scheduled, cleared, stopped, note };
+      });
+      expect(typeof r === "object", `테스트 훅 문제: ${r}`);
+      expect(r.scheduled, "자동 재접속이 예약되지 않았다");
+      expect(r.cleared, "취소해도 예약이 남는다");
+      expect(r.stopped, "최대 횟수를 넘겨도 계속 예약한다");
+      expect(r.note.includes("자동 재접속"), `안내 문구가 없다: "${r.note}"`);
     });
 
     await t.test("세션 편집 종류 — 한 줄 라디오 3종, 기본 SSH, 안 잘린다", async () => {

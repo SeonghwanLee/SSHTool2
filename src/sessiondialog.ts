@@ -1,8 +1,9 @@
 // 세션 편집기 — 연결 / 분류 / 자동화 섹션. WPF 세션 편집 창(0.4.1 구성) 대응.
 // 필수값은 이름·호스트·포트만(사용자 이름은 비워도 저장 가능 — 접속 시 입력받음).
 
-import { openModal, field } from "./dialogs";
-import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType, ServiceLink } from "./types";
+import { openModal, field, numInput, clampNum } from "./dialogs";
+import type { SessionInfo, TriggerRule, Charset, SessionKind, AuthType, ServiceLink, SessionColor } from "./types";
+import { SESSION_COLORS, sessionColorCss } from "./types";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { applyIcon } from "./icons";
 import { helpIcon } from "./help";
@@ -208,6 +209,53 @@ export function sessionDialog(
         logText.textContent = "세션 로그 기록 (설정 폴더의 logs/ 에 저장)";
         logRow.append(logBox, logText);
 
+        // ── 색 태그(0.67.0) — 목록·탭에 띠로 표시해 운영/개발을 눈으로 가른다 ──
+        const colorSel = document.createElement("select");
+        colorSel.className = "sel-input";
+        for (const c of SESSION_COLORS) {
+          const o = document.createElement("option");
+          o.value = c.id;
+          o.textContent = c.label;
+          if (c.id === (initial.color ?? "")) o.selected = true;
+          colorSel.appendChild(o);
+        }
+        const colorSwatch = document.createElement("span");
+        colorSwatch.className = "color-swatch";
+        const paintSwatch = (): void => {
+          const css = sessionColorCss(colorSel.value);
+          colorSwatch.style.background = css || "transparent";
+          colorSwatch.style.borderColor = css ? css : "var(--border)";
+        };
+        paintSwatch();
+        colorSel.addEventListener("change", paintSwatch);
+        const colorWrap = document.createElement("div");
+        colorWrap.className = "color-row";
+        colorWrap.append(colorSel, colorSwatch);
+
+        // ── 자동 재접속(0.67.0) ──
+        const autoRow = document.createElement("label");
+        autoRow.className = "check-row";
+        const autoBox = document.createElement("input");
+        autoBox.type = "checkbox";
+        autoBox.checked = initial.autoReconnect ?? false;
+        const autoText = document.createElement("span");
+        autoText.textContent = "연결이 끊기면 자동으로 다시 접속";
+        autoRow.append(autoBox, autoText);
+        autoRow.title =
+          "예기치 않게 끊겼을 때만 시도합니다 — 사용자가 직접 끊거나 탭을 닫은 경우는 제외.\n" +
+          "저장된 비밀번호가 없으면 입력 창이 뜨므로 자동 재접속이 멈춥니다.";
+        const autoDelay = numInput(String(initial.autoReconnectDelaySec ?? 5), 1, 300, 1);
+        const autoMax = numInput(String(initial.autoReconnectMax ?? 3), 1, 99, 1);
+        const autoDelayField = field("재시도 간격(초)", autoDelay);
+        const autoMaxField = field("최대 시도 횟수", autoMax);
+        const syncAuto = (): void => {
+          const on = autoBox.checked;
+          autoDelayField.style.display = on ? "" : "none";
+          autoMaxField.style.display = on ? "" : "none";
+        };
+        autoBox.addEventListener("change", syncAuto);
+        syncAuto();
+
         const triggers = new TriggerEditor(initial.triggers);
         const services = new ServiceEditor(initial.services);
 
@@ -307,6 +355,7 @@ export function sessionDialog(
           shellField,
           dirField,
           field("폴더", folder),
+          field("색 태그", colorWrap),
         );
         addTab("auth", "인증", authField, keyField, saveRow, legacyRow);
         addTab(
@@ -318,6 +367,9 @@ export function sessionDialog(
           forwardsField,
           sftpRow,
           logRow,
+          autoRow,
+          autoDelayField,
+          autoMaxField,
         );
         addTab("trig", "트리거", triggers.render());
         addTab("svc", "서비스", services.render());
@@ -373,6 +425,10 @@ export function sessionDialog(
             startupCommandsSecret: startupSecretBox.checked,
             portForwards: forwards.value,
             enableLog: logBox.checked,
+            color: colorSel.value as SessionColor,
+            autoReconnect: autoBox.checked,
+            autoReconnectDelaySec: clampNum(autoDelay, 1, 300, 5),
+            autoReconnectMax: clampNum(autoMax, 1, 99, 3),
             enableSftp: sftpBox.checked,
             allowLegacyAlgorithms: legacyBox.checked,
             triggers: triggers.value(),

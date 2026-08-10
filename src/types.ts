@@ -92,7 +92,33 @@ export interface SessionInfo {
    * 협상 목록 맨 뒤에 추가한다. 최신 서버와의 협상 결과는 바뀌지 않는다.
    */
   allowLegacyAlgorithms: boolean;
+  /**
+   * 세션 색 태그(0.67.0). 목록·탭에 띠로 표시해 운영/개발을 눈으로 가른다 —
+   * 세션 잠금과 함께 "운영 서버에 실수" 를 막는 두 번째 방어선이다.
+   * "" = 없음. 값은 SESSION_COLORS 의 id.
+   */
+  color?: SessionColor;
+  /** true 면 연결이 끊겼을 때 스스로 다시 붙는다(사용자가 끊은 경우는 제외). */
+  autoReconnect?: boolean;
+  /** 자동 재접속 간격(초). 1~300, 기본 5. */
+  autoReconnectDelaySec?: number;
+  /** 자동 재접속 최대 시도 횟수(0 = 무제한 아님 — 기본 3회에서 멈춘다). */
+  autoReconnectMax?: number;
 }
+
+/** 세션 색 태그 — 값(id)은 저장 파일에 남으므로 바꾸지 말 것. */
+export const SESSION_COLORS = [
+  { id: "", label: "없음", css: "" },
+  { id: "red", label: "운영(빨강)", css: "#e06c75" },
+  { id: "amber", label: "검증(주황)", css: "#d19a66" },
+  { id: "green", label: "개발(초록)", css: "#98c379" },
+  { id: "blue", label: "기타(파랑)", css: "#61afef" },
+  { id: "violet", label: "기타(보라)", css: "#c678dd" },
+] as const;
+export type SessionColor = (typeof SESSION_COLORS)[number]["id"];
+/** 색 id → CSS 색. 모르는 값(구버전·손상)이면 빈 문자열 = 표시 안 함. */
+export const sessionColorCss = (id?: string): string =>
+  SESSION_COLORS.find((c) => c.id === id)?.css ?? "";
 
 /** 새 세션 기본값. */
 export function blankSession(): SessionInfo {
@@ -120,6 +146,10 @@ export function blankSession(): SessionInfo {
     portForwards: "",
     fontSize: 0,
     allowLegacyAlgorithms: false,
+    color: "",
+    autoReconnect: false,
+    autoReconnectDelaySec: 5,
+    autoReconnectMax: 3,
   };
 }
 
@@ -132,5 +162,9 @@ export function normalizeSession(s: Partial<SessionInfo>): SessionInfo {
     triggers: Array.isArray(s.triggers)
       ? s.triggers.map((t) => ({ ...t, secret: t.secret ?? false }))
       : [],
+    // 구버전 파일·손상값 방어 — 모르는 색은 '없음', 간격·횟수는 범위 안으로.
+    color: SESSION_COLORS.some((c) => c.id === s.color) ? s.color : "",
+    autoReconnectDelaySec: Math.max(1, Math.min(300, Math.round(s.autoReconnectDelaySec ?? 5))),
+    autoReconnectMax: Math.max(1, Math.min(99, Math.round(s.autoReconnectMax ?? 3))),
   };
 }

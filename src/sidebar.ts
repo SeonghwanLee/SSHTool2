@@ -36,6 +36,8 @@ export interface SidebarCallbacks {
   onDropSession: (sourceId: string, target: DropTarget) => void;
   /** 폴더를 다른 폴더 안(또는 루트)으로 이동 — 하위 폴더·세션까지 함께 옮긴다. */
   onMoveFolder: (sourcePath: string, destParent: string) => void;
+  /** 이 폴더(하위 폴더 포함)의 세션을 모두 연다. */
+  onOpenFolder?: (path: string, sessions: SessionInfo[]) => void;
   /** 폴더별 정렬 방식 변경("" = 루트). */
   onFolderSort?: (path: string, mode: FolderSort) => void;
   /** 세션 호스트의 웹 서비스를 브라우저로 연다. */
@@ -571,6 +573,12 @@ export class Sidebar {
     this.restoreNavFocus(hadFocus);
   }
 
+  /** 이 폴더와 하위 폴더에 든 세션 — 목록 정렬 순서 그대로(보이는 순서대로 열린다). */
+  private sessionsUnder(path: string): SessionInfo[] {
+    const inPath = (f: string): boolean => f === path || f.startsWith(`${path}/`);
+    return this.sessions.filter((s) => inPath(s.folder)).sort(this.comparator(path));
+  }
+
   /** 폴더와 그 하위 모든 폴더를 접는다(우클릭 '폴더 접기'). */
   private collapseTree(node: FolderNode): void {
     this.collapsed.add(node.path);
@@ -641,6 +649,16 @@ export class Sidebar {
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         showContextMenu(e.clientX, e.clientY, [
+          ...(this.cb.onOpenFolder
+            ? [
+                {
+                  label: "이 폴더 세션 모두 열기",
+                  accel: "o",
+                  action: () => this.cb.onOpenFolder?.(f.path, this.sessionsUnder(f.path)),
+                } as const,
+                { separator: true } as const,
+              ]
+            : []),
           {
             label: "폴더 접기 (하위 폴더까지)",
             accel: "c",

@@ -14,6 +14,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
 import type { SessionInfo } from "./types";
+import { sessionColorCss } from "./types";
 import type { Settings } from "./settings";
 import { fontStack } from "./settings";
 import { themeById } from "./themes";
@@ -67,6 +68,9 @@ export class TabManager {
   private dragMoved = false;
   /** 동시 명령이 겨눈 탭 키(null = 표시 안 함). 탭바 강조에만 쓴다. */
   private bcastKeys: ReadonlySet<string> | null = null;
+  /** 자동 재접속 예약(탭 → 타이머 id)과 지금까지의 시도 횟수. 탭이 닫히면 함께 정리된다. */
+  private readonly autoTimers = new Map<TerminalTab, number>();
+  private readonly autoTries = new Map<TerminalTab, number>();
   /** 수신 이벤트발 상태바 갱신의 마지막 시각 — 폭주 출력에서 DOM 갱신을 초당 4회로 제한. */
   private lastRxStatusAt = 0;
   /** 탭 구성·접속 상태가 바뀔 때 알림받을 구독자(동시 명령 창 세션 수 등). */
@@ -146,6 +150,9 @@ export class TabManager {
       tab.setDisconnected(e.message, () => void this.reconnect(tab));
       this.renderTabbar();
       if (tab === this.active) this.emitStatus();
+      // 예기치 않게 끊긴 경우에만 자동 재접속을 건다 — 사용자가 끊었거나 탭을 닫은
+      // 경로(disconnectTab·closeTab)는 여기를 지나지 않는다(매핑을 먼저 지우므로).
+      this.scheduleAutoReconnect(tab);
     });
 
     // 패널 영역 크기가 바뀌면 항상 터미널을 다시 맞춘다 — 창 리사이즈뿐 아니라
@@ -404,7 +411,43 @@ export class TabManager {
     this.activate(next);
   }
 
+  /**
+   * 자동 재접속 예약(0.67.0). 세션 옵션이 켜져 있고 시도 횟수가 남았을 때만.
+   *
+   * 사람이 끊은 경우에는 부르지 않는다 — 끊자마자 스스로 다시 붙으면 '끊기'가 고장 난
+   * 것처럼 보인다. 시도 횟수를 넘기면 멈추고 안내만 남긴다(무한 재시도 금지 — 잠긴
+   * 계정을 만들거나 서버 로그를 채운다).
+   */
+  private scheduleAutoReconnect(tab: TerminalTab): void {
+    if (!tab.session.autoReconnect) return;
+    if (tab.locked) return; // 잠긴 세션은 오조작 방지가 우선
+    const max = Math.max(1, tab.session.autoReconnectMax ?? 3);
+    const tries = this.autoTries.get(tab) ?? 0;
+    if (tries >= max) {
+      tab.showRetryNote(`자동 재접속 ${max}회 실패 — 자동 시도를 멈췄습니다.`);
+      return;
+    }
+    const delay = Math.max(1, tab.session.autoReconnectDelaySec ?? 5);
+    this.autoTries.set(tab, tries + 1);
+    tab.showRetryNote(`${delay}초 후 자동 재접속… (${tries + 1}/${max})`);
+    const id = window.setTimeout(() => {
+      this.autoTimers.delete(tab);
+      if (!this.tabs.includes(tab) || tab.disposed) return;
+      if (tab.status === "connected" || tab.status === "connecting") return;
+      void this.reconnect(tab);
+    }, delay * 1000);
+    this.autoTimers.set(tab, id);
+  }
+
+  /** 예약된 자동 재접속을 취소한다(사용자가 직접 끊거나 탭을 닫을 때). */
+  private cancelAutoReconnect(tab: TerminalTab): void {
+    const id = this.autoTimers.get(tab);
+    if (id !== undefined) window.clearTimeout(id);
+    this.autoTimers.delete(tab);
+  }
+
   private async reconnect(tab: TerminalTab): Promise<void> {
+    this.cancelAutoReconnect(tab); // 손으로 눌렀으면 예약분은 버린다
     this.activate(tab);
     tab.setConnecting(); // probe 동안 '접속 중…' — 재시도 반응이 즉시 보이게
     const creds = isLocal(tab.session) ? LOCAL_CREDS : await this.credentials.resolve(tab.session);
@@ -450,6 +493,7 @@ export class TabManager {
         return;
       }
       tab.setConnected(liveId);
+      this.autoTries.delete(tab); // 붙었으니 자동 재접속 시도 횟수를 초기화한다
       this.byLiveId.set(liveId, tab);
       // 접속 응답보다 먼저 도착했던 출력(포워딩 배너 등)을 이제 반영한다.
       const earlyData = this.pendingData.get(liveId);
@@ -498,6 +542,7 @@ export class TabManager {
    * 끊긴 뒤에는 평소 연결이 죽었을 때와 똑같이 '재접속' 오버레이가 뜬다.
    */
   private disconnectTab(tab: TerminalTab): void {
+    this.cancelAutoReconnect(tab); // 사람이 끊었다 — 스스로 다시 붙지 않는다
     const id = tab.liveId;
     if (!id) return; // 이미 끊긴 탭
     // 먼저 매핑을 지운다 — 백엔드가 뒤이어 보내는 종료 이벤트가 오버레이를 덧그리지 않게.
@@ -614,6 +659,8 @@ export class TabManager {
   private async closeTab(tab: TerminalTab): Promise<void> {
     // 탭바 ×·가운데 클릭·Ctrl+F4·타일 헤더 × 가 모두 여기로 모이므로 잠금 검사는 여기 하나면 된다.
     if (await this.refuseIfLocked(tab)) return;
+    this.cancelAutoReconnect(tab); // 닫는 탭에 예약이 남아 유령 접속이 생기지 않게
+    this.autoTries.delete(tab);
     if (tab.status === "connected") {
       const ok = await this.confirmClose(tab.session.name || tab.session.host);
       if (!ok) return;
@@ -691,6 +738,12 @@ export class TabManager {
         (tab.status === "disconnected" ? " dead" : tab.activity ? " activity" : "") +
         (this.bcastKeys?.has(tab.key) ? " bcast" : "");
       const item = el("div", cls);
+      // 세션 색 태그 — 목록과 같은 색을 탭에도 둔다(운영 탭을 한눈에).
+      const tabColor = sessionColorCss(tab.session.color);
+      if (tabColor) {
+        item.classList.add("has-color");
+        item.style.setProperty("--session-color", tabColor);
+      }
 
       const dot = el("span", "tab-dot " + tab.status);
       const label = el("span", "tab-label");

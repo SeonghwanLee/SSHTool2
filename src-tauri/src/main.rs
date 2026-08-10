@@ -531,6 +531,12 @@ fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 파일 크기·수정시각(unix 초). 없으면 null — 원격 파일 편집 감시에 쓴다.
+#[tauri::command]
+fn local_stat(path: String) -> Option<(u64, u64)> {
+    localfs::stat(&path)
+}
+
 /// 원격 파일 임시 열람용 폴더(OS 임시 경로).
 #[tauri::command]
 fn local_temp_dir() -> String {
@@ -739,6 +745,7 @@ fn main() {
             local_exists,
             open_path,
             local_temp_dir,
+            local_stat,
             stage_write,
             stage_sweep,
             ime_set_english

@@ -25,6 +25,7 @@ import {
   localExists,
   openPath,
   localTempDir,
+  localStat,
   stageWrite,
   stageSweep,
 } from "./ipc";
@@ -321,6 +322,7 @@ export async function openSftpBrowser(
     rememberSize();
     rememberState();
     unlisten?.(); // 모달 진행바 구독만 해제 — 배경 진행률은 모듈 구독이 계속 받는다
+    if (watchTimer) window.clearInterval(watchTimer); // 편집 감시 종료
     window.removeEventListener("resize", onWinResize);
     overlay.remove();
     notifyLive();
@@ -331,6 +333,7 @@ export async function openSftpBrowser(
     disposed = true;
     rememberSize();
     xfer.cancelled = true;
+    if (watchTimer) window.clearInterval(watchTimer); // 편집 감시 종료
     if (xfer.current) void sftpCancel(xfer.current);
     unlisten?.();
     window.removeEventListener("resize", onWinResize);
@@ -359,6 +362,75 @@ export async function openSftpBrowser(
 
   // 디렉터리 트리는 sftptree.ts 로 분리(0.67.0) — 살아있는 sftpId 를 게터로 받는다.
 
+  // ── 원격 파일 즉시 편집(0.67.0) ──
+  // 원격 파일을 열면 임시본이 로컬에 생긴다. 그 파일을 편집기로 고쳐 저장하면
+  // 서버로 되올린다 — vi 없이 메모장·VS Code 로 서버 설정을 고칠 수 있다.
+  //
+  // 감시는 2초 폴링이다(파일 감시 API 를 새로 들이지 않는다). 저장 도중(쓰는 중)에
+  // 올리면 반쪽 파일이 서버에 남으므로, **한 번 더 같은 크기·시각이 관측될 때**만 올린다.
+  interface EditWatch {
+    localPath: string;
+    remotePath: string;
+    name: string;
+    /** 마지막으로 서버에 반영한 상태(크기·수정시각). */
+    synced: [number, number];
+    /** 직전 관측값 — 이것과 같아야 '쓰기가 끝났다'고 본다. */
+    seen: [number, number] | null;
+  }
+  const watches = new Map<string, EditWatch>();
+  let watchTimer = 0;
+
+  const watchEdit = (localPath: string, remotePath: string, name: string): void => {
+    void localStat(localPath).then((st) => {
+      if (disposed || !st) return;
+      watches.set(localPath, { localPath, remotePath, name, synced: st, seen: null });
+      if (watchTimer === 0) watchTimer = window.setInterval(() => void pollEdits(), 2000);
+    });
+  };
+
+  const pollEdits = async (): Promise<void> => {
+    if (disposed || watches.size === 0) return;
+    if (xfer.transferring) return; // 전송 중에는 건드리지 않는다(진행률·취소가 뒤섞인다)
+    for (const w of [...watches.values()]) {
+      const st = await localStat(w.localPath);
+      if (!st) {
+        watches.delete(w.localPath); // 임시본이 지워졌다 — 감시 종료
+        continue;
+      }
+      const changed = st[0] !== w.synced[0] || st[1] !== w.synced[1];
+      if (!changed) {
+        w.seen = null;
+        continue;
+      }
+      // 저장이 끝났는지 — 같은 값이 두 번 관측돼야 올린다(쓰는 중 업로드 방지).
+      if (!w.seen || w.seen[0] !== st[0] || w.seen[1] !== st[1]) {
+        w.seen = st;
+        continue;
+      }
+      if (!sftpId) continue;
+      try {
+        xfer.transferring = true;
+        setStatus(`서버로 저장 중… ${w.name}`);
+        await sftpUpload(sftpId, w.localPath, w.remotePath, crypto.randomUUID());
+        w.synced = st;
+        w.seen = null;
+        setStatus(`서버에 저장됨 — ${w.name}`);
+        if (!disposed) await remote.reload();
+      } catch (e) {
+        setStatus(`서버 저장 실패(${w.name}): ${String(e)}`);
+      } finally {
+        xfer.transferring = false;
+      }
+    }
+  };
+
+  // 회귀 검사용 훅 — 편집 감시는 파일시스템 시각에 의존해 실기 없이 검증하기 어렵다.
+  // 프로덕션 빌드에서는 이 가지째 제거된다(DEV 가 false 상수로 치환).
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__sftpTest = { watchEdit, pollEdits };
+  }
+
   // 파일 목록 패널(Pane)은 sftppane.ts 로 분리(0.67.0) — 창이 쥔 상태·동작은 PaneCtx 로 넘긴다.
 
   const pctx: PaneCtx = {
@@ -372,6 +444,7 @@ export async function openSftpBrowser(
     setTransfer,
     showProgress,
     hideProgress,
+    watchEdit,
   };
   const local = new Pane(pctx, "local");
   const remote = new Pane(pctx, "remote");

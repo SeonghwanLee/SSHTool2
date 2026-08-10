@@ -128,6 +128,19 @@ pub fn rename(from: &str, to: &str) -> Result<(), String> {
 }
 
 /// 해당 경로가 이미 존재하는지(충돌 확인용).
+/// 파일 한 개의 크기·수정시각(unix 초). 없으면 None.
+/// 원격 파일 편집 감시(0.67.0)가 2초마다 부른다 — 폴더 전체를 훑지 않도록 단건 조회다.
+pub fn stat(path: &str) -> Option<(u64, u64)> {
+    let m = fs::metadata(path).ok()?;
+    let secs = m
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Some((m.len(), secs))
+}
+
 pub fn exists(path: &str) -> bool {
     Path::new(path).exists()
 }

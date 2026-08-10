@@ -702,6 +702,19 @@ export class TerminalTab {
     return formatUptime((this.disconnectedAt ?? Date.now()) - this.connectedAt);
   }
 
+  /** 끊김 오버레이에 자동 재접속 안내를 덧붙인다(없으면 만들고, 있으면 문구만 바꾼다). */
+  showRetryNote(text: string): void {
+    if (this.status !== "disconnected") return;
+    let note = this.overlay.querySelector<HTMLElement>(".overlay-retry");
+    if (!note) {
+      note = el("div", "overlay-retry");
+      // 보통은 재접속 버튼이 든 상자 안에 붙인다. 상자가 없으면(이례적) 오버레이에
+      // 직접 붙여 안내가 사라지지 않게 한다.
+      (this.overlay.querySelector(".overlay-box") ?? this.overlay).appendChild(note);
+    }
+    note.textContent = text;
+  }
+
   setConnecting(): void {
     this.status = "connecting";
     this.reconnectBtn = null;

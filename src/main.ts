@@ -360,6 +360,27 @@ async function main(): Promise<void> {
       onMoveFolder: async (sourcePath, destParent) => {
         await moveFolder(sourcePath, destParent);
       },
+      // 폴더 단위 일괄 접속(0.67.0) — 운영 서버 묶음을 한 번에 띄운다. 순차로 여는 것은
+      // 의도적이다: 동시에 열면 비밀번호·호스트키 창이 여러 개 겹쳐 뜬다.
+      onOpenFolder: (path, list) => {
+        void (async () => {
+          if (list.length === 0) {
+            appToast("이 폴더에 세션이 없습니다.");
+            return;
+          }
+          // 실수로 수십 개를 여는 사고를 막는다 — 몇 개인지 보여 주고 확인받는다.
+          if (list.length > 3) {
+            const go = await confirmDialog(
+              `'${path}' 의 세션 ${list.length}개를 모두 엽니다. 계속할까요?`,
+            );
+            if (!go) return;
+          }
+          for (const s of list) {
+            const ready = await hydrateSecrets(s);
+            await tabs.openSession(ready);
+          }
+        })();
+      },
       onNewFolder: (parent) => void newFolderFlow(parent),
       onRenameFolder: async (path) => {
         const last = path.split("/").pop() ?? path;
@@ -431,7 +452,27 @@ async function main(): Promise<void> {
   );
 
   // PuTTY/SecureCRT/MobaXterm 세션 가져오기 — 헤더 버튼과 우클릭 메뉴 공용.
+  // 스캔(레지스트리·ini 훑기)이 수 초 걸려 버튼이 먹통처럼 보인다 — 여러 번 눌러
+  // 창이 겹쳐 뜨던 문제(0.67.0). 도는 동안 버튼을 잠그고 진행 중임을 밝힌다.
+  let importRunning = false;
   const runImportImpl = async (): Promise<void> => {
+    if (importRunning) return;
+    importRunning = true;
+    const btn = $("open-import") as HTMLButtonElement;
+    const prevTitle = btn.title;
+    btn.disabled = true;
+    btn.classList.add("busy");
+    btn.title = "다른 클라이언트 세션을 찾는 중…";
+    try {
+      await runImportBody();
+    } finally {
+      importRunning = false;
+      btn.disabled = false;
+      btn.classList.remove("busy");
+      btn.title = prevTitle;
+    }
+  };
+  const runImportBody = async (): Promise<void> => {
     const imported = await importDialog(sessions);
     if (imported.length === 0) return;
     setSessions([...sessions, ...imported]);
