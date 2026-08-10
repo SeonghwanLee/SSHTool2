@@ -809,6 +809,55 @@ try {
       expect(back.w === before.w && back.h === before.h, `되돌린 크기가 다르다: ${JSON.stringify({ before, back })}`);
     });
 
+    await t.test("SFTP 트리 우클릭 — '하위 새 폴더' 가 그 폴더 안에 만든다", async () => {
+      const r = await page.evaluate(async () => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        const made = [];
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_mkdir") {
+            made.push(args?.path);
+            return null;
+          }
+          if (cmd === "sftp_list") return [];
+          return prev(cmd, args);
+        };
+        // 원격 트리의 루트 행에서 우클릭 메뉴를 연다.
+        const row = document.querySelectorAll(".sftp-pane")[1]?.querySelector(".tree-node");
+        if (!row) return "트리 행 없음";
+        row.dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 60, clientY: 120 }),
+        );
+        await new Promise((r) => setTimeout(r, 200));
+        const item = [...document.querySelectorAll(".ctx-item")].find((x) =>
+          x.textContent.includes("하위 새 폴더"),
+        );
+        if (!item) {
+          window.__TAURI_INTERNALS__.invoke = prev;
+          return "메뉴 없음";
+        }
+        item.click();
+        await new Promise((r) => setTimeout(r, 250));
+        // 이름 입력 창에 값을 넣고 확인.
+        const input = document.querySelector(".modal-card input");
+        if (input) {
+          input.value = "새폴더";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          const okBtn = [...document.querySelectorAll(".modal-card button")].find((b) =>
+            b.classList.contains("btn-accent"),
+          );
+          okBtn?.click();
+        }
+        await new Promise((r) => setTimeout(r, 350));
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return { made };
+      });
+      expect(typeof r === "object", `트리 새 폴더 문제: ${r}`);
+      expect(
+        r.made.length === 1 && String(r.made[0]).endsWith("/새폴더"),
+        `만들어진 경로가 어긋난다: ${JSON.stringify(r.made)}`,
+      );
+    });
+
     await t.test("SFTP 창 이동 — 머리말을 끌면 따라오고, 화면 밖으로 안 나간다", async () => {
       const rect = () =>
         page.evaluate(() => {
@@ -1175,10 +1224,12 @@ try {
       await dismissModals(page);
       const opened = await page.evaluate(async () => {
         let scans = 0;
+        window.__scanArgs = [];
         const prev = window.__TAURI_INTERNALS__.invoke;
         window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
           if (cmd === "import_scan") {
             scans++;
+            window.__scanArgs.push(args?.source);
             await new Promise((r) => setTimeout(r, 400)); // 느린 스캔 흉내
             return [];
           }
@@ -1203,9 +1254,55 @@ try {
       const unlockedAfter = await page.evaluate(
         () => document.getElementById("open-import").disabled === false,
       );
-      expect(opened.scans === 1, `스캔이 ${opened.scans}번 돌았다 — 중복 실행이 막히지 않는다`);
+      // 창을 열기만 해서는 스캔이 돌지 않아야 한다(0.69.0 — 고른 프로그램만 훑는다).
+      expect(opened.scans === 0, `창을 열자마자 ${opened.scans}번 스캔했다 — 선택 전에는 훑지 않아야 한다`);
       expect(opened.lockedDuring, "스캔 중에 버튼이 잠기지 않았다");
       expect(unlockedAfter, "창을 닫은 뒤에도 버튼이 잠겨 있다");
+    });
+
+    await t.test("가져오기 — 고른 프로그램만 찾고, 바꾸면 목록이 비워진다", async () => {
+      await dismissModals(page);
+      const r = await page.evaluate(async () => {
+        const calls = [];
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "import_scan") {
+            calls.push(args?.source);
+            return args?.source === "winscp"
+              ? [{ source: "WinSCP", folder: "", name: "운영", host: "10.0.0.1", port: 22, user: "root" }]
+              : [];
+          }
+          return prev(cmd, args);
+        };
+        document.getElementById("open-import").click();
+        await new Promise((r) => setTimeout(r, 500));
+        const sel = document.querySelector(".import-prog select");
+        const btn = document.querySelector(".import-prog .btn-accent");
+        if (!sel || !btn) return "선택기 없음";
+        const options = [...sel.options].map((o) => o.value);
+        sel.value = "winscp";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        btn.click();
+        await new Promise((r) => setTimeout(r, 400));
+        const rowsAfterScan = document.querySelectorAll(".bulk-list .bulk-row, .bulk-list label").length;
+        // 프로그램을 바꾸면 이전 결과가 남지 않아야 한다.
+        sel.value = "putty";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        const rowsAfterSwitch = document.querySelectorAll(".bulk-list .bulk-row, .bulk-list label").length;
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return { calls, options, rowsAfterScan, rowsAfterSwitch };
+      });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      await dismissModals(page);
+      expect(typeof r === "object", `가져오기 창 구조 문제: ${r}`);
+      expect(r.options.length === 5, `프로그램 후보가 5개가 아니다: ${JSON.stringify(r.options)}`);
+      expect(
+        r.calls.length === 1 && r.calls[0] === "winscp",
+        `고른 것만 훑지 않는다: ${JSON.stringify(r.calls)}`,
+      );
+      expect(r.rowsAfterScan > 0, "찾기 후 결과가 표시되지 않았다");
+      expect(r.rowsAfterSwitch === 0, "프로그램을 바꿨는데 이전 결과가 남아 있다");
     });
 
     await t.test("세션 색 태그 — 편집창 선택이 목록 행에 띠로 반영된다", async () => {

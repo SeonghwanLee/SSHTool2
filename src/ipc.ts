@@ -107,8 +107,9 @@ export interface ImportedSession {
   user: string;
 }
 
-export const importScan = (): Promise<ImportedSession[]> =>
-  invoke<ImportedSession[]>("import_scan");
+/** 지정한 프로그램 하나만 스캔한다(putty·securecrt·mobaxterm·winscp·filezilla). */
+export const importScan = (source: string): Promise<ImportedSession[]> =>
+  invoke<ImportedSession[]>("import_scan", { source });
 
 /** 저장된 호스트키(TOFU) 항목. */
 export interface KnownHostEntry {

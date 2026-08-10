@@ -2694,3 +2694,17 @@ button.busy {
   opacity: 0.55;
   cursor: progress;
 }
+/* 가져오기 창의 프로그램 선택 줄(0.69.0). */
+.import-prog {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.import-prog > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.import-prog select {
+  flex: 0 1 200px;
+}

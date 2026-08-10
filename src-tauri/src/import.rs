@@ -27,15 +27,21 @@ pub struct ImportedSession {
 
 const DEFAULT_PORT: u16 = 22;
 
-/// 세 프로그램 전부 스캔. 한 소스가 없거나 읽기 실패해도 전체를 실패시키지 않고 건너뛴다.
-pub fn scan() -> Vec<ImportedSession> {
-    let mut found = Vec::new();
-    found.extend(scan_putty());
-    found.extend(scan_securecrt());
-    found.extend(scan_mobaxterm());
-    found.extend(scan_winscp());
-    found.extend(scan_filezilla());
-    found
+/// 가져오기 대상 프로그램 목록(화면에 그대로 뜬다). 값은 프런트가 보내는 id.
+pub const SOURCES: [&str; 5] = ["putty", "securecrt", "mobaxterm", "winscp", "filezilla"];
+
+/// 지정한 프로그램만 스캔한다(0.69.0). 예전에는 다섯 개를 항상 전부 훑어
+/// 안 쓰는 프로그램 때문에도 느려졌다 — 사용자가 고른 하나만 본다.
+/// 없거나 읽기 실패한 소스는 전체를 실패시키지 않고 건너뛴다.
+pub fn scan_source(source: &str) -> Vec<ImportedSession> {
+    match source {
+        "putty" => scan_putty(),
+        "securecrt" => scan_securecrt(),
+        "mobaxterm" => scan_mobaxterm(),
+        "winscp" => scan_winscp(),
+        "filezilla" => scan_filezilla(),
+        _ => Vec::new(),
+    }
 }
 
 // ─────────────────────────── 공통: 인코딩 ───────────────────────────

@@ -135,8 +135,8 @@ fn sessions_save(app: AppHandle, sessions: Vec<store::SessionInfo>) -> Result<()
 /// PuTTY/SecureCRT/MobaXterm 세션 스캔(레지스트리·ini). 소스 하나가 없어도 나머지는 계속.
 /// 레지스트리 열거 + 디렉터리 재귀 워크라 블로킹 — 전용 스레드로 넘겨 UI 를 막지 않는다.
 #[tauri::command]
-async fn import_scan() -> Result<Vec<import::ImportedSession>, String> {
-    tokio::task::spawn_blocking(import::scan)
+async fn import_scan(source: String) -> Result<Vec<import::ImportedSession>, String> {
+    tokio::task::spawn_blocking(move || import::scan_source(&source))
         .await
         .map_err(|e| format!("세션 스캔 실패: {e}"))
 }

@@ -87,6 +87,8 @@ export class Pane {
         const folder: Entry = { name: baseName(path), path, isDir: true, size: 0, modified: 0 };
         const items: MenuItem[] = [
           { label: "이 폴더 열기", accel: "o", action: () => void this.go(path) },
+          // 목록으로 내려가지 않고 트리에서 바로 만든다(0.69.0) — 대상은 '이 폴더 안'.
+          { label: "하위 새 폴더", accel: "n", action: () => void this.makeDirIn(path) },
           { separator: true },
           {
             label: side === "local" ? "업로드 →" : "← 다운로드",
@@ -363,14 +365,25 @@ export class Pane {
     if (parent && parent !== this.path) await this.go(parent);
   }
 
+  /** 지금 보고 있는 폴더 안에 새 폴더(머리말 버튼·목록 우클릭). */
   private async makeDir(): Promise<void> {
-    const name = await textPrompt("새 폴더 이름", "", "만들기");
+    await this.makeDirIn(this.path);
+  }
+
+  /**
+   * 지정한 폴더 **안에** 새 폴더를 만든다. 트리 우클릭은 보고 있는 폴더가 아니라
+   * 오른쪽 클릭한 폴더가 대상이라 경로를 받는다(0.69.0).
+   */
+  private async makeDirIn(parent: string): Promise<void> {
+    const name = await textPrompt(`새 폴더 이름 (${baseName(parent) || parent} 안)`, "", "만들기");
     if (!name) return;
     try {
-      const target = joinPath(this.path, name);
+      const target = joinPath(parent, name);
       if (this.side === "local") await localMkdir(target);
       else await sftpMkdir(this.ctx.getSftpId(), target);
-      await this.reload();
+      // 만든 자리가 화면에 보이도록: 보고 있는 폴더면 목록을, 아니면 트리를 갱신한다.
+      if (parent === this.path) await this.reload();
+      else await this.tree.reveal(parent, true);
     } catch (e) {
       this.ctx.setStatus(`폴더 생성 실패: ${String(e)}`);
     }
