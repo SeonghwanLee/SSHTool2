@@ -19,6 +19,42 @@ import type { Settings } from "./settings";
 import { fontStack } from "./settings";
 import { themeById } from "./themes";
 import { Utf8Gate } from "./utf8stream";
+import { pinCompositionOverlay } from "./imeoverlay";
+import { TermSearch } from "./termsearch";
+import {
+  clamp,
+  LF,
+  LOCKED_HINT,
+  ZOOM_BADGE_MS,
+  TRIGGER_WINDOW_MS,
+  stripAnsi,
+  formatUptime,
+  mixHex,
+  RESET_INPUT_MODES,
+  LOCAL_CREDS,
+  type ResolvedCreds,
+  type CredResolution,
+  type CredentialProvider,
+  type TabActions,
+  type StatusInfo,
+  type ViewMode,
+} from "./termtypes";
+// 기존 소비자(tabs.ts → main.ts)가 termtab 에서 가져가던 이름들을 그대로 통하게 한다.
+export {
+  LOCAL_CREDS,
+  RESET_INPUT_MODES,
+  clamp,
+  stripAnsi,
+  formatUptime,
+} from "./termtypes";
+export type {
+  ResolvedCreds,
+  CredResolution,
+  CredentialProvider,
+  TabActions,
+  StatusInfo,
+  ViewMode,
+} from "./termtypes";
 import {
   sshConnect,
   sshWrite,
@@ -43,137 +79,6 @@ export const resizeTo = (s: SessionInfo, id: string, cols: number, rows: number)
   isLocal(s) ? localResize(id, cols, rows) : sshResize(id, cols, rows);
 export const closeOf = (s: SessionInfo, id: string): Promise<void> =>
   isLocal(s) ? localClose(id) : sshClose(id);
-
-/** 접속에 쓸 자격증명 + 사용자가 직접 입력했는지 여부(저장 제안용). */
-export interface ResolvedCreds {
-  user: string;
-  password: string;
-  /** true 면 이번에 프롬프트로 입력받은 것(저장 여부를 물어볼 대상). */
-  prompted: boolean;
-}
-
-/** 자격증명 해결·저장 정책. 볼트 연동은 main.ts 가 구현(탭은 UI-비종속). */
-/**
- * 자격증명 해결 결과 — null 은 사용자가 스스로 취소한 것, { failed } 는 서버 확인(probe)
- * 실패다. 실패를 팝업이 아니라 탭 오버레이에 보여 주려면 둘을 구분해야 한다(0.59.0).
- */
-export type CredResolution = ResolvedCreds | null | { failed: string };
-
-export interface CredentialProvider {
-  resolve(session: SessionInfo): Promise<CredResolution>;
-  onConnected(session: SessionInfo, creds: ResolvedCreds): Promise<void>;
-  onError(session: SessionInfo, error: string): Promise<void>;
-}
-
-export const LOCAL_CREDS: ResolvedCreds = { user: "", password: "", prompted: false };
-
-/**
- * 세션 탭 우클릭 메뉴가 앱 쪽(main.ts)에 위임하는 동작 묶음.
- *
- * 인자를 하나씩 늘리는 대신 객체로 받는다 — 생성자 인자가 이미 여덟 개라 순서로 구분하기
- * 어렵고, 항목이 늘 때마다 호출부가 위치로 어긋날 위험이 크다.
- * 주입되지 않은 동작은 메뉴에 항목 자체를 넣지 않는다(눌러도 아무 일 없는 항목 금지).
- */
-export interface TabActions {
-  /** SFTP 파일 전송 창 열기. */
-  sftp?: (session: SessionInfo) => void;
-  /** 저장 세션 이름 변경. 바뀐 이름을 돌려주면 탭 라벨을 즉시 갱신한다(취소는 null). */
-  rename?: (session: SessionInfo) => Promise<string | null>;
-  /** 저장 세션 편집. 편집 결과를 돌려주면 탭이 들고 있는 세션도 함께 갱신한다(취소는 null). */
-  edit?: (session: SessionInfo) => Promise<SessionInfo | null>;
-  /**
-   * 이 세션이 저장 목록에 있는지. 빠른 접속 같은 임시 세션은 저장 목록에 없어
-   * 이름 변경·편집이 아무것도 바꾸지 못하므로, false 면 두 항목을 메뉴에서 숨긴다.
-   */
-  isSaved?: (session: SessionInfo) => boolean;
-}
-
-export interface StatusInfo {
-  label: string;
-  state: "none" | "connecting" | "connected" | "disconnected";
-  size: string;
-  cursor: string;
-  encoding: string; // 문자셋(charset)
-  cipher: string; // 암호화 방식(원격 SSH 세션에만)
-  /** 접속 유지시간(MM:SS 또는 HH:MM:SS). 접속 전이면 빈 문자열. */
-  uptime: string;
-}
-
-/** 세션 화면 배치: 탭 / 세로 분할 / 가로 분할(WPF 0.20.0). */
-export type ViewMode = "tabs" | "vertical" | "horizontal";
-
-export const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
-export const LF = new Uint8Array([0x0a]);
-
-/**
- * 잠긴 세션에서 입력이 막혔을 때 띄우는 안내.
- * 아무 반응이 없으면 고장으로 오해하므로 왜 안 나가는지 매번 알려 준다.
- */
-export const LOCKED_HINT = "세션 잠김 — 탭 우클릭 → 세션 잠금 해제";
-
-/**
- * 트리거 발동 허용 창(ms). 접속 직후에만 발동시켜, 한참 뒤에 나타난 패턴 출력에는
- * 반응하지 않게 한다. 로그인·sudo 프롬프트는 접속 직후에 나오므로 정상 용도는 이 안에 든다.
- */
-/** 확대/축소 배율 표시가 떠 있는 시간(ms). */
-const ZOOM_BADGE_MS = 900;
-
-const TRIGGER_WINDOW_MS = 10_000;
-
-/** "#RRGGBB" 를 [r,g,b] 로. 형식이 아니면 null. */
-function parseHex(hex: string): [number, number, number] | null {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-/**
- * 두 색을 t 비율로 섞는다(0 = a, 1 = b). 검색 강조색을 테마에 맞춰 만드는 데 쓴다 —
- * 색을 고정하면 밝은 테마에서 글자가 안 보이거나 어두운 테마에서 튄다.
- */
-function mixHex(a: string, b: string, t: number): string {
-  const ca = parseHex(a);
-  const cb = parseHex(b);
-  if (!ca || !cb) return a;
-  const mix = ca.map((v, i) => Math.round(v + (cb[i] - v) * t));
-  return "#" + mix.map((v) => v.toString(16).padStart(2, "0")).join("");
-}
-
-/** 접속 유지시간 표기 — 1시간을 넘기면 HH:MM:SS, 그 전까지는 MM:SS. */
-export const formatUptime = (ms: number): string => {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  const hours = Math.floor(total / 3600);
-  const mins = Math.floor(total / 60) % 60;
-  const secs = total % 60;
-  return hours > 0 ? `${pad(hours)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
-};
-
-/**
- * 트리거 매칭용으로 ANSI 제어 시퀀스를 제거한다. 컬러 프롬프트
- * (예: "\x1b[32mpassword:\x1b[0m")에서도 사용자가 눈으로 본 문자열로 매칭되게 한다.
- */
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[[\]()#;?]*[0-9;]*[A-Za-z]|[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
-export const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
-
-/**
- * 세션이 끊긴 뒤 터미널에 남는 입력 모드를 원상복구하는 시퀀스.
- *
- * 원격 앱(Claude CLI·vim·tmux 등)이 켜 둔 모드는 **터미널 쪽 상태**라 세션이 죽어도
- * 그대로 남는다. 특히 마우스 추적이 켜진 채 재접속하면 마우스를 움직이는 것만으로
- * `ESC[<35;82;12M` 같은 시퀀스가 새 셸로 날아가, 프롬프트에 `35;82;12M…` 이 찍힌다.
- * 끊긴 시점에 꺼 두면 다음 세션이 깨끗한 상태에서 시작한다.
- *
- * term.reset() 은 쓰지 않는다 — 화면과 스크롤백까지 지워서, 끊긴 세션의 마지막 출력을
- * 남겨 두는 '세션 종료' 동작과 어긋난다. 모드만 골라서 끈다.
- */
-export const RESET_INPUT_MODES =
-  "\x1b[?1000l\x1b[?1002l\x1b[?1003l" + // 마우스 추적(클릭·버튼이동·전체이동)
-  "\x1b[?1005l\x1b[?1006l\x1b[?1015l" + // 마우스 좌표 확장 인코딩
-  "\x1b[?2004l" + // 괄호 붙여넣기
-  "\x1b[?1l\x1b>"; // 커서키·키패드를 일반 모드로
 
 /** 탭 하나 = 터미널 뷰 + 상태. 접속/재접속 로직은 TabManager 가 구동한다. */
 export class TerminalTab {
@@ -219,6 +124,7 @@ export class TerminalTab {
   private sessionFontSize = 0;
   private toastTimer = 0;
   private searchOpen = false;
+  private readonly searchCtl: TermSearch;
   private triggerBuf = "";
   private readonly decoder = new TextDecoder("utf-8", { fatal: false });
   private readonly lastFired = new Map<string, number>();
@@ -299,6 +205,14 @@ export class TerminalTab {
     this.search = new SearchAddon();
     this.term.loadAddon(this.fit);
     this.term.loadAddon(this.search);
+    this.searchCtl = new TermSearch(
+      this.term,
+      this.search,
+      this.searchBar,
+      this.searchInput,
+      () => this.settings,
+      () => this.closeSearch(),
+    );
     this.term.loadAddon(new WebLinksAddon());
     const uni = new Unicode11Addon();
     this.term.loadAddon(uni);
@@ -312,8 +226,7 @@ export class TerminalTab {
     this.term.onResize(() => onResize());
 
     this.wireInput();
-    this.pinCompositionOverlay();
-    this.wireSearch();
+    pinCompositionOverlay(this.term);
   }
 
   /**
@@ -557,64 +470,20 @@ export class TerminalTab {
     }, ZOOM_BADGE_MS);
   }
 
-  // ── 검색 ──
-  /**
-   * 검색어 강조 색. 예전에는 clearDecorations() 만 부르고 decorations 를 넘기지 않아
-   * 강조가 아예 켜지지 않았다 — 현재 위치로 이동만 하고 나머지 일치는 표시되지 않았다.
-   *
-   * 활성 일치는 accent 그대로, 나머지는 accent 를 터미널 배경 쪽으로 섞어 한 단계 죽인다.
-   * 둘을 같은 색으로 두면 지금 어디에 있는지 알 수 없다.
-   */
-  private searchDecorations(): ISearchDecorationOptions {
-    const accent =
-      getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#a7c080";
-    const bg = themeById(this.settings.theme).term.background ?? "#000000";
-    return {
-      matchBackground: mixHex(accent, bg, 0.5),
-      matchOverviewRuler: accent,
-      activeMatchBackground: accent,
-      activeMatchColorOverviewRuler: accent,
-    };
-  }
-
-  private wireSearch(): void {
-    this.searchInput.addEventListener("input", () => {
-      if (this.searchInput.value)
-        this.search.findNext(this.searchInput.value, {
-          incremental: true,
-          decorations: this.searchDecorations(),
-        });
-      else this.search.clearDecorations();
-    });
-    this.searchInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === "F3") {
-        e.preventDefault();
-        e.shiftKey ? this.searchPrev() : this.searchNext();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        this.closeSearch();
-      }
-    });
-  }
+  // 검색 동작은 termsearch.ts 로 분리(0.67.0) — 이 클래스는 열기·닫기만 위임한다.
   openSearch(): void {
     this.searchOpen = true;
-    this.searchBar.style.display = "flex";
-    this.searchInput.focus();
-    this.searchInput.select();
+    this.searchCtl.open();
   }
   private closeSearch(): void {
     this.searchOpen = false;
-    this.searchBar.style.display = "none";
-    this.search.clearDecorations();
-    this.term.focus();
+    this.searchCtl.close();
   }
   private searchNext(): void {
-    if (this.searchInput.value)
-      this.search.findNext(this.searchInput.value, { decorations: this.searchDecorations() });
+    this.searchCtl.next();
   }
   private searchPrev(): void {
-    if (this.searchInput.value)
-      this.search.findPrevious(this.searchInput.value, { decorations: this.searchDecorations() });
+    this.searchCtl.prev();
   }
 
   // ── 설정 적용 ──
@@ -826,82 +695,6 @@ export class TerminalTab {
     if (fired) this.triggerBuf = "";
   }
 
-  /**
-   * 조합(IME) 오버레이를 조합이 시작된 셀에 고정한다.
-   *
-   * xterm 은 조합 중인 글자를 '지금 커서 셀'에 띄우고 렌더마다 다시 놓는다. claude CLI 처럼
-   * 입력 중에도 화면을 계속 다시 그리는 앱에서는, 스피너 출력이 커서를 다른 곳에 두고
-   * 끝나는 순간 조합 중이던 한글이 그 자리로 점프해 보인다(시뮬레이션으로 재현·확인).
-   * 조합 중에는 아무것도 서버로 전송되지 않아 실제 입력 지점은 움직이지 않으므로,
-   * 시작 셀에 붙여 두는 것이 맞다.
-   *
-   * 안정성 원칙: xterm 의 상태(버퍼 등)는 일절 만지지 않는다. 원본 함수를 먼저 그대로
-   * 실행한 뒤 오버레이·textarea 의 left/top 스타일만 되돌려 놓는다. 비공개 API 라
-   * 구조가 다르면(업그레이드 등) 고정만 조용히 꺼지고 기본 동작으로 남는다.
-   */
-  private pinCompositionOverlay(): void {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const core = (this.term as any)._core;
-      const helper = core?._compositionHelper;
-      const ta = this.term.textarea;
-      if (!helper || !ta || typeof helper.updateCompositionElements !== "function") return;
-
-      /** 고정 기준 셀. null 이면 고정하지 않는다(기본 동작). */
-      let pinned: { col: number; row: number } | null = null;
-
-      ta.addEventListener("compositionstart", () => {
-        try {
-          const buf = core._bufferService?.buffer;
-          pinned = buf ? { col: buf.x, row: buf.y } : null;
-        } catch {
-          pinned = null;
-        }
-      });
-      ta.addEventListener("compositionend", () => {
-        pinned = null;
-      });
-
-      const original = helper.updateCompositionElements.bind(helper);
-      helper.updateCompositionElements = (dontRecurse?: unknown) => {
-        original(dontRecurse);
-        if (pinned === null || !helper._isComposing) return;
-        try {
-          const buf = core._bufferService?.buffer;
-          const cols = core._bufferService?.cols ?? 0;
-          const cell = core._renderService?.dimensions?.css?.cell;
-          if (!buf || !cell || !(cell.width > 0)) return;
-
-          // 커서의 '정당한 전진'은 따라간다. SSH 에서는 음절이 확정되면 서버 에코가
-          // 돌아와야 커서가 움직이는데, 다음 음절의 조합은 그보다 먼저 시작된다 —
-          // 시작 셀에 못 박아 두면 조합 글자가 앞 글자 위에 겹쳐 보인다(0.52.3 회귀).
-          // 같은 줄에서 앞으로 몇 칸 이내의 이동만 에코로 보고 기준을 옮긴다.
-          // 먼 점프·다른 줄(스피너·상태줄 재그리기)은 무시한다 — 그게 원래 고치려던 증상이다.
-          if (buf.y === pinned.row && buf.x >= pinned.col && buf.x - pinned.col <= 8) {
-            pinned = { col: buf.x, row: buf.y };
-          }
-
-          const left = Math.min(pinned.col, Math.max(0, cols - 1)) * cell.width;
-          const top = pinned.row * cell.height;
-          const view = helper._compositionView as HTMLElement | undefined;
-          if (view) {
-            view.style.left = `${left}px`;
-            view.style.top = `${top}px`;
-          }
-          // IME 후보창(한자 변환 목록 등)은 textarea 위치를 따라간다 — 같이 붙인다.
-          const t = helper._textarea as HTMLElement | undefined;
-          if (t) {
-            t.style.left = `${left}px`;
-            t.style.top = `${top}px`;
-          }
-        } catch {
-          /* 계측 실패 시 이번 렌더는 기본 위치(원본이 이미 놓았다)로 둔다 */
-        }
-      };
-    } catch {
-      // 내부 구조가 예상과 다르면 고정 없이 기본 동작 — 기능 하나가 앱을 위협하지 않는다.
-    }
-  }
 
   /** 상태바용 접속 유지시간. 접속 전이면 빈 문자열, 끊긴 뒤엔 최종값에서 멈춘다. */
   uptimeText(): string {
