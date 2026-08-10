@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.70.0",
+    date: "2026-08-08",
+    notes: [
+      "탭 순서를 바꾸면 세로·가로 분할 배치도 그 순서를 따릅니다 — 예전에는 분할 보기에서 세션을 연 순서가 그대로 남았습니다",
+    ],
+  },
+  {
     version: "0.69.0",
     date: "2026-08-08",
     notes: [

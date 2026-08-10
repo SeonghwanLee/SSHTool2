@@ -83,8 +83,9 @@ export function beginTabDrag(
       // 앞쪽에서 빼냈으면 목표 인덱스가 하나 당겨진다.
       ctx.tabs.splice(dropAt > from ? dropAt - 1 : dropAt, 0, tab);
       ctx.renderTabbar();
-      // 타일 모드에서는 탭 순서가 곧 화면 배치 순서라 다시 깔아야 한다.
-      if (ctx.viewMode !== "tabs") ctx.layout(false);
+      // 화면 배치도 탭 순서를 따라야 한다. 탭 모드에서도 부른다 — layout 이 DOM 순서를
+      // 맞추므로, 나중에 분할로 바꿔도 방금 정한 순서 그대로 깔린다(0.70.0).
+      ctx.layout(false);
     }
     // click 은 mouseup 뒤에 온다 — 다음 프레임에 풀어야 그 클릭을 걸러낼 수 있다.
     setTimeout(() => {

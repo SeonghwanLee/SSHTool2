@@ -239,6 +239,17 @@ export class TabManager {
       this.panes.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
     }
 
+    // 타일 배치는 DOM 순서를 따른다 — 탭 순서를 바꿔도(드래그) 화면에 반영되지 않아
+    // 분할 보기에서는 '연 순서' 가 그대로 남았다(0.70.0 수정). 순서가 어긋날 때만
+    // 다시 붙인다: appendChild 는 이미 붙어 있는 노드를 옮기므로, 같은 순서면 건드리지
+    // 않아 터미널이 흔들리지 않는다.
+    const domOrder = [...this.panes.children];
+    const sameOrder =
+      domOrder.length === this.tabs.length && this.tabs.every((t, i) => domOrder[i] === t.root);
+    if (!sameOrder) {
+      for (const t of this.tabs) this.panes.appendChild(t.root);
+    }
+
     for (const t of this.tabs) {
       // 타일 모드에서는 전부 보이고, 탭 모드에서는 활성 탭만 보인다.
       t.root.classList.toggle("visible", tiled || t === this.active);

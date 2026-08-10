@@ -734,6 +734,37 @@ try {
       await page.waitForTimeout(200);
     });
 
+    await t.test("탭 순서 변경 — 분할 보기 배치도 같은 순서를 따른다", async () => {
+      await dismissModals(page);
+      // 세션 3개를 열고 마지막 탭을 맨 앞으로 끌어 옮긴다.
+      while ((await page.evaluate(() => window.__tm?.tabs?.length ?? 0)) < 3) {
+        await openSession(page, 0);
+      }
+      const before = await page.evaluate(() => window.__tm.tabs.map((t) => t.key));
+      const items = page.locator("#tabbar .tab");
+      const last = await items.nth(2).boundingBox();
+      const first = await items.nth(0).boundingBox();
+      await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(first.x + 4, first.y + first.height / 2, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      const afterKeys = await page.evaluate(() => window.__tm.tabs.map((t) => t.key));
+      expect(afterKeys[0] === before[2], `탭 순서가 바뀌지 않았다: ${JSON.stringify(afterKeys)}`);
+
+      // 세로 분할로 바꾸면 타일 순서(DOM)가 탭 순서와 같아야 한다.
+      await page.click("#view-vertical");
+      await page.waitForTimeout(400);
+      const domIdx = await page.evaluate(() => {
+        const panes = [...document.getElementById("panes").children];
+        return window.__tm.tabs.map((t) => panes.indexOf(t.root));
+      });
+      const ordered = domIdx.every((v, i) => v === i);
+      await page.click("#view-tabs");
+      await page.waitForTimeout(300);
+      expect(ordered, `분할 배치가 탭 순서를 따르지 않는다: ${JSON.stringify(domIdx)}`);
+    });
+
     await page.close();
   }
 
