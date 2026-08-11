@@ -3,7 +3,7 @@
 
 import type { TabManager, StatusInfo, ViewMode } from "./tabs";
 import type { Sidebar } from "./sidebar";
-import { settings, setSettings, applyDisplayOptions, redraw, tabManager } from "./appstate";
+import { settings, setSettings, applyDisplayOptions, redraw, tabManager, sessions } from "./appstate";
 import { saveSettings, type Settings, type ViewModeSetting } from "./settings";
 import { settingsDialog } from "./settingsdialog";
 import { aboutDialog } from "./about";
@@ -15,6 +15,8 @@ import { applyIcon } from "./icons";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
 import { reflectLock, refreshLockIndicator, changeMasterFlow, toggleAutoUnlock } from "./vaultflow";
+import { initPalette, togglePalette } from "./palette";
+import { hydrateSecrets } from "./sessionflow";
 import { keystoreHas } from "./ipc";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -101,47 +103,93 @@ export function wireHostKeyPrompt(): void {
   });
 }
 
-/** 사이드바 폭 조절(드래그) + 접기(더블클릭). 폭·접힘은 설정에 저장. */
+/**
+ * 세션영역: 폭 조절(드래그) + 도킹/언도킹(그라파나 방식, 0.73.0).
+ *
+ * - **고정(docked)**: 왼쪽에 붙어 자리를 차지한다. 경계선을 끌어 폭을 바꾼다.
+ * - **고정 해제(undocked)**: 목록이 숨고 터미널이 전폭을 쓴다. 좌상단 메뉴 버튼으로
+ *   잠깐 띄우고(오버레이), 바깥을 누르거나 Esc 로 닫는다. 목록 머리말의 핀 버튼으로
+ *   다시 고정한다.
+ *
+ * 예전에는 경계선 한가운데 접기 버튼이 얹혀 있어 선이 두꺼워 보였고, 4px 트랙에 18px
+ * 버튼이 떠 터미널 위를 덮었다 — 버튼을 머리말·타이틀바로 옮기고 선은 1px 로 줄였다.
+ */
 export function wireSidebarResize(): void {
   const app = document.getElementById("app")!;
   const resizer = $("sidebar-resizer");
-  // 시작 시 복원.
+  const navBtn = $("nav-toggle");
+  const dockBtn = $("sidebar-dock");
+  const sidebar = $("sidebar");
+  applyIcon(navBtn, "menu");
+
   app.style.setProperty("--sidebar-w", `${settings.sidebarWidth}px`);
-  app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
 
-  const toggleCollapse = async () => {
-    setSettings({ ...settings, sidebarCollapsed: !settings.sidebarCollapsed });
-    app.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
-    syncToggleBtn();
-    try {
-      await saveSettings(settings);
-    } catch {
-      /* 무시 */
-    }
+  /** 오버레이(임시 노출) 열림 여부 — 고정 해제 상태에서만 의미가 있다. */
+  let peeking = false;
+
+  const sync = (): void => {
+    const docked = settings.sidebarDocked;
+    app.classList.toggle("sidebar-undocked", !docked);
+    app.classList.toggle("sidebar-peek", !docked && peeking);
+    navBtn.style.display = docked ? "none" : "";
+    applyIcon(dockBtn, docked ? "undock" : "dock");
+    dockBtn.title = docked ? "세션 목록 고정 해제" : "세션 목록 고정";
+    resizer.title = docked ? "드래그: 폭 조절" : "";
   };
 
-  // 눈에 보이는 접기/펼치기 버튼(화살표) — 호버 시 표시, 접힌 상태에선 항상 보임.
-  const toggleBtn = document.createElement("button");
-  toggleBtn.type = "button";
-  toggleBtn.className = "sidebar-toggle";
-  const syncToggleBtn = () => {
-    const collapsed = settings.sidebarCollapsed;
-    toggleBtn.textContent = collapsed ? "»" : "«";
-    toggleBtn.title = collapsed ? "세션 목록 펼치기" : "세션 목록 접기";
+  const save = (): void => {
+    void saveSettings(settings).catch(() => undefined);
   };
-  // 버튼 조작이 폭조절 드래그/더블클릭 접기로 이중 처리되지 않도록 전파 차단.
-  toggleBtn.addEventListener("mousedown", (e) => e.stopPropagation());
-  toggleBtn.addEventListener("dblclick", (e) => e.stopPropagation());
-  toggleBtn.addEventListener("click", (e) => {
+
+  /** 고정 해제 상태에서 목록을 잠깐 띄운다. */
+  const openPeek = (): void => {
+    if (settings.sidebarDocked) return;
+    peeking = true;
+    sync();
+    // 곧바로 검색창에 포커스를 주면 타이핑으로 바로 찾을 수 있다.
+    setTimeout(() => document.getElementById("session-search")?.focus(), 0);
+  };
+  const closePeek = (): void => {
+    if (!peeking) return;
+    peeking = false;
+    sync();
+  };
+
+  navBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    void toggleCollapse();
+    peeking ? closePeek() : openPeek();
   });
-  resizer.appendChild(toggleBtn);
-  syncToggleBtn();
 
-  resizer.addEventListener("dblclick", () => void toggleCollapse());
+  dockBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setSettings({ ...settings, sidebarDocked: !settings.sidebarDocked });
+    // 고정으로 돌아가면 임시 노출 상태는 의미가 없다. 해제하면 그대로 띄워 둔다 —
+    // 방금 보던 목록이 눈앞에서 사라지면 무슨 일이 났는지 알기 어렵다.
+    peeking = !settings.sidebarDocked;
+    sync();
+    save();
+  });
+
+  // 바깥을 누르면 닫는다(임시 노출일 때만). 목록·메뉴 버튼 안쪽 클릭은 유지.
+  document.addEventListener("mousedown", (e) => {
+    if (!peeking) return;
+    const t = e.target as Node;
+    if (sidebar.contains(t) || navBtn.contains(t)) return;
+    // 세션 우클릭 메뉴처럼 목록에서 파생된 팝업 위 클릭은 닫지 않는다.
+    if ((t as HTMLElement).closest?.(".ctx-menu, .modal-overlay")) return;
+    closePeek();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && peeking && !document.querySelector(".modal-overlay")) closePeek();
+  });
+
+  // 세션을 열면 임시 노출은 닫는다(그라파나가 화면 이동 시 메뉴를 닫는 것과 같다).
+  sidebar.addEventListener("dblclick", (e) => {
+    if ((e.target as HTMLElement).closest(".tree-session, .recent-row")) closePeek();
+  });
+
   resizer.addEventListener("mousedown", (down) => {
-    if (settings.sidebarCollapsed) return;
+    if (!settings.sidebarDocked) return; // 고정 해제 상태에서는 폭 조절이 없다
     down.preventDefault();
     const startX = down.clientX;
     const startW = settings.sidebarWidth;
@@ -154,11 +202,42 @@ export function wireSidebarResize(): void {
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      void saveSettings(settings).catch(() => undefined);
+      save();
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   });
+
+  sync();
+}
+
+/**
+ * 세션 빠른 찾기(Ctrl+P, 0.73.0) 배선. capture 단계에서 잡는다 —
+ * 브라우저 전용 단축키 차단(bootguards)이 Ctrl+P 를 먼저 삼키기 때문이다.
+ */
+export function wirePalette(): void {
+  initPalette({
+    sessions: () => sessions,
+    openIds: () => tabManager?.openSessionIds() ?? [],
+    focus: (id) => tabManager?.focusSession(id) ?? false,
+    open: (s) => {
+      void (async () => {
+        const ready = await hydrateSecrets(s);
+        await tabManager?.openSession(ready);
+      })();
+    },
+  });
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (!e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (e.key !== "p" && e.key !== "P") return;
+      e.preventDefault();
+      e.stopPropagation();
+      togglePalette();
+    },
+    { capture: true },
+  );
 }
 
 /** 잠금 상태를 사이드바 오버레이에 반영(잠김 시 세션명 숨김). */

@@ -1559,6 +1559,125 @@ try {
       expect(r.fits, "항목이 줄 밖으로 잘린다");
     });
 
+    await t.test("빠른 찾기(Ctrl+P) — 검색·이동·Enter 접속, 열린 세션은 그 탭으로", async () => {
+      await dismissModals(page);
+      // 열려 있는 탭이 없도록 먼저 상태를 확인한다(있으면 '열림' 배지 경로를 함께 본다).
+      await page.keyboard.press("Control+p");
+      await page.waitForTimeout(300);
+      const opened = await page.evaluate(() => !!document.querySelector(".palette-overlay"));
+      expect(opened, "Ctrl+P 로 빠른 찾기가 열리지 않는다");
+
+      // 검색어로 걸러진다.
+      await page.fill(".palette-input", "운영1");
+      await page.waitForTimeout(250);
+      const rows = await page.evaluate(() =>
+        [...document.querySelectorAll(".palette-row .palette-name")].map((x) => x.textContent),
+      );
+      expect(rows.length >= 1 && rows[0].includes("운영1"), `검색 결과가 어긋난다: ${JSON.stringify(rows)}`);
+
+      // Esc 로 닫힌다.
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+      expect(
+        !(await page.evaluate(() => !!document.querySelector(".palette-overlay"))),
+        "Esc 로 닫히지 않는다",
+      );
+
+      // Enter 로 접속 → 탭이 하나 늘어난다.
+      const before = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
+      await page.keyboard.press("Control+p");
+      await page.waitForTimeout(250);
+      await page.fill(".palette-input", "운영1");
+      await page.waitForTimeout(250);
+      await page.locator(".palette-input").press("Enter");
+      await page.waitForTimeout(700);
+      await dismissModals(page);
+      await page.waitForTimeout(400);
+      const after = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
+      expect(after === before + 1, `Enter 로 접속되지 않았다: ${before} → ${after}`);
+
+      // 이미 열린 세션은 새로 붙지 않고 그 탭으로 이동한다.
+      await page.keyboard.press("Control+p");
+      await page.waitForTimeout(250);
+      await page.fill(".palette-input", "운영1");
+      await page.waitForTimeout(250);
+      const hasBadge = await page.evaluate(() =>
+        [...document.querySelectorAll(".palette-row")].some((r) => r.querySelector(".palette-badge")),
+      );
+      await page.locator(".palette-input").press("Enter");
+      await page.waitForTimeout(500);
+      const after2 = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
+      expect(hasBadge, "열린 세션에 '열림' 배지가 없다");
+      expect(after2 === after, `열린 세션인데 탭이 또 생겼다: ${after} → ${after2}`);
+    });
+
+    await t.test("세션영역 도킹/해제 — 해제 시 전폭·메뉴 버튼, 임시 노출·바깥클릭 닫힘", async () => {
+      await dismissModals(page);
+      const app = () => page.evaluate(() => document.getElementById("app").className);
+      const wsWidth = () =>
+        page.evaluate(() => Math.round(document.getElementById("workspace").getBoundingClientRect().width));
+      const navShown = () =>
+        page.evaluate(() => getComputedStyle(document.getElementById("nav-toggle")).display !== "none");
+      const bodyW = await page.evaluate(() => Math.round(document.body.getBoundingClientRect().width));
+
+      // 기본은 고정(도킹) — 메뉴 버튼은 숨어 있고 작업영역은 사이드바만큼 좁다.
+      expect(!(await app()).includes("sidebar-undocked"), "기본이 고정 상태가 아니다");
+      expect(!(await navShown()), "고정 상태인데 메뉴 버튼이 보인다");
+      const dockedW = await wsWidth();
+      expect(dockedW < bodyW - 100, `고정 상태 작업영역이 이미 전폭이다: ${dockedW}/${bodyW}`);
+
+      // 고정 해제 → 작업영역 전폭 + 메뉴 버튼 + 임시 노출(peek)
+      await page.click("#sidebar-dock");
+      await page.waitForTimeout(300);
+      expect((await app()).includes("sidebar-undocked"), "해제되지 않았다");
+      expect(await navShown(), "해제했는데 메뉴 버튼이 없다");
+      const undockedW = await wsWidth();
+      // 오버레이가 그리드에서 빠질 때 자동 배치로 작업영역이 0폭이 되던 버그의 회귀 검사.
+      expect(undockedW === bodyW, `해제 상태 작업영역이 전폭이 아니다: ${undockedW}/${bodyW}`);
+      expect((await app()).includes("sidebar-peek"), "해제 직후 목록이 임시 노출되지 않았다");
+
+      // 바깥 클릭 → 닫힘
+      await page.mouse.click(Math.round(bodyW * 0.7), 400);
+      await page.waitForTimeout(250);
+      expect(!(await app()).includes("sidebar-peek"), "바깥을 눌렀는데 목록이 남아 있다");
+
+      // 메뉴 버튼 → 다시 열림, Esc → 닫힘
+      await page.click("#nav-toggle");
+      await page.waitForTimeout(250);
+      expect((await app()).includes("sidebar-peek"), "메뉴 버튼으로 열리지 않는다");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+      expect(!(await app()).includes("sidebar-peek"), "Esc 로 닫히지 않는다");
+
+      // 다시 고정 — 설정에 저장되는지까지 확인
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.click("#nav-toggle");
+      await page.waitForTimeout(200);
+      await page.click("#sidebar-dock");
+      await page.waitForTimeout(300);
+      const saved = await page.evaluate(() =>
+        window.__ipc.filter(([c]) => c === "settings_save").map(([, a]) => a?.value?.sidebarDocked),
+      );
+      expect(!(await app()).includes("sidebar-undocked"), "다시 고정되지 않았다");
+      expect(saved.includes(true), `고정 상태가 저장되지 않았다: ${JSON.stringify(saved)}`);
+      expect(await wsWidth() < bodyW - 100, "다시 고정했는데 작업영역이 전폭 그대로다");
+    });
+
+    await t.test("세션영역 경계선 — 보이는 선은 1px(두꺼운 버튼 트랙 제거)", async () => {
+      const r = await page.evaluate(() => {
+        const rz = document.getElementById("sidebar-resizer");
+        const line = getComputedStyle(rz, "::after");
+        return {
+          track: Math.round(rz.getBoundingClientRect().width),
+          line: parseFloat(line.width) || 0,
+          oldBtn: !!document.querySelector(".sidebar-toggle"),
+        };
+      });
+      expect(r.track <= 6, `폭 조절 트랙이 두껍다: ${r.track}px`);
+      expect(r.line <= 1, `보이는 경계선이 두껍다: ${r.line}px`);
+      expect(!r.oldBtn, "경계선 중앙의 옛 접기 버튼이 남아 있다");
+    });
+
     await t.test("세션 검색 — 계정@호스트:포트 합성 표기와 폴더명도 걸린다", async () => {
       const count = () => page.locator(".tree-session").count();
       await page.fill("#session-search", "root@10.1.0.3");

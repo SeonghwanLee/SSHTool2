@@ -10,6 +10,7 @@
     <div id="app">
       <!-- ── 타이틀바(전폭) — 브랜드 + 화면분할/동시명령 + 환경설정 + 창버튼 ── -->
       <div id="titlebar" data-tauri-drag-region>
+        <button id="nav-toggle" class="view-btn nav-toggle" title="세션 목록 열기"></button>
         <div class="tb-brand" data-tauri-drag-region>
           <span class="tb-glyph">&gt;_</span>
           <span class="tb-name">SSHTool2</span>
@@ -37,7 +38,10 @@
       <div id="app-body">
         <aside id="sidebar">
           <div id="sidebar-head">
-            <span class="side-title">세션</span>
+            <div class="side-head-left">
+              <span class="side-title">세션</span>
+              <button id="sidebar-dock" class="side-dock" title="세션 목록 고정 해제"></button>
+            </div>
             <div class="side-head-actions">
               <div class="tb-group" role="group" aria-label="세션 추가">
                 <button id="quick-connect" title="빠른 접속 (저장 안 함)">⚡</button>

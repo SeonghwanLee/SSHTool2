@@ -403,6 +403,20 @@ export class TabManager {
     this.active?.openSearch();
   }
 
+  /** 이 세션의 탭이 이미 있으면 그 탭으로 이동하고 true(빠른 찾기용). */
+  focusSession(sessionId: string): boolean {
+    const tab = this.tabs.find((t) => t.session.id === sessionId);
+    if (!tab) return false;
+    this.activate(tab);
+    tab.focus();
+    return true;
+  }
+
+  /** 지금 열려 있는 탭들의 세션 id(중복 가능) — 빠른 찾기의 '열림' 배지에 쓴다. */
+  openSessionIds(): string[] {
+    return this.tabs.map((t) => t.session.id);
+  }
+
   connectedCount(): number {
     return this.tabs.filter((t) => t.liveId).length;
   }

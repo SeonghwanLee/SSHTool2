@@ -60,6 +60,7 @@ import {
   wireWindowControls,
   wireLockKeys,
   updateStatusBar,
+  wirePalette,
   restartAutoLock,
   restartScreensaver,
 } from "./wiring";
@@ -530,6 +531,7 @@ async function main(): Promise<void> {
   wireAutoLock();
   wireLockKeys();
   wireSidebarResize();
+  wirePalette();
   wireHostKeyPrompt();
   // 단축키(Ctrl+Shift+F)를 모르면 찾기 기능을 못 쓴다 — 타이틀바 버튼으로도 연다.
   $("open-search").addEventListener("click", () => tabs.openSearch());

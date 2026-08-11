@@ -22,6 +22,9 @@ export const GLYPH: Record<string, string> = {
   lock: "",
   unlock: "",
 
+  menu: "", // 세션영역 열기(GlobalNavButton)
+  dock: "", // 세션영역 고정(Pin)
+  undock: "", // 고정 해제(Unpin)
   chevronDown: "", // 폴더 헤더 펼침 표시(ChevronDown) — 접히면 CSS 로 회전
   collapseAll: "", // 폴더 모두 접기(DoubleChevronUp)
   expandAll: "", // 폴더 모두 펼치기(DoubleChevronDown)

@@ -36,7 +36,13 @@ export interface Settings {
   /** 사이드바 폭(px). */
   sidebarWidth: number;
   /** 사이드바 접힘 여부. */
+  /** @deprecated 0.73.0 부터 sidebarDocked 로 대체. 구버전 파일 이관에만 쓴다. */
   sidebarCollapsed: boolean;
+  /**
+   * 세션영역 고정(도킹) 여부. true = 화면 왼쪽에 붙어 자리를 차지한다(기본).
+   * false = 숨겨 두고 좌상단 메뉴 버튼으로 잠깐 띄운다(그라파나 방식).
+   */
+  sidebarDocked: boolean;
   /**
    * SFTP 를 열 때 로컬 창이 시작할 폴더. 빈 값이면 OS 기본(문서/홈)을 쓴다.
    * 직전에 보던 폴더가 있으면(연결 재사용) 그쪽이 우선 — 하던 일을 끊지 않는 게 먼저다.
@@ -86,6 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recentLimit: 10,
   sidebarWidth: 240,
   sidebarCollapsed: false,
+  sidebarDocked: true,
   sftpLocalDir: "",
   verboseLog: false,
   offlineMode: false,
@@ -127,6 +134,9 @@ export async function loadSettings(): Promise<Settings> {
     if (!Array.isArray(merged.folders)) merged.folders = [];
     // 최초 실행(설정 파일 없음)에는 세션바를 무조건 펼친 상태로 시작한다.
     if (firstRun) merged.sidebarCollapsed = false;
+    // 구버전 파일 이관(0.73.0): 접혀 있었으면 '고정 해제' 상태로 옮긴다.
+    if (typeof (raw as Partial<Settings>)?.sidebarDocked !== "boolean")
+      merged.sidebarDocked = !merged.sidebarCollapsed;
     // 제거된 테마 id(구버전)를 저장해 둔 경우 기본 테마로 정규화한다.
     if (!THEMES.some((t) => t.id === merged.theme)) merged.theme = DEFAULT_THEME_ID;
     // 제거된 폰트(나눔고딕코딩 등)를 선택해 둔 경우 기본 폰트로 정규화.

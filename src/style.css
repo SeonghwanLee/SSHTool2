@@ -218,37 +218,18 @@ button {
 }
 #app-body {
   display: grid;
-  grid-template-columns: var(--sidebar-w, 240px) 4px 1fr;
+  grid-template-columns: var(--sidebar-w, 240px) 5px 1fr;
   /* 행을 minmax(0,1fr) 로 명시 — 미지정 시 암시적 auto 행이 내용만큼 늘어나
      사이드바가 커지고 #session-tree 의 세로 스크롤이 동작하지 않는다. */
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
-}
-/* 접힌 상태에서는 폭조절바 트랙을 펼치기 버튼 너비(18px)만큼 넓힌다.
-   4px 트랙 위에 18px 버튼을 띄우면 남는 폭이 터미널 위를 덮어 거슬린다. */
-#app.sidebar-collapsed #app-body {
-  grid-template-columns: 0 18px 1fr;
-}
-/* 넓어진 트랙이 굵은 경계선처럼 보이지 않도록 사이드바와 같은 톤으로. */
-/* 접힌 상태에서는 폭 드래그가 막혀 있고 더블클릭 펼치기만 되므로 커서도 그에 맞춘다. */
-#app.sidebar-collapsed #sidebar-resizer {
-  background: var(--panel);
-  border-right: 1px solid var(--border);
-  cursor: pointer;
-}
-#app.sidebar-collapsed #sidebar-resizer:hover {
-  background: var(--panel-2);
-}
-/* display:none 으로 지우면 남은 그리드 아이템이 트랙을 밀어(리사이저=0px) 워크스페이스가
-   붕괴한다. 0폭 트랙에 그대로 두고 내용만 클립 — 리사이저(4px)는 남아 더블클릭으로 펼침 가능. */
-#app.sidebar-collapsed #sidebar {
-  overflow: hidden;
 }
 
 /* ── 타이틀바(전폭) — 나머지 크롬과 같은 어두운 톤 + accent 는 포인트로만 ───── */
 #titlebar {
   display: flex;
   align-items: stretch;
+  /* 임시 노출 오버레이가 이 높이 아래에서 시작한다(--titlebar-h 와 같은 값 유지). */
   height: 36px;
   background: var(--panel);
   color: var(--fg);
@@ -322,54 +303,11 @@ button {
   background: #e04a4a;
   color: #fff;
 }
+/* 폭 조절 트랙 — 실제 보이는 선은 아래 ::after 의 1px 이다(0.73.0). */
 #sidebar-resizer {
+  position: relative;
+  background: transparent;
   cursor: col-resize;
-  background: var(--border);
-  position: relative; /* 접기/펼치기 화살표 버튼 기준 */
-}
-#sidebar-resizer:hover {
-  background: var(--accent);
-}
-/* 접기/펼치기 화살표 — 폭조절바 위에 올려두고, 호버 시 표시(접힌 상태에선 항상). */
-.sidebar-toggle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 18px;
-  /* 세로로 길게 — 44px 는 마우스를 정확히 대야 잡혔다. 2배로 키워 스치듯 지나가도
-     잡히게 한다(사용자 요청). 폭은 그대로 — 옆 터미널을 가리면 안 된다. */
-  height: 88px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel-2);
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s;
-  z-index: 6;
-}
-/* 펼친 상태: 폭조절바 또는 사이드바에 마우스를 올리면 나타남(발견성). */
-#sidebar-resizer:hover .sidebar-toggle,
-#app:not(.sidebar-collapsed) #sidebar:hover + #sidebar-resizer .sidebar-toggle {
-  opacity: 1;
-}
-.sidebar-toggle:hover {
-  color: var(--fg);
-  border-color: var(--accent);
-}
-/* 접힌 상태: 펼치기 버튼을 항상 보이게 해 발견성 확보.
-   경계선 1px 때문에 트랙 가운데가 반 픽셀 밀리므로, 중앙 정렬 대신 왼쪽에 붙인다. */
-#app.sidebar-collapsed .sidebar-toggle {
-  opacity: 0.9;
-  left: 0;
-  transform: translate(0, -50%);
 }
 
 /* ── 사이드바 ─────────────────────────────────────────────────────────────── */
@@ -389,7 +327,14 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+.side-head-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
 .side-title {
+  white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -2707,4 +2652,177 @@ button.busy {
 }
 .import-prog select {
   flex: 0 1 200px;
+}
+
+
+/* ── 세션영역 도킹/언도킹(0.73.0, 그라파나 방식) ───────────────────────────── */
+/* 경계선: 잡기 쉬운 5px 트랙에 보이는 선은 1px 만 — 예전에는 4px 트랙 전체가 선처럼
+   보이고 그 위에 18px 버튼이 얹혀 두꺼워 보였다. 버튼은 머리말·타이틀바로 옮겼다. */
+#sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.12s;
+}
+#sidebar-resizer:hover::after {
+  background: var(--accent);
+}
+
+/* 타이틀바 좌상단 메뉴 버튼 — 고정 해제 상태에서만 보인다. */
+.nav-toggle {
+  margin-left: 2px;
+}
+
+/* 목록 머리말의 고정/해제(핀) 버튼. */
+.side-dock {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 1;
+}
+.side-dock:hover {
+  color: var(--accent);
+}
+
+/* 고정 해제: 목록을 레이아웃에서 빼고 터미널이 전폭을 쓴다.
+   (display:none 대신 0폭 트랙 + 클립 — 그리드가 무너지지 않는다) */
+#app.sidebar-undocked #app-body {
+  grid-template-columns: 0 0 1fr;
+}
+/* 각 칸을 명시한다 — 오버레이(position:fixed)로 사이드바가 흐름에서 빠지면 자동 배치가
+   나머지를 앞 칸으로 당겨 작업영역이 0폭이 된다(직접 재현해 잡은 문제). */
+#sidebar {
+  grid-column: 1;
+}
+#sidebar-resizer {
+  grid-column: 2;
+}
+#workspace {
+  grid-column: 3;
+}
+#app.sidebar-undocked #sidebar {
+  overflow: hidden;
+  border-right: none;
+}
+#app.sidebar-undocked #sidebar-resizer {
+  cursor: default;
+}
+#app.sidebar-undocked #sidebar-resizer::after {
+  display: none;
+}
+
+/* 임시 노출(peek): 목록을 왼쪽에서 겹쳐 띄운다. 자리를 차지하지 않는다. */
+#app.sidebar-peek #sidebar {
+  position: fixed;
+  left: 0;
+  top: 37px; /* 타이틀바 36px + 경계선 1px */
+  bottom: 26px; /* 하단 정보바를 가리지 않는다 */
+  width: var(--sidebar-w, 240px);
+  overflow: visible;
+  border-right: 1px solid var(--border);
+  box-shadow: 6px 0 18px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+  animation: sidebar-in 0.12s ease-out;
+}
+@keyframes sidebar-in {
+  from {
+    transform: translateX(-8px);
+    opacity: 0.6;
+  }
+}
+
+/* ── 세션 빠른 찾기(Ctrl+P, 0.73.0) ───────────────────────────────────────── */
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 1200; /* 일반 모달(1000)보다 위 — 작업 중 즉시 뜨는 창이다 */
+}
+.palette-card {
+  width: min(680px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.palette-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font-size: 14px;
+  outline: none;
+}
+.palette-list {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.palette-row.has-color {
+  box-shadow: inset 3px 0 0 0 var(--session-color);
+}
+.palette-row.active,
+.palette-row:hover {
+  background: var(--panel-2);
+}
+.palette-icon {
+  color: var(--muted);
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.palette-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.palette-name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette-detail {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.palette-empty,
+.palette-hint {
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.palette-hint {
+  border-top: 1px solid var(--border);
+  padding: 6px 14px;
 }
