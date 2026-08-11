@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.71.0",
+    date: "2026-08-08",
+    notes: [
+      "터미널에서 커서 위치가 간헐적으로 밀리던 문제를 고쳤습니다 — ⚠️ ℹ️ ⚙️ 처럼 이모지 표현이 붙은 문자를 1칸으로 세어 원격 프로그램(Claude CLI 등)이 계산한 열과 어긋나던 것이 원인입니다. 이제 2칸으로 맞춥니다",
+    ],
+  },
+  {
     version: "0.70.0",
     date: "2026-08-08",
     notes: [

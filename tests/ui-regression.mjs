@@ -93,6 +93,75 @@ try {
       await page.keyboard.press("Control+Digit0"); // 원복
     });
 
+    await t.test("리사이즈 — 크기가 여러 번 바뀌어도 백엔드에 마지막 크기가 전달된다", async () => {
+      const r = await page.evaluate(async () => {
+        const tab = window.__tm?.tabs?.[0];
+        if (!tab) return "no-tab";
+        const sent = [];
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "ssh_resize" || cmd === "local_resize") sent.push([args.cols, args.rows]);
+          return prev(cmd, args);
+        };
+        const panes = document.getElementById("panes");
+        const before = panes.getAttribute("style") ?? "";
+        // 전체화면 전환처럼 짧은 시간에 크기가 여러 번 바뀌는 상황을 흉내낸다.
+        for (const [w, h] of [[900, 600], [1400, 800], [1100, 700], [1600, 900]]) {
+          panes.style.width = `${w}px`;
+          panes.style.height = `${h}px`;
+          window.dispatchEvent(new Event("resize"));
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        await new Promise((r) => setTimeout(r, 700)); // 마지막 rAF·전송까지 기다린다
+        window.__TAURI_INTERNALS__.invoke = prev;
+        panes.setAttribute("style", before);
+        return { last: sent[sent.length - 1] ?? null, front: [tab.cols, tab.rows], sent: sent.length };
+      });
+      if (r === "no-tab") return; // 탭이 없는 상태면 검사 생략
+      expect(r.sent > 0, "리사이즈가 백엔드로 전혀 나가지 않았다");
+      expect(
+        !!r.last && r.last[0] === r.front[0] && r.last[1] === r.front[1],
+        `백엔드에 보낸 마지막 크기와 화면 크기가 다르다(커서 어긋남의 원인): ${JSON.stringify(r)}`,
+      );
+    });
+
+    await t.test("이모지 폭 — VS16(⚠️ ℹ️)이 2칸으로 계산돼 커서가 밀리지 않는다", async () => {
+      const r = await page.evaluate(async () => {
+        const tab = window.__tm?.tabs?.[0];
+        if (!tab) return "no-tab";
+        const term = tab.term;
+        const enc = new TextEncoder();
+        const w = (s) => new Promise((res) => term.write(enc.encode(s), res));
+        const measure = async (s) => {
+          term.reset();
+          await w(s);
+          return term.buffer.active.cursorX;
+        };
+        return {
+          version: term.unicode.activeVersion,
+          warn: await measure("⚠️"),
+          info: await measure("ℹ️"),
+          gear: await measure("⚙️"),
+          plainWarn: await measure("⚠"), // VS16 없으면 1칸 그대로
+          fire: await measure("🔥"), // 원래 2칸 — 그대로여야 한다
+          hangul: await measure("가"),
+          ascii: await measure("a"),
+          dash: await measure("─"), // 박스 그리기 1칸 유지(TUI 테두리)
+          combining: await measure("e\u0301"), // 결합 악센트는 여전히 1칸
+          // TUI 한 줄 흉내 — 원격이 센 폭과 같아야 커서가 안 밀린다.
+          line: await measure("⚠️ 경고 ℹ️ 정보"),
+        };
+      });
+      expect(typeof r === "object", `터미널 훅 문제: ${r}`);
+      expect(r.version === "11-vs16", `폭 보정판이 적용되지 않았다: ${r.version}`);
+      expect(r.warn === 2 && r.info === 2 && r.gear === 2, `VS16 이모지 폭: ${JSON.stringify(r)}`);
+      expect(r.plainWarn === 1, "VS16 없는 문자까지 넓혔다");
+      expect(r.fire === 2 && r.hangul === 2 && r.ascii === 1 && r.dash === 1, `기존 폭이 바뀌었다: ${JSON.stringify(r)}`);
+      expect(r.combining === 1, "결합 문자 처리가 깨졌다");
+      // "⚠️ 경고 ℹ️ 정보" = 2 + 1 + 4 + 1 + 2 + 1 + 4 = 15
+      expect(r.line === 15, `혼합 줄의 폭이 어긋난다: ${r.line} (15 기대)`);
+    });
+
     await t.test("Ctrl+숫자 탭 전환 — xterm 이 3~7 을 가로채면 안 됨", async () => {
       await openSession(page, 1); // 두 번째 탭
       // 터미널에 포커스를 둔 채 눌러야 xterm 경로를 지난다.

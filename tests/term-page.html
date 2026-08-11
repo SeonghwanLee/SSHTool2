@@ -45,6 +45,13 @@
         return rows;
       };
       window.__term = term;
+      // 폭 계산 실험용 — 같은 구성으로 별도 터미널을 만들어 준다(회귀 검사에서 사용).
+      window.__mkTerm = (opts) => {
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+        const t = new Terminal({ cols: 80, rows: 10, allowProposedApi: true, ...(opts ?? {}) });
+        return { t, host, Unicode11Addon };
+      };
     </script>
   </body>
 </html>

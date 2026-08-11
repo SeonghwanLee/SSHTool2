@@ -12,7 +12,7 @@ import { confirmDialog, alertDialog } from "./dialogs";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchDecorationOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { loadUnicode } from "./unicodewidth";
 import "@xterm/xterm/css/xterm.css";
 import type { SessionInfo } from "./types";
 import type { Settings } from "./settings";
@@ -214,9 +214,8 @@ export class TerminalTab {
       () => this.closeSearch(),
     );
     this.term.loadAddon(new WebLinksAddon());
-    const uni = new Unicode11Addon();
-    this.term.loadAddon(uni);
-    this.term.unicode.activeVersion = "11";
+    // Unicode 11 + VS16(이모지 표현) 폭 보정 — unicodewidth.ts 참고.
+    loadUnicode(this.term);
     this.term.open(this.termHost);
     // 행 높이가 컨테이너에 딱 안 떨어질 때 하단에 남는 잔여 영역이 검게 비치는 걸 막는다
     // — 컨테이너 배경을 터미널 배경색과 같게 칠해 눈에 띄지 않게 한다(글자 크기 무관).
