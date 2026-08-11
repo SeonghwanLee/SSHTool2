@@ -444,6 +444,7 @@ export class TerminalTab {
   private applyFont(): void {
     this.term.options.fontFamily = fontStack(this.settings.fontFamily);
     this.term.options.fontSize = this.effectiveFontSize();
+    this.invalidateFit(); // 글자 크기가 바뀌면 셀 크기가 달라진다
     this.fitNow();
     this.onActive();
   }
@@ -497,6 +498,7 @@ export class TerminalTab {
     const term = themeById(s.theme).term;
     t.options.theme = term;
     this.termHost.style.background = term.background ?? ""; // 하단 잔여 영역 색 동기화
+    this.invalidateFit(); // 글꼴·크기가 바뀌었을 수 있다
     this.fitNow();
   }
 
@@ -524,12 +526,33 @@ export class TerminalTab {
     return `${b.cursorY + 1},${b.cursorX + 1}`;
   }
 
+  /** 마지막으로 맞춘 크기(px) — 같은 크기면 다시 재지 않는다. */
+  private fittedAt: { w: number; h: number } | null = null;
+
+  /**
+   * 터미널을 컨테이너 크기에 맞춘다.
+   *
+   * 크기가 그대로면 건너뛴다(0.72.0). fit() 은 셀 크기를 재느라 강제 레이아웃을
+   * 일으키고, 전체화면처럼 큰 격자(200×60 이상)에서는 그 비용이 눈에 띈다 —
+   * 탭을 오갈 때마다 같은 크기로 다시 재면 마우스가 끊기는 느낌을 준다.
+   * 글꼴·글자 크기가 바뀌면 셀 크기가 달라지므로 그때는 캐시를 버린다(invalidateFit).
+   */
   fitNow(): void {
+    const w = this.termHost.clientWidth;
+    const h = this.termHost.clientHeight;
+    if (w === 0 || h === 0) return; // 아직 안 보이는 탭 — 보일 때 다시 맞춘다
+    if (this.fittedAt && this.fittedAt.w === w && this.fittedAt.h === h) return;
     try {
       this.fit.fit();
+      this.fittedAt = { w, h };
     } catch {
       /* 아직 레이아웃 전 */
     }
+  }
+
+  /** 셀 크기가 달라졌을 때(글꼴·글자 크기·테마 변경) 다음 fit 을 강제한다. */
+  invalidateFit(): void {
+    this.fittedAt = null;
   }
   focus(): void {
     if (this.status === "disconnected" && this.reconnectBtn) {
@@ -775,6 +798,7 @@ export class TerminalTab {
   dispose(): void {
     this.disposed = true;
     if (this.toastTimer) clearTimeout(this.toastTimer);
+    if (this.zoomTimer) clearTimeout(this.zoomTimer); // 배율 표시 타이머도 함께 정리
     this.term.dispose();
     this.root.remove();
   }

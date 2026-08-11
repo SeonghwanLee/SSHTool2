@@ -93,6 +93,50 @@ try {
       await page.keyboard.press("Control+Digit0"); // 원복
     });
 
+    await t.test("탭 전환 — 크기가 그대로면 터미널을 다시 재지 않는다(불필요한 재계측 제거)", async () => {
+      const r = await page.evaluate(async () => {
+        const tm = window.__tm;
+        if (!tm || tm.tabs.length < 2) return "탭 부족";
+        let fits = 0;
+        for (const t of tm.tabs) {
+          const orig = t.fit.fit.bind(t.fit);
+          t.fit.fit = () => {
+            fits++;
+            orig();
+          };
+        }
+        // 먼저 한 번씩 보여 각 탭이 제 크기를 잡게 한다(첫 표시에는 당연히 재야 한다).
+        for (const t of tm.tabs) {
+          tm.activate(t);
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+        const warmup = fits;
+        fits = 0;
+        // 같은 크기에서 반복 전환 — 이때는 다시 재면 안 된다.
+        for (let n = 0; n < 12; n++) {
+          tm.activate(tm.tabs[n % tm.tabs.length]);
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+        const repeat = fits;
+        // 크기가 실제로 바뀌면 다시 재야 한다.
+        fits = 0;
+        const panes = document.getElementById("panes");
+        const before = panes.getAttribute("style") ?? "";
+        panes.style.width = "700px";
+        window.dispatchEvent(new Event("resize"));
+        await new Promise((r) => setTimeout(r, 400));
+        const afterResize = fits;
+        panes.setAttribute("style", before);
+        window.dispatchEvent(new Event("resize"));
+        await new Promise((r) => setTimeout(r, 300));
+        return { warmup, repeat, afterResize };
+      });
+      if (r === "탭 부족") return;
+      expect(r.warmup > 0, "첫 표시에서도 크기를 재지 않았다");
+      expect(r.repeat === 0, `같은 크기인데 ${r.repeat}번 다시 쟀다 — 전환이 무거워진다`);
+      expect(r.afterResize > 0, "크기가 바뀌었는데 다시 재지 않았다(화면이 어긋난다)");
+    });
+
     await t.test("리사이즈 — 크기가 여러 번 바뀌어도 백엔드에 마지막 크기가 전달된다", async () => {
       const r = await page.evaluate(async () => {
         const tab = window.__tm?.tabs?.[0];

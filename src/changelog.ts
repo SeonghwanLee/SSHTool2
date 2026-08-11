@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.72.0",
+    date: "2026-08-08",
+    notes: [
+      "탭을 오갈 때 화면이 끊기던 느낌 개선 — 크기가 그대로면 터미널을 다시 재지 않습니다(전체화면처럼 큰 화면에서 매 전환마다 하던 불필요한 계산 제거)",
+      "메모리·자원 점검 결과 누수는 없었습니다 — 탭 전환 60회에도 DOM·메모리가 늘지 않았고, 남아 있던 타이머 정리만 보강했습니다",
+    ],
+  },
+  {
     version: "0.71.0",
     date: "2026-08-08",
     notes: [
