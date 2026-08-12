@@ -1531,6 +1531,47 @@ try {
       expect(r.maxParallel === 1, `동시에 ${r.maxParallel}건이 돌았다 — 순차 실행이어야 한다`);
     });
 
+    await t.test("전송 큐 — 남은 대기를 한꺼번에 취소해 목록에서 뺀다", async () => {
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const r = await page.evaluate(async () => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        let sent = 0;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_download") {
+            sent++;
+            await new Promise((r) => setTimeout(r, 200));
+            return null;
+          }
+          if (cmd === "local_stat") return null;
+          if (cmd === "local_list") return [];
+          return prev(cmd, args);
+        };
+        const t = window.__sftpTest;
+        const mk = (n) => ({ name: n, path: `/home/u/c${n}`, isDir: false, size: 10, modified: 1 });
+        const job = t.transferItems(t.panes.local(), [mk("1"), mk("2"), mk("3"), mk("4"), mk("5")]);
+        // 첫 파일이 도는 동안 남은 대기를 통째로 뺀다.
+        await new Promise((r) => setTimeout(r, 120));
+        const waitBefore = [...document.querySelectorAll(".queue-row .queue-state")].filter(
+          (x) => x.textContent === "대기",
+        ).length;
+        document.querySelector(".queue-cancel-wait")?.click();
+        const waitAfter = [...document.querySelectorAll(".queue-row .queue-state")].filter(
+          (x) => x.textContent === "대기",
+        ).length;
+        await job;
+        await new Promise((r) => setTimeout(r, 300));
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return { waitBefore, waitAfter, sent };
+      });
+      expect(r.waitBefore >= 3, `대기 항목이 줄 서지 않았다: ${JSON.stringify(r)}`);
+      expect(r.waitAfter === 0, `대기 취소 후에도 ${r.waitAfter}개가 목록에 남았다`);
+      expect(r.sent <= 2, `취소했는데 ${r.sent}개나 전송됐다 — 남은 차례가 멈추지 않는다`);
+    });
+
     await t.test("전송 속도 제한 — 창에서 고르면 즉시 백엔드로 간다", async () => {
       await dismissModals(page);
       if ((await page.locator(".sftp-panel").count()) === 0) {
@@ -2153,6 +2194,46 @@ try {
   {
     const page = await openPage(browser, { url: "/tests/term-page.html" });
     await page.waitForTimeout(500);
+
+    await t.test("IME 조합 고정 — 커서가 되돌아오면 따라가고, 먼 점프는 무시한다", async () => {
+      const ESC = String.fromCharCode(27);
+      const r = await page.evaluate(async (ESC) => {
+        await window.__pinIme();
+        const term = window.__term;
+        const core = term._core;
+        const helper = core._compositionHelper;
+        const cellW = core._renderService.dimensions.css.cell.width;
+        const colOf = () =>
+          Math.round(parseFloat(helper._compositionView.style.left || "0") / cellW);
+        const at = (row, col) =>
+          new Promise((res) => term.write(`${ESC}[${row};${col}H`, () => setTimeout(res, 20)));
+
+        await at(1, 11); // 11열(1-기준)에서 한글 조합 시작
+        term.textarea.dispatchEvent(new CompositionEvent("compositionstart"));
+        helper._isComposing = true;
+        helper.updateCompositionElements();
+        const start = colOf();
+        // 앱이 입력줄을 다시 그리며 커서가 잠깐 오른쪽으로 갔다가 되돌아온다.
+        await at(1, 15);
+        helper.updateCompositionElements();
+        const peak = colOf();
+        await at(1, 12);
+        helper.updateCompositionElements();
+        const back = colOf();
+        // 스피너 등 먼 점프(다른 줄)는 따라가면 안 된다 — 조합 글자가 튄다.
+        await at(5, 40);
+        helper.updateCompositionElements();
+        const far = colOf();
+        term.textarea.dispatchEvent(new CompositionEvent("compositionend"));
+        helper._isComposing = false;
+        return { start, peak, back, far };
+      }, ESC);
+      expect(r.start === 10, `조합 시작 위치가 어긋난다: ${JSON.stringify(r)}`);
+      expect(r.peak === 14, `커서 전진을 따라가지 않는다: ${JSON.stringify(r)}`);
+      // 예전에는 앞으로만 따라가(래칫) 되돌아온 자리를 놓쳤고, 그 차이가 한 칸씩 쌓였다.
+      expect(r.back === 11, `커서가 되돌아왔는데 따라가지 않는다(래칫 재발): ${JSON.stringify(r)}`);
+      expect(r.far === 11, `먼 점프를 따라가 버렸다: ${JSON.stringify(r)}`);
+    });
 
     await t.test("UTF-8 게이트 — 어떤 절단 지점에서도 문자가 사라지지 않는다", async () => {
       const bad = await page.evaluate(async () => {

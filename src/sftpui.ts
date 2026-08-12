@@ -552,6 +552,12 @@ export async function openSftpBrowser(
   queue.setCancelRunning(() => {
     if (xfer.current) void sftpCancel(xfer.current);
   });
+  // '대기 모두 취소' — 지금 도는 묶음의 남은 차례를 세운다(진행 중인 파일은 끝까지 간다).
+  // 큐에 아직 오르지 않은 폴더 하위 파일까지 멈추려면 이 플래그가 필요하다.
+  queue.setCancelWaiting(() => {
+    xfer.cancelled = true;
+    setStatus("남은 전송을 취소했습니다.");
+  });
 
   // 실패분 다시 시도 — 동기화와 같은 계획 실행 경로를 쓴다(충돌을 다시 묻지 않는다).
   queue.setRetry((failed) => {

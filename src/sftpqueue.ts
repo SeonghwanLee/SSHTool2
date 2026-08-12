@@ -39,6 +39,11 @@ export interface QueueApi {
   isCancelled(key: string): boolean;
   /** 전송 중인 항목을 끊는 방법(창이 넣어 준다). 대기 중인 항목은 큐가 알아서 뺀다. */
   setCancelRunning(fn: () => void): void;
+  /**
+   * 남은 대기 항목을 한꺼번에 취소할 때 창이 할 일 — 지금 도는 묶음의 남은 차례도
+   * 멈춰야 한다(큐에 아직 오르지 않은 폴더 하위 파일까지 포함).
+   */
+  setCancelWaiting(fn: () => void): void;
 }
 
 /** 목록에 남겨 두는 최대 줄 수 — 끝난 것부터 오래된 순으로 지운다. */
@@ -71,10 +76,15 @@ export function createQueuePanel(): QueueApi {
   retryBtn.className = "sftp-btn queue-retry";
   retryBtn.textContent = "실패 다시 시도";
   retryBtn.style.display = "none";
+  // 100개를 걸어 놓고 50개째에 그만두고 싶을 때 — 남은 대기를 한 번에 뺀다.
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "sftp-btn queue-cancel-wait";
+  cancelBtn.textContent = "대기 모두 취소";
+  cancelBtn.style.display = "none";
   const clearBtn = document.createElement("button");
   clearBtn.className = "sftp-btn queue-clear";
-  clearBtn.textContent = "완료 항목 지우기";
-  head.append(toggle, label, counts, retryBtn, clearBtn);
+  clearBtn.textContent = "끝난 항목 지우기";
+  head.append(toggle, label, counts, retryBtn, cancelBtn, clearBtn);
 
   const list = document.createElement("div");
   list.className = "queue-list";
@@ -86,6 +96,7 @@ export function createQueuePanel(): QueueApi {
   const cancelled = new Set<string>();
   let retry: (items: QueueEntry[]) => void = () => {};
   let cancelRunning: () => void = () => {};
+  let cancelWaiting: () => void = () => {};
   let collapsed = false;
 
   const rowOf = (e: QueueEntry): HTMLElement => {
@@ -152,6 +163,7 @@ export function createQueuePanel(): QueueApi {
         (n("skip") ? ` · 건너뜀 ${n("skip")}` : "")
       : "";
     retryBtn.style.display = failed > 0 ? "" : "none";
+    cancelBtn.style.display = n("wait") > 0 ? "" : "none";
     // 전송 중인 줄이 보이게 따라간다 — 목록이 길어지면 어디가 도는지 알 수 없다.
     list.querySelector(".queue-row.q-run")?.scrollIntoView({ block: "nearest" });
   };
@@ -173,11 +185,25 @@ export function createQueuePanel(): QueueApi {
     const failed = items.filter((x) => x.state === "fail");
     if (failed.length) retry(failed);
   });
-  clearBtn.addEventListener("click", () => {
-    // 끝난 것만 치운다 — 대기·전송 중은 남긴다(지우면 진행이 안 보인다).
+  cancelBtn.addEventListener("click", () => {
+    // 대기 중인 것만 뺀다 — 지금 전송 중인 파일은 건드리지 않는다(그건 행의 × 로).
     for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i].state === "done" || items[i].state === "skip") {
+      if (items[i].state !== "wait") continue;
+      cancelled.add(items[i].key); // 차례가 와도 보내지 않도록 표시하고
+      byKey.delete(items[i].key); // 목록에서도 뺀다(남은 것도 지울 수 있어야 한다)
+      items.splice(i, 1);
+    }
+    // 큐에 아직 오르지 않은 것(폴더 하위 파일 등)까지 멈추려면 묶음 자체를 세워야 한다.
+    cancelWaiting();
+    draw();
+  });
+  clearBtn.addEventListener("click", () => {
+    // 끝난 것을 치운다 — 완료·건너뜀·실패. 대기·전송 중은 남긴다(진행이 안 보이게 된다).
+    for (let i = items.length - 1; i >= 0; i--) {
+      const st = items[i].state;
+      if (st === "done" || st === "skip" || st === "fail") {
         byKey.delete(items[i].key);
+        cancelled.delete(items[i].key);
         items.splice(i, 1);
       }
     }
@@ -222,6 +248,9 @@ export function createQueuePanel(): QueueApi {
     isCancelled: (key) => cancelled.has(key),
     setCancelRunning(fn) {
       cancelRunning = fn;
+    },
+    setCancelWaiting(fn) {
+      cancelWaiting = fn;
     },
   };
 }

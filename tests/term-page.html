@@ -45,6 +45,11 @@
         return rows;
       };
       window.__term = term;
+      // IME 조합 고정을 검증하려면 실제 앱과 같은 배선이 필요하다(0.75.2).
+      window.__pinIme = async () => {
+        const { pinCompositionOverlay } = await import("/src/imeoverlay.ts");
+        pinCompositionOverlay(term);
+      };
       // 폭 계산 실험용 — 같은 구성으로 별도 터미널을 만들어 준다(회귀 검사에서 사용).
       window.__mkTerm = (opts) => {
         const host = document.createElement("div");

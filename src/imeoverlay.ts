@@ -52,12 +52,14 @@ export function pinCompositionOverlay(term: Terminal): void {
         const cell = core._renderService?.dimensions?.css?.cell;
         if (!buf || !cell || !(cell.width > 0)) return;
 
-        // 커서의 '정당한 전진'은 따라간다. SSH 에서는 음절이 확정되면 서버 에코가
-        // 돌아와야 커서가 움직이는데, 다음 음절의 조합은 그보다 먼저 시작된다 —
-        // 시작 셀에 못 박아 두면 조합 글자가 앞 글자 위에 겹쳐 보인다(0.52.3 회귀).
-        // 같은 줄에서 앞으로 몇 칸 이내의 이동만 에코로 보고 기준을 옮긴다.
-        // 먼 점프·다른 줄(스피너·상태줄 재그리기)은 무시한다 — 그게 원래 고치려던 증상이다.
-        if (buf.y === pinned.row && buf.x >= pinned.col && buf.x - pinned.col <= 8) {
+        // 커서가 가까이서 움직이면 그것이 실제 입력 지점이다 — 앞뒤 모두 따라간다.
+        // 먼 점프·다른 줄(스피너·상태줄 재그리기)만 무시한다. 그게 원래 고치려던 증상이다.
+        //
+        // 예전에는 **앞으로만** 따라갔다(buf.x >= pinned.col). 그러면 입력줄 전체를 매
+        // 타건마다 다시 그리는 앱(claude CLI)에서 커서가 잠깐 줄 끝으로 갔다 돌아올 때
+        // 돌아온 자리를 못 따라가고, 그 차이가 **한 칸씩 쌓였다** — 조합 글자 앞이 점점
+        // 벌어지는 증상(0.75.1 실기 보고). 래칫을 없애고 창(±8칸) 안이면 그대로 따른다.
+        if (buf.y === pinned.row && Math.abs(buf.x - pinned.col) <= 8) {
           pinned = { col: buf.x, row: buf.y };
         }
 
