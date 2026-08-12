@@ -5,6 +5,19 @@
 // 바뀌면 고정만 조용히 꺼지고 기본 동작으로 남는다.
 
 import type { Terminal } from "@xterm/xterm";
+import { logLine } from "./debuglog";
+
+/**
+ * 고정을 끌 수 있는 스위치(설정 > 터미널). 끄면 xterm 기본 동작으로 돌아간다.
+ *
+ * 왜 스위치가 필요한가: 조합 글자가 밀려 보이는 증상은 앱마다 커서를 어디에 두느냐에
+ * 달려 있어, 고정이 도움이 되는 경우와 오히려 밀어 놓는 경우가 갈린다. 사용자가 두
+ * 상태를 바로 견줘 보면 원인을 한 번에 가릴 수 있다 — 짐작으로 고치는 것보다 빠르다.
+ */
+let pinEnabled = true;
+export function setImePinning(on: boolean): void {
+  pinEnabled = on;
+}
 
 /**
  * 조합(IME) 오버레이를 조합이 시작된 셀에 고정한다.
@@ -45,7 +58,7 @@ export function pinCompositionOverlay(term: Terminal): void {
     const original = helper.updateCompositionElements.bind(helper);
     helper.updateCompositionElements = (dontRecurse?: unknown) => {
       original(dontRecurse);
-      if (pinned === null || !helper._isComposing) return;
+      if (pinned === null || !helper._isComposing || !pinEnabled) return;
       try {
         const buf = core._bufferService?.buffer;
         const cols = core._bufferService?.cols ?? 0;
@@ -65,6 +78,9 @@ export function pinCompositionOverlay(term: Terminal): void {
 
         const left = Math.min(pinned.col, Math.max(0, cols - 1)) * cell.width;
         const top = pinned.row * cell.height;
+        // 조합 위치 진단 — 커서와 고정점이 어긋나는 순간을 그대로 남긴다.
+        // (진단 로그가 꺼져 있으면 logLine 이 즉시 반환하므로 평소 비용은 없다.)
+        logLine("IME", `커서=${buf.x},${buf.y} 고정=${pinned.col},${pinned.row} 셀폭=${Math.round(cell.width)}`);
         const view = helper._compositionView as HTMLElement | undefined;
         if (view) {
           view.style.left = `${left}px`;

@@ -113,6 +113,7 @@ import {
 } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 import { logLine, setDebugLogging } from "./debuglog";
+import { setImePinning } from "./imeoverlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { applyIcon } from "./icons";
@@ -166,6 +167,7 @@ async function main(): Promise<void> {
   applyAppTheme(themeById(settings.theme));
   // 진단 로깅은 설정을 읽자마자 붙인다 — 시작 과정에서 나는 문제도 잡으려는 것이다.
   void setDebugLogging(settings.verboseLog);
+  setImePinning(settings.imePinning); // 저장된 조합 고정 설정을 시작 때 적용
   // 프런트에서 터진 예외는 콘솔에만 남아 사용자 화면에서는 흔적이 없다. 로그로 끌어온다.
   window.addEventListener("error", (e) => logLine("오류", `${e.message} (${e.filename}:${e.lineno})`));
   window.addEventListener("unhandledrejection", (e) => logLine("미처리 거부", String(e.reason)));

@@ -49,6 +49,12 @@ export interface Settings {
    */
   pasteConfirmLines: number;
   /**
+   * 한글 조합 중인 글자를 조합이 시작된 셀에 고정할지(기본 켬). 끄면 xterm 기본 동작 —
+   * 커서를 따라 매 렌더마다 다시 놓는다. 앱마다 커서를 두는 자리가 달라, 어느 쪽이
+   * 맞는지는 실제로 써 보고 고르는 편이 빠르다.
+   */
+  imePinning: boolean;
+  /**
    * SFTP 를 열 때 로컬 창이 시작할 폴더. 빈 값이면 OS 기본(문서/홈)을 쓴다.
    * 직전에 보던 폴더가 있으면(연결 재사용) 그쪽이 우선 — 하던 일을 끊지 않는 게 먼저다.
    */
@@ -105,6 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarCollapsed: false,
   sidebarDocked: true,
   pasteConfirmLines: 2,
+  imePinning: true,
   sftpLocalDir: "",
   sftpRateLimitKbps: 0,
   verboseLog: false,

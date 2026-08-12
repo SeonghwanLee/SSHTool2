@@ -6,6 +6,7 @@ import type { Sidebar } from "./sidebar";
 import { settings, setSettings, applyDisplayOptions, redraw, tabManager, sessions } from "./appstate";
 import { saveSettings, type Settings, type ViewModeSetting } from "./settings";
 import { settingsDialog } from "./settingsdialog";
+import { setImePinning } from "./imeoverlay";
 import { aboutDialog } from "./about";
 import { applyAppTheme, themeById } from "./themes";
 import { setDebugLogging } from "./debuglog";
@@ -30,6 +31,7 @@ export function wireSettings(tabs: TabManager): void {
     setSettings(live);
     applyAppTheme(themeById(live.theme));
     tabs.applySettings(live);
+    setImePinning(live.imePinning); // 조합 위치 고정 — 껐다 켜며 바로 비교할 수 있게
     applyDisplayOptions(live);
     restartAutoLock();
     restartScreensaver();

@@ -227,6 +227,13 @@ export function settingsDialog(
       }),
     );
 
+    term.appendChild(
+      checkRow("한글 조합 글자 위치 고정 (밀려 보이면 꺼 보세요)", working.imePinning, (v) => {
+        working = { ...working, imePinning: v };
+        apply();
+      }),
+    );
+
     // 여러 줄 붙여넣기는 줄바꿈이 곧 실행이라, 운영 서버에서 한 번 되짚게 한다.
     const pasteRow = controlRow("붙여넣기 확인 (줄 수, 0=끄기)");
     const pasteIn = numInput(String(working.pasteConfirmLines), 0, 100, 1);

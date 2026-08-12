@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.75.3",
+    date: "2026-08-12",
+    notes: [
+      "설정 > 터미널에 '한글 조합 글자 위치 고정' 스위치를 넣었습니다 — 조합 중인 글자가 한 칸 밀려 보이면 꺼 보세요. 끄면 커서를 그대로 따라가는 기본 동작이 됩니다",
+      "진단 로그를 켜면 조합 중 커서 위치와 고정점을 함께 기록합니다 — 밀림 증상의 원인을 정확히 가리기 위한 것입니다",
+    ],
+  },
+  {
     version: "0.75.2",
     date: "2026-08-12",
     notes: [
