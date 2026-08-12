@@ -2210,6 +2210,91 @@ body.sftp-resizing * {
 .sftp-close:hover {
   color: var(--error);
 }
+/* 동기화 버튼은 창 조작이 아니라 기능이다 — 창 버튼 묶음과 살짝 띄워 구분한다. */
+.sftp-sync {
+  font-size: 17px;
+  margin-right: 6px;
+}
+
+/* ── 폴더 비교·동기화 창 ── */
+.sync-card {
+  min-width: 640px;
+  max-width: 900px;
+}
+.sync-paths {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+  word-break: break-all;
+}
+.sync-dir {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sync-opts {
+  display: flex;
+  gap: 14px;
+}
+.sync-list {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  height: 300px;
+  overflow: auto;
+}
+.sync-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sync-row:hover {
+  background: var(--panel);
+}
+.sync-name {
+  font-family: ui-monospace, Consolas, "D2Coding", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-state {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sync-row.state-diff .sync-state {
+  color: #d0a215;
+}
+.sync-row.state-localOnly .sync-state,
+.sync-row.state-remoteOnly .sync-state {
+  color: var(--accent);
+}
+.sync-size {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sync-empty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.sync-summary {
+  font-size: 12px;
+  color: var(--muted);
+}
+.sync-note {
+  font-size: 12px;
+  color: var(--muted);
+}
 .sftp-btn {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -2427,6 +2512,25 @@ body.sftp-resizing * {
 .hostkey-note {
   font-size: 12px;
   color: var(--muted);
+}
+/* 붙여넣기 확인 — 보낼 내용을 터미널과 같은 등폭으로 그대로 보여 준다. */
+.paste-card {
+  min-width: 460px;
+  max-width: 720px;
+}
+.paste-preview {
+  font-family: ui-monospace, Consolas, "D2Coding", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre;
+  user-select: text;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
 }
 .modal-err {
   color: var(--error);

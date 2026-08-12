@@ -53,6 +53,32 @@ import { beginTabDrag } from "./tabdrag";
 import { tabMenu } from "./tabmenu";
 // 기존 소비자(main.ts 등)가 "./tabs" 에서 가져가던 공개 타입·상수는 그대로 통한다.
 export type { CredentialProvider, ResolvedCreds, CredResolution, StatusInfo, TabActions, ViewMode } from "./termtab";
+
+/**
+ * 저장본(파일에 남는 것)으로 탭의 세션을 갱신하되, 볼트에서 메모리로만 채워 둔 비밀 값은
+ * 지금 들고 있는 것을 남긴다. 저장본에서는 그 값이 비워져 있어(extractSecrets) 그대로
+ * 덮으면 접속 중인 탭의 비밀 트리거·시작 명령이 빈 값이 된다.
+ *
+ * 비밀 트리거의 짝은 '비밀 표시된 규칙의 순서' 로 맞춘다 — hydrateSecrets 가 볼트에서
+ * 되채울 때 쓰는 규칙과 같아야 어긋나지 않는다.
+ */
+function keepSecrets(cur: SessionInfo, saved: SessionInfo): SessionInfo {
+  const prevSends = cur.triggers.filter((t) => t.secret).map((t) => t.send);
+  let n = 0;
+  return {
+    ...saved,
+    startupCommands:
+      saved.startupCommandsSecret && !saved.startupCommands
+        ? cur.startupCommands
+        : saved.startupCommands,
+    triggers: saved.triggers.map((t) => {
+      if (!t.secret) return t;
+      const prev = prevSends[n++];
+      return t.send ? t : { ...t, send: prev ?? "" };
+    }),
+  };
+}
+
 export class TabManager {
   private readonly tabs: TerminalTab[] = [];
   private readonly byLiveId = new Map<string, TerminalTab>();
@@ -660,8 +686,32 @@ export class TabManager {
     for (const t of targets) this.disconnectTab(t);
   }
 
+  /**
+   * 저장 목록이 바뀔 때마다(사이드바 편집·이름 변경·폴더 이동·드래그 등) 열려 있는 탭이
+   * 들고 있는 세션 정보를 최신으로 맞춘다.
+   *
+   * 왜 필요한가: 탭은 열릴 때 받은 세션을 계속 들고 있었다. 그래서 접속한 뒤 사이드바에서
+   * 고치면 그 내용이 탭에 닿지 않아, 탭 우클릭 '세션 편집' 이 옛 내용으로 열렸다(사용자
+   * 보고). 라벨·색 같은 표시도 함께 뒤처졌다.
+   */
+  syncFromSaved(list: SessionInfo[]): void {
+    const saved = new Map(list.map((s) => [s.id, s]));
+    let changed = false;
+    for (const t of this.tabs) {
+      const next = saved.get(t.session.id);
+      if (!next) continue; // 빠른 접속(저장 안 함)·삭제된 세션은 들고 있던 것을 그대로 둔다
+      const merged = keepSecrets(t.session, next);
+      if (JSON.stringify(merged) === JSON.stringify(t.session)) continue;
+      t.setSession(merged);
+      changed = true;
+    }
+    if (!changed) return;
+    this.renderTabbar();
+    this.emitStatus();
+  }
+
   /** 편집·이름 변경 결과를 같은 세션을 쓰는 모든 탭에 반영한다(하나 더 열어 둔 경우 포함). */
-  private applySessionUpdate(next: SessionInfo): void {
+  applySessionUpdate(next: SessionInfo): void {
     for (const t of this.tabs) {
       if (t.session.id === next.id) t.setSession({ ...next });
     }

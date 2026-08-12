@@ -8,7 +8,7 @@ import { Terminal } from "@xterm/xterm";
 import { applyIcon, iconSpan } from "./icons";
 import { showContextMenu, type MenuItem } from "./contextmenu";
 import { logBytes, logLine } from "./debuglog";
-import { confirmDialog, alertDialog } from "./dialogs";
+import { confirmDialog, alertDialog, pasteConfirmDialog } from "./dialogs";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchDecorationOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -409,10 +409,25 @@ export class TerminalTab {
     }
     try {
       const t = await navigator.clipboard.readText();
-      if (t) this.term.paste(t);
+      if (!t) return;
+      if (!(await this.confirmPaste(t))) return;
+      this.term.paste(t);
     } catch {
       /* 무시 */
     }
+  }
+
+  /**
+   * 여러 줄이면 한 번 되짚는다(0.74.0). 기준 줄 수는 설정에서 정하고 0 이면 묻지 않는다.
+   * 줄 수는 **내용의 줄**로 센다 — 끝의 줄바꿈 하나는 "한 명령"의 마침표라 세지 않는다
+   * (`echo hi\n` 한 줄을 붙일 때마다 확인창이 뜨면 아무도 켜 두지 않는다).
+   */
+  private async confirmPaste(text: string): Promise<boolean> {
+    const min = this.settings.pasteConfirmLines;
+    if (!min || min <= 0) return true;
+    const lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n").length;
+    if (lines < min) return true;
+    return pasteConfirmDialog(text);
   }
 
   private showToast(msg: string): void {

@@ -324,8 +324,19 @@ async fn sftp_download(
     remote_path: String,
     local_path: String,
     transfer_id: String,
+    resume_from: u64,
 ) -> Result<(), String> {
-    sftp::download(app, &state, &cancels, &id, remote_path, local_path, transfer_id).await
+    sftp::download(
+        app,
+        &state,
+        &cancels,
+        &id,
+        remote_path,
+        local_path,
+        transfer_id,
+        resume_from,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -337,8 +348,29 @@ async fn sftp_upload(
     local_path: String,
     remote_path: String,
     transfer_id: String,
+    resume_from: u64,
 ) -> Result<(), String> {
-    sftp::upload(app, &state, &cancels, &id, local_path, remote_path, transfer_id).await
+    sftp::upload(
+        app,
+        &state,
+        &cancels,
+        &id,
+        local_path,
+        remote_path,
+        transfer_id,
+        resume_from,
+    )
+    .await
+}
+
+/// 원격 파일의 크기·수정시각 — 이어받기 판단(.part 크기)과 폴더 비교에 쓴다.
+#[tauri::command]
+async fn sftp_stat(
+    state: State<'_, SftpMap>,
+    id: String,
+    path: String,
+) -> Result<Option<(u64, u64)>, String> {
+    sftp::stat(&state, &id, path).await
 }
 
 #[tauri::command]
@@ -722,6 +754,7 @@ fn main() {
             sftp_disconnect,
             sftp_cancel,
             sftp_canonicalize,
+            sftp_stat,
             open_config_dir,
             keystore_store,
             keystore_get,

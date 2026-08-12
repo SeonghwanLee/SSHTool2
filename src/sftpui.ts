@@ -39,8 +39,10 @@ import {
   xTransferItems,
   xDownloadToPicked,
   xOnOsFilesDropped,
+  xTransferPlan,
   type TransferCtx,
 } from "./sftptransfer";
+import { openSyncDialog } from "./sftpsync";
 import { confirmDialog, textPrompt, attentionPulse } from "./dialogs";
 import { applyIcon, fileIcon } from "./icons";
 import { showContextMenu, type MenuItem } from "./contextmenu";
@@ -140,6 +142,11 @@ export async function openSftpBrowser(
   // 우측 상단 창 버튼 — 일반 창과 같은 [–][□][X] 표준 매핑(0.57.0).
   // 접기(–)가 예전 X 의 역할(창만 닫고 연결 유지, 세션 목록의 SFTP 칩으로 복원)이고,
   // X 는 이제 실제로 끊는다 — 예전엔 X 가 창만 닫아 일반 창과 의미가 달랐다.
+  // 폴더 비교·동기화(0.74.0) — 지금 양쪽에 열려 있는 폴더가 대상이라 창 버튼 옆에 둔다.
+  const syncBtn = document.createElement("button");
+  syncBtn.className = "sftp-winbtn sftp-sync";
+  syncBtn.title = "폴더 비교·동기화 — 지금 보고 있는 로컬·원격 폴더를 견줍니다";
+  applyIcon(syncBtn, "sync");
   const minBtn = document.createElement("button");
   minBtn.className = "sftp-winbtn sftp-min";
   minBtn.title = "접기 — 연결은 유지됩니다. 세션 목록의 SFTP 칩으로 다시 엽니다";
@@ -152,7 +159,7 @@ export async function openSftpBrowser(
   closeBtn.className = "sftp-winbtn sftp-close";
   closeBtn.title = "연결을 끊고 닫습니다(진행 중 전송도 취소)";
   applyIcon(closeBtn, "close");
-  header.append(title, status, minBtn, maxBtn, closeBtn);
+  header.append(title, status, syncBtn, minBtn, maxBtn, closeBtn);
 
   // 최대화 직전의 인라인 스타일을 통째로 기억했다가 되돌린다. 값만 따로 담으면
   // '한 번도 크기를 안 바꾼 상태'(인라인 스타일 없음)를 되살릴 수 없다.
@@ -492,6 +499,7 @@ export async function openSftpBrowser(
     setTransfer,
     bundle,
     listed: listedCache,
+    resumeAll: null,
     panes: { local: () => local, remote: () => remote },
   };
   const transferInto = (dest: Pane, paths: string[]): Promise<void> => xTransferInto(xctx, dest, paths);
@@ -500,6 +508,21 @@ export async function openSftpBrowser(
   const downloadToPicked = (items: Entry[]): Promise<void> => xDownloadToPicked(xctx, items);
   const onOsFilesDropped = (dt: DataTransfer, destDir?: string): Promise<void> =>
     xOnOsFilesDropped(xctx, dt, destDir);
+
+  syncBtn.addEventListener("click", () => {
+    openSyncDialog({
+      getSftpId: () => sftpId,
+      localDir: () => local.path,
+      remoteDir: () => remote.path,
+      setStatus,
+      run: (from, plan, makeDirs) => xTransferPlan(xctx, from, plan, makeDirs),
+      refresh: async () => {
+        if (disposed) return;
+        await local.reload();
+        await remote.reload();
+      },
+    });
+  });
 
   // ── 시작: 로컬 기본 폴더 + 원격 접속 ──
   setStatus("접속 중…");

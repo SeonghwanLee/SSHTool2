@@ -43,6 +43,7 @@ export const GLYPH: Record<string, string> = {
   up: "",
   setDefault: "",
   sftp: "",
+  sync: "", // 폴더 비교·동기화(Sync)
   help: "", // 도움말(Help) — 도움말 전구 컴포넌트
   rdp: "", // 원격 데스크톱 세션(TVMonitor) — SSH(remote)·로컬 셸과 구분
 };

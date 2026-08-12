@@ -1249,6 +1249,127 @@ try {
       expect(dc, "X 가 연결을 끊지 않는다");
     });
 
+    await t.test("SFTP 이어받기 — 남은 조각이 있으면 묻고 그 위치부터 받는다", async () => {
+      await page.evaluate(() => window.__open());
+      await page.waitForTimeout(900);
+      await page.evaluate(() => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__resumeCalls = [];
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          // 앞 테스트들이 목록 스텁을 갈아 끼웠으므로 이 테스트가 쓸 목록을 다시 못 박는다.
+          if (cmd === "sftp_list")
+            return [{ name: "a.txt", path: "/home/u/a.txt", isDir: false, size: 10, modified: 1 }];
+          // 로컬에 5바이트 조각이 남아 있다(원격 a.txt 는 10바이트).
+          if (cmd === "local_stat") return [5, 0];
+          if (cmd === "local_list") return [];
+          if (cmd === "sftp_download") {
+            window.__resumeCalls.push(args);
+            return null;
+          }
+          return prev(cmd, args);
+        };
+      });
+      // 목록을 새 스텁으로 다시 읽는다(F5 는 목록에 포커스가 있어야 먹는다).
+      await page.locator(".sftp-pane").nth(1).locator(".sftp-list").click({ position: { x: 40, y: 200 } });
+      await page.keyboard.press("F5");
+      await page.waitForTimeout(600);
+      const rows = page.locator(".sftp-pane").nth(1).locator(".sftp-row:not(.sftp-updir)");
+      await rows.first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")]
+          .find((x) => x.textContent.includes("다운로드") && !x.textContent.includes("폴더 지정"))
+          ?.click(),
+      );
+      await page.waitForTimeout(700);
+      const asked = await page.evaluate(
+        () => [...document.querySelectorAll(".modal-card h3")].some((h) => h.textContent.includes("받다 만")),
+      );
+      expect(asked, "조각이 남아 있는데 이어받기를 묻지 않는다");
+      // '이어받기' 를 고르면 그 위치가 백엔드로 넘어가야 한다.
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".modal-card button")]
+          .find((b) => b.textContent === "이어받기")
+          ?.click(),
+      );
+      await page.waitForTimeout(900);
+      const calls = await page.evaluate(() => window.__resumeCalls ?? []);
+      expect(calls.length === 1, `다운로드 호출이 ${calls.length}번이다`);
+      expect(calls[0]?.resumeFrom === 5, `이어받을 위치가 틀리다: ${JSON.stringify(calls[0])}`);
+    });
+
+    await t.test("폴더 비교·동기화 — 차이를 찾고 고른 방향으로만 보낸다", async () => {
+      await dismissModals(page);
+      await page.evaluate(() => {
+        // 앞 테스트가 갈아 끼운 invoke 를 되돌린 뒤, 이 테스트용으로 다시 감싼다.
+        window.__syncCalls = [];
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          // 원격에만 두 파일이 있는 상태 — 로컬은 비어 있다.
+          if (cmd === "sftp_list")
+            return [
+              { name: "a.txt", path: "/home/u/a.txt", isDir: false, size: 10, modified: 1 },
+              { name: "b.txt", path: "/home/u/b.txt", isDir: false, size: 20, modified: 1 },
+            ];
+          if (cmd === "local_stat") return null; // 조각 없음 — 이어받기 물음이 끼지 않게
+          if (cmd === "local_list") return [];
+          if (cmd === "sftp_download") {
+            window.__syncCalls.push(args);
+            return null;
+          }
+          return prev(cmd, args);
+        };
+      });
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      await page.locator(".sftp-sync").click();
+      await page.waitForTimeout(900);
+      const scan = await page.evaluate(() => ({
+        rows: [...document.querySelectorAll(".sync-row .sync-name")].map((x) => x.textContent),
+        states: [...document.querySelectorAll(".sync-row .sync-state")].map((x) => x.textContent),
+        // 기본 방향(로컬→원격)에서는 '원격에만' 항목을 보낼 수 없어 전송 버튼이 잠겨 있다.
+        sendDisabled: document.querySelector(".sync-card .btn-accent")?.disabled,
+      }));
+      expect(scan.rows.length === 2, `비교 결과가 2건이 아니다: ${JSON.stringify(scan.rows)}`);
+      expect(
+        scan.states.every((s) => s === "원격에만"),
+        `상태 판정이 다르다: ${JSON.stringify(scan.states)}`,
+      );
+      expect(scan.sendDisabled === true, "로컬→원격 방향인데 원격 전용 항목이 선택돼 있다");
+
+      // 방향을 원격→로컬로 바꾸면 두 건이 선택되고 전송이 열린다.
+      await page.evaluate(() => {
+        const r = [...document.querySelectorAll('.sync-dir input[type="radio"]')].find(
+          (x) => x.value === "remote",
+        );
+        r.checked = true;
+        r.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await page.waitForTimeout(300);
+      const ready = await page.evaluate(() => ({
+        checked: [...document.querySelectorAll('.sync-row input[type="checkbox"]')].filter(
+          (c) => c.checked,
+        ).length,
+        sendDisabled: document.querySelector(".sync-card .btn-accent")?.disabled,
+      }));
+      expect(ready.checked === 2 && ready.sendDisabled === false, `방향 전환이 반영되지 않았다: ${JSON.stringify(ready)}`);
+
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".sync-card button")]
+          .find((b) => b.textContent === "선택한 항목 전송")
+          ?.click(),
+      );
+      await page.waitForTimeout(1200);
+      const sent = await page.evaluate(() => window.__syncCalls ?? []);
+      expect(sent.length === 2, `전송이 2건이 아니다: ${sent.length}`);
+      expect(
+        sent.every((c) => c.remotePath.startsWith("/home/u/") && c.localPath.includes("작업")),
+        `전송 경로가 어긋난다: ${JSON.stringify(sent)}`,
+      );
+    });
+
     await page.close();
   }
 
@@ -1557,6 +1678,105 @@ try {
       expect(r.checked === "ssh", `기본 선택이 SSH 가 아니다: ${r.checked}`);
       expect(r.oneLine, `한 줄로 배치되지 않았다: ${JSON.stringify(r.labels)}`);
       expect(r.fits, "항목이 줄 밖으로 잘린다");
+    });
+
+    await t.test("세션 편집 동기화 — 사이드바에서 고치면 열려 있는 탭도 최신을 본다", async () => {
+      await dismissModals(page);
+      // 세션 하나를 탭으로 열어 둔다(접속된 상태에서 사이드바로 고치는 상황).
+      await page.locator(".tree-session").first().dblclick();
+      await page.waitForTimeout(700);
+      await dismissModals(page);
+      await page.waitForTimeout(400);
+      const openedId = await page.evaluate(() => window.__tm?.active?.session?.id ?? "");
+      expect(openedId, "탭이 열리지 않아 동기화를 검증할 수 없다");
+
+      // 사이드바 우클릭 → 편집 → 이름 변경 후 저장.
+      const newName = "동기화확인";
+      await page.locator(".tree-session").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")].find((e) => e.textContent.includes("편집"))?.click(),
+      );
+      await page.waitForTimeout(400);
+      const oldName = await page.inputValue('.session-card input[placeholder="표시 이름"]');
+      await page.fill('.session-card input[placeholder="표시 이름"]', newName);
+      await page.evaluate(() => {
+        const bs = [...document.querySelectorAll(".session-card button")];
+        (bs.find((b) => b.classList.contains("btn-accent")) ?? bs[bs.length - 1])?.click();
+      });
+      await page.waitForTimeout(600);
+      await dismissModals(page);
+      await page.waitForTimeout(300);
+
+      // 탭이 들고 있는 세션이 최신이어야 한다 — 예전에는 열릴 때 받은 것을 계속 들고 있었다.
+      const tabName = await page.evaluate(
+        (id) => window.__tm.tabs.find((t) => t.session.id === id)?.session?.name ?? "",
+        openedId,
+      );
+      expect(tabName === newName, `탭이 옛 세션을 들고 있다: ${tabName} (기대: ${newName})`);
+
+      // 탭 우클릭 '세션 편집' 도 같은 내용으로 열려야 한다(사용자 보고의 증상).
+      await page.locator("#tabbar .tab").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")]
+          .find((e) => e.textContent.includes("세션 편집"))
+          ?.click(),
+      );
+      await page.waitForTimeout(500);
+      const shown = await page.inputValue('.session-card input[placeholder="표시 이름"]');
+      // 원래 이름으로 되돌려 두고 닫는다(뒤 테스트가 이름으로 세션을 찾는다).
+      await page.fill('.session-card input[placeholder="표시 이름"]', oldName);
+      await page.evaluate(() => {
+        const bs = [...document.querySelectorAll(".session-card button")];
+        (bs.find((b) => b.classList.contains("btn-accent")) ?? bs[bs.length - 1])?.click();
+      });
+      await page.waitForTimeout(600);
+      await dismissModals(page);
+      await page.waitForTimeout(300);
+      expect(shown === newName, `탭 우클릭 편집이 옛 내용으로 열린다: ${shown} (기대: ${newName})`);
+    });
+
+    await t.test("여러 줄 붙여넣기 — 확인창이 뜨고, 취소하면 넣지 않는다", async () => {
+      await dismissModals(page);
+      const one = await page.evaluate(async () => {
+        const tab = window.__tm?.tabs?.[0];
+        if (!tab) return "탭 없음";
+        // 한 줄(끝의 줄바꿈 하나 포함)은 묻지 않는다 — 매번 뜨면 아무도 켜 두지 않는다.
+        const ok = await tab.confirmPaste("uptime\n");
+        return { ok, dialog: !!document.querySelector(".paste-card") };
+      });
+      expect(one.ok === true && !one.dialog, `한 줄인데 확인창이 떴다: ${JSON.stringify(one)}`);
+
+      const many = await page.evaluate(() => {
+        const tab = window.__tm.tabs[0];
+        window.__pasteResult = null;
+        void tab.confirmPaste("cd /etc\nrm -rf tmp\nsystemctl restart x\n").then((r) => {
+          window.__pasteResult = r;
+        });
+      });
+      void many;
+      await page.waitForTimeout(400);
+      const shown = await page.evaluate(() => ({
+        card: !!document.querySelector(".paste-card"),
+        msg: document.querySelector(".paste-card .modal-msg")?.textContent ?? "",
+        preview: document.querySelector(".paste-preview")?.textContent ?? "",
+        // 기본 포커스는 '취소' — 습관적인 Enter 로 통과되면 안 되는 물음이다.
+        focused: document.activeElement?.textContent ?? "",
+      }));
+      expect(shown.card, "여러 줄인데 확인창이 뜨지 않았다");
+      expect(shown.msg.includes("3줄"), `줄 수 표기가 틀리다: ${shown.msg}`);
+      expect(shown.preview.includes("rm -rf tmp"), "미리보기에 내용이 없다");
+      expect(shown.focused === "취소", `기본 포커스가 취소가 아니다: ${shown.focused}`);
+
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".paste-card button")]
+          .find((b) => b.textContent === "취소")
+          ?.click(),
+      );
+      await page.waitForTimeout(300);
+      const result = await page.evaluate(() => window.__pasteResult);
+      expect(result === false, `취소했는데 붙여넣기가 진행된다: ${result}`);
     });
 
     await t.test("빠른 찾기(Ctrl+P) — 검색·이동·Enter 접속, 열린 세션은 그 탭으로", async () => {

@@ -214,19 +214,27 @@ export const sftpConnect = (
 export const sftpList = (id: string, path: string): Promise<SftpEntry[]> =>
   invoke<SftpEntry[]>("sftp_list", { id, path });
 
+/** resumeFrom 이 0 보다 크면 그 위치부터 이어받는다(.part 뒤에 붙여 쓴다). */
 export const sftpDownload = (
   id: string,
   remotePath: string,
   localPath: string,
   transferId: string,
-): Promise<void> => invoke("sftp_download", { id, remotePath, localPath, transferId });
+  resumeFrom = 0,
+): Promise<void> =>
+  invoke("sftp_download", { id, remotePath, localPath, transferId, resumeFrom });
 
 export const sftpUpload = (
   id: string,
   localPath: string,
   remotePath: string,
   transferId: string,
-): Promise<void> => invoke("sftp_upload", { id, localPath, remotePath, transferId });
+  resumeFrom = 0,
+): Promise<void> => invoke("sftp_upload", { id, localPath, remotePath, transferId, resumeFrom });
+
+/** 원격 파일의 [크기, 수정시각(초)] — 없으면 null. localStat 의 원격판. */
+export const sftpStat = (id: string, path: string): Promise<[number, number] | null> =>
+  invoke<[number, number] | null>("sftp_stat", { id, path });
 
 export const sftpCancel = (transferId: string): Promise<void> =>
   invoke("sftp_cancel", { transferId });

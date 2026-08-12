@@ -15,8 +15,16 @@ import {
   stageWrite,
   stageSweep,
 } from "./ipc";
+import { localStat, sftpStat } from "./ipc";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
-import { conflictDialog, uniqueName, type ConflictChoice, type ConflictResult } from "./conflict";
+import {
+  conflictDialog,
+  resumeDialog,
+  uniqueName,
+  type ConflictChoice,
+  type ConflictResult,
+  type ResumeChoice,
+} from "./conflict";
 import {
   joinPath,
   fmtSize,
@@ -42,6 +50,8 @@ export interface TransferCtx {
   bundle: { total: number; done: number };
   /** 측정하며 읽어 둔 폴더 목록 — 전송이 재사용해 같은 폴더를 두 번 조회하지 않는다. */
   listed: Map<string, Entry[]>;
+  /** 이어받기 물음에 "모두 적용"을 고른 경우의 선택. 묶음마다 초기화한다. */
+  resumeAll: ResumeChoice | null;
   panes: { local: () => Pane; remote: () => Pane };
 }
 
@@ -110,6 +120,7 @@ export async function xTransferItems(
   // 수천 파일 폴더에서 측정(전체 목록 순회)이 공짜가 아니다 — 읽은 목록을 담아 두었다가
   // 전송에서 그대로 쓴다. 측정이 실패해 비면 전송이 직접 조회한다(기존 경로).
   ctx.listed = new Map();
+  ctx.resumeAll = null; // 이어받기 선택은 이번 묶음에서만 유효하다
   ctx.bundle.total = await measureTotal(ctx, src.side, items, ctx.listed).catch(() => 0);
   ctx.bundle.done = 0;
   setBundle(ctx);
@@ -164,6 +175,71 @@ export async function xTransferItems(
 }
 
 /**
+ * 미리 정해진 계획대로 옮긴다 — 폴더 동기화(0.74.0)가 쓴다.
+ *
+ * `xTransferItems` 와 나누는 이유: 저쪽은 "지금 보고 있는 폴더로" 옮기며 이름이 겹치면
+ * 사용자에게 묻는다. 동기화는 어디로 갈지·무엇을 덮을지가 목록에서 이미 정해져 있어
+ * 다시 물으면 항목 수만큼 창이 뜬다. 진행률·취소·이어받기는 같은 경로를 그대로 탄다.
+ */
+export async function xTransferPlan(
+  ctx: TransferCtx,
+  from: Side,
+  plan: { entry: Entry; destDir: string }[],
+  /** 미리 만들어 둘 대상 폴더(상위부터 정렬해 넘긴다). */
+  makeDirs: string[],
+): Promise<{ sent: number; failed: number }> {
+  if (plan.length === 0 && makeDirs.length === 0) return { sent: 0, failed: 0 };
+  if (!ctx.getSftpId()) {
+    ctx.setStatus("원격에 접속되지 않았습니다.");
+    return { sent: 0, failed: 0 };
+  }
+  if (ctx.xfer.transferring) {
+    ctx.setStatus("이미 전송 중입니다. 끝난 뒤 다시 시도하세요.");
+    return { sent: 0, failed: 0 };
+  }
+
+  ctx.xfer.transferring = true;
+  ctx.xfer.cancelled = false;
+  ctx.listed = new Map();
+  ctx.resumeAll = null;
+  ctx.bundle.total = plan.reduce((s, p) => s + (p.entry.isDir ? 0 : p.entry.size), 0);
+  ctx.bundle.done = 0;
+  setBundle(ctx);
+
+  // 대상 폴더를 먼저 만든다(상위부터). 이미 있으면 오류가 나는데 그건 정상이다.
+  for (const d of makeDirs) {
+    if (ctx.xfer.cancelled) break;
+    if (from === "local") await sftpMkdir(ctx.getSftpId()!, d).catch(() => undefined);
+    else await localMkdir(d).catch(() => undefined);
+  }
+
+  let sent = 0;
+  let failed = 0;
+  for (let i = 0; i < plan.length; i++) {
+    if (ctx.xfer.cancelled) break;
+    if (plan.length > 1) ctx.setOverall(`${i + 1}/${plan.length}`);
+    const { entry, destDir } = plan[i];
+    try {
+      await transferOne(ctx, from, entry, destDir, entry.name);
+      sent++;
+    } catch (e) {
+      failed++;
+      console.error("동기화 전송 실패", entry.path, e);
+    }
+  }
+
+  ctx.hideProgress();
+  ctx.setOverall("");
+  ctx.setTransfer(null);
+  ctx.xfer.transferring = false;
+  ctx.bundle.total = 0;
+  ctx.bundle.done = 0;
+  ctx.listed = new Map();
+  setBundle(ctx);
+  return { sent, failed };
+}
+
+/**
  * 옮길 것의 총 바이트를 미리 잰다. 폴더는 목록을 훑어 합산한다.
  * 한 곳이라도 조회에 실패하면 전체를 포기하고 0 을 돌려준다 — 반쪽 총량으로 계산하면
  * 진행률이 100% 를 넘거나 뒤로 가서, 아예 파일 단위로 보여 주는 편이 낫다.
@@ -206,6 +282,41 @@ function setBundle(ctx: TransferCtx): void {
   notifyLive();
 }
 
+/**
+ * 이어받을 위치를 정한다. 반환: 0 = 처음부터, >0 = 그 위치부터, null = 이 파일은 보내지 않음.
+ *
+ * 조각(`.part`)은 **받는 쪽**에 생긴다 — 업로드면 서버에, 다운로드면 로컬에.
+ * 조각이 원본보다 크거나 같으면 남은 것이 옛 파일의 잔해다(원본이 줄었거나 바뀐 경우)
+ * — 묻지 않고 처음부터 받는다. 물어봐야 사용자가 판단할 근거가 없다.
+ */
+async function decideResume(
+  ctx: TransferCtx,
+  from: Side,
+  entry: Entry,
+  destPath: string,
+): Promise<number | null> {
+  const partPath = `${destPath}.part`;
+  const id = ctx.getSftpId();
+  if (!id) return 0;
+  // 조각 조회 실패는 '없음'으로 본다 — 이어받기를 못 할 뿐, 전송은 평소대로 진행한다.
+  const st = await (from === "local" ? sftpStat(id, partPath) : localStat(partPath)).catch(
+    () => null,
+  );
+  const part = st?.[0] ?? 0;
+  if (part <= 0 || part >= entry.size) return 0;
+
+  const decision = ctx.resumeAll
+    ? { choice: ctx.resumeAll, applyToRest: true }
+    : await resumeDialog(entry.name, part, entry.size);
+  if (decision.applyToRest) ctx.resumeAll = decision.choice;
+  if (decision.choice === "cancel") {
+    ctx.xfer.cancelled = true;
+    return null;
+  }
+  if (decision.choice === "skip") return null;
+  return decision.choice === "resume" ? part : 0;
+}
+
 /** 파일 하나 또는 폴더 하나(재귀)를 옮긴다. */
 async function transferOne(
   ctx: TransferCtx,
@@ -218,12 +329,15 @@ async function transferOne(
   const destPath = joinPath(destDir, destName);
 
   if (!entry.isDir) {
+    const resumeFrom = await decideResume(ctx, from, entry, destPath);
+    if (resumeFrom === null) return; // 건너뛰기 / 취소
     const transferId = crypto.randomUUID();
     ctx.setTransfer(transferId);
     if (ctx.bundle.total > 0) ctx.showProgress(entry.name, ctx.bundle.done, ctx.bundle.total);
     else ctx.showProgress(entry.name, 0, entry.size);
-    if (from === "local") await sftpUpload(ctx.getSftpId()!, entry.path, destPath, transferId);
-    else await sftpDownload(ctx.getSftpId()!, entry.path, destPath, transferId);
+    if (from === "local")
+      await sftpUpload(ctx.getSftpId()!, entry.path, destPath, transferId, resumeFrom);
+    else await sftpDownload(ctx.getSftpId()!, entry.path, destPath, transferId, resumeFrom);
     ctx.setTransfer(null);
     // 이 파일 몫을 누적한다. 다음 파일의 진행 이벤트는 여기에 더해져 전체 진행이 된다.
     ctx.bundle.done = Math.min(ctx.bundle.total || Number.MAX_SAFE_INTEGER, ctx.bundle.done + entry.size);

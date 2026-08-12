@@ -44,6 +44,11 @@ export interface Settings {
    */
   sidebarDocked: boolean;
   /**
+   * 붙여넣기 확인을 띄울 최소 줄 수. 0 = 묻지 않음(예전 동작), 2 = 두 줄 이상이면 확인(기본).
+   * 여러 줄을 붙이면 줄바꿈이 곧 실행이라, 운영 서버에서는 한 번 되짚을 값어치가 있다.
+   */
+  pasteConfirmLines: number;
+  /**
    * SFTP 를 열 때 로컬 창이 시작할 폴더. 빈 값이면 OS 기본(문서/홈)을 쓴다.
    * 직전에 보던 폴더가 있으면(연결 재사용) 그쪽이 우선 — 하던 일을 끊지 않는 게 먼저다.
    */
@@ -93,6 +98,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarWidth: 240,
   sidebarCollapsed: false,
   sidebarDocked: true,
+  pasteConfirmLines: 2,
   sftpLocalDir: "",
   verboseLog: false,
   offlineMode: false,

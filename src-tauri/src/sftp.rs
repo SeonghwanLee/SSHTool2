@@ -14,7 +14,8 @@ use std::sync::Arc as StdArc;
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use russh_sftp::protocol::OpenFlags;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 /// SFTP 연결 하나. Handle 을 함께 보관해 연결이 조기 종료되지 않게 유지.
 pub struct SftpConn {
@@ -261,6 +262,17 @@ pub fn cancel(cancels: &TransferCancel, transfer_id: &str) {
         .store(true, Ordering::SeqCst);
 }
 
+/// 이어받기 위치가 실제 부분 파일 크기와 맞는지 본다. 어긋나면 이어 쓰면 안 된다 —
+/// 그 자리부터 붙이면 조용히 깨진 파일이 만들어진다. 처음부터 받도록 오류로 끊는다.
+fn check_part_len(actual: u64, expect: u64) -> Result<(), String> {
+    if actual == expect {
+        return Ok(());
+    }
+    Err(format!(
+        "이어받을 위치가 맞지 않습니다(부분 파일 {actual}바이트, 기대 {expect}바이트). 처음부터 다시 받으세요."
+    ))
+}
+
 pub async fn download(
     app: AppHandle,
     state: &SftpMap,
@@ -269,6 +281,8 @@ pub async fn download(
     remote_path: String,
     local_path: String,
     transfer_id: String,
+    /// 0 이 아니면 그 바이트 위치부터 이어받는다(.part 뒤에 붙여 쓴다).
+    resume_from: u64,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
     let flag = register_cancel(cancels, &transfer_id);
@@ -294,12 +308,30 @@ pub async fn download(
             .open(&remote_path)
             .await
             .map_err(|e| format!("원격 파일 열기 실패: {e}"))?;
-        let mut local = tokio::fs::File::create(&part_path)
-            .await
-            .map_err(|e| format!("로컬 파일 생성 실패: {e}"))?;
+        let mut local = if resume_from > 0 {
+            let have = tokio::fs::metadata(&part_path)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0);
+            check_part_len(have, resume_from)?;
+            remote
+                .seek(std::io::SeekFrom::Start(resume_from))
+                .await
+                .map_err(|e| format!("원격 위치 이동 실패: {e}"))?;
+            tokio::fs::OpenOptions::new()
+                .append(true)
+                .open(&part_path)
+                .await
+                .map_err(|e| format!("부분 파일 열기 실패: {e}"))?
+        } else {
+            tokio::fs::File::create(&part_path)
+                .await
+                .map_err(|e| format!("로컬 파일 생성 실패: {e}"))?
+        };
 
         let mut buf = vec![0u8; CHUNK];
-        let mut done = 0u64;
+        // 이미 받아 둔 만큼을 진행에 포함한다 — 진행바가 0% 부터 다시 차오르지 않게.
+        let mut done = resume_from;
         // None = 아직 한 번도 안 보냄 → 첫 청크에서 즉시 보낸다.
         // 1초를 기다리면 그동안 진행바가 뜨지 않아 멈춘 것처럼 보인다.
         let mut last_emit: Option<Instant> = None;
@@ -367,8 +399,12 @@ pub async fn download(
 
     cancels.lock().unwrap().remove(&transfer_id);
     if result.is_err() {
-        // 부분 파일만 지운다 — 기존 대상 파일은 건드리지 않는다.
-        let _ = tokio::fs::remove_file(&part_path).await;
+        // 받다 만 조각은 **남긴다** — 다음에 이어받기로 쓰기 위해서다(0.74.0).
+        // 기존 대상 파일은 어느 경우에도 건드리지 않는다.
+        // 한 바이트도 못 받았으면 남길 이유가 없으니 지운다(빈 .part 가 쌓이지 않게).
+        if tokio::fs::metadata(&part_path).await.map(|m| m.len()).unwrap_or(0) == 0 {
+            let _ = tokio::fs::remove_file(&part_path).await;
+        }
     }
     result
 }
@@ -381,6 +417,8 @@ pub async fn upload(
     local_path: String,
     remote_path: String,
     transfer_id: String,
+    /// 0 이 아니면 그 바이트 위치부터 이어 올린다(서버의 .part 뒤에 붙여 쓴다).
+    resume_from: u64,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
     let flag = register_cancel(cancels, &transfer_id);
@@ -400,14 +438,39 @@ pub async fn upload(
         let mut local = tokio::fs::File::open(&local_path)
             .await
             .map_err(|e| format!("로컬 읽기 실패: {e}"))?;
-        let mut remote = conn
-            .sftp
-            .create(&part_path)
-            .await
-            .map_err(|e| format!("원격 파일 생성 실패: {e}"))?;
+        let mut remote = if resume_from > 0 {
+            let have = conn
+                .sftp
+                .metadata(part_path.clone())
+                .await
+                .ok()
+                .and_then(|m| m.size)
+                .unwrap_or(0);
+            check_part_len(have, resume_from)?;
+            local
+                .seek(std::io::SeekFrom::Start(resume_from))
+                .await
+                .map_err(|e| format!("로컬 위치 이동 실패: {e}"))?;
+            // TRUNCATE 없이 열어야 이미 올라간 앞부분이 남는다.
+            let mut f = conn
+                .sftp
+                .open_with_flags(&part_path, OpenFlags::WRITE | OpenFlags::CREATE)
+                .await
+                .map_err(|e| format!("원격 부분 파일 열기 실패: {e}"))?;
+            f.seek(std::io::SeekFrom::Start(resume_from))
+                .await
+                .map_err(|e| format!("원격 위치 이동 실패: {e}"))?;
+            f
+        } else {
+            conn.sftp
+                .create(&part_path)
+                .await
+                .map_err(|e| format!("원격 파일 생성 실패: {e}"))?
+        };
 
         let mut buf = vec![0u8; CHUNK];
-        let mut done = 0u64;
+        // 이미 올린 만큼을 진행에 포함한다(다운로드와 같은 이유).
+        let mut done = resume_from;
         // None = 아직 한 번도 안 보냄 → 첫 청크에서 즉시 보낸다.
         // 1초를 기다리면 그동안 진행바가 뜨지 않아 멈춘 것처럼 보인다.
         let mut last_emit: Option<Instant> = None;
@@ -476,10 +539,32 @@ pub async fn upload(
 
     cancels.lock().unwrap().remove(&transfer_id);
     if result.is_err() {
-        // 부분 파일만 지운다 — 기존 원격 파일은 건드리지 않는다.
-        let _ = conn.sftp.remove_file(&part_path).await;
+        // 다운로드와 같은 이유로 조각을 남긴다 — 빈 것만 지운다.
+        let empty = conn
+            .sftp
+            .metadata(part_path.clone())
+            .await
+            .ok()
+            .and_then(|m| m.size)
+            .unwrap_or(0)
+            == 0;
+        if empty {
+            let _ = conn.sftp.remove_file(&part_path).await;
+        }
     }
     result
+}
+
+/// 원격 파일의 크기·수정시각(초). 없으면 None — 이어받기 판단과 폴더 비교에 쓴다.
+pub async fn stat(state: &SftpMap, id: &str, path: String) -> Result<Option<(u64, u64)>, String> {
+    let conn = get_conn(state, id)?;
+    let wire = text_to_wire(&path, conn.encoding);
+    Ok(conn
+        .sftp
+        .metadata(wire)
+        .await
+        .ok()
+        .map(|m| (m.size.unwrap_or(0), u64::from(m.mtime.unwrap_or(0)))))
 }
 
 /// 원격 경로를 절대경로로 정규화(초기 "." → 실제 홈 경로). 상위 폴더 이동에 필요.

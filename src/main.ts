@@ -212,7 +212,9 @@ async function main(): Promise<void> {
         void hydrateSecrets(s).then((ready) => tabs.openSession(ready));
       },
       onEdit: async (s) => {
-        await editSessionFlow(s);
+        // 편집 결과에는 볼트 값까지 채워져 있다 — 탭 우클릭 편집과 같은 상태가 되도록 넘긴다.
+        const edited = await editSessionFlow(s);
+        if (edited) tabs.applySessionUpdate(edited);
       },
       onDelete: async (s) => {
         const ok = await confirmDialog(`'${s.name || s.host}' 세션을 삭제할까요?`);
@@ -496,7 +498,12 @@ async function main(): Promise<void> {
   };
 
   // 사이드바 재그리기(세션 + 빈 폴더).
-  const redrawImpl = (): void => sidebar.render(sessions, settings.folders);
+  const redrawImpl = (): void => {
+    sidebar.render(sessions, settings.folders);
+    // 목록이 바뀌면 열려 있는 탭이 들고 있는 세션도 함께 맞춘다 — 사이드바에서 고친 내용이
+    // 탭 라벨·색·탭 우클릭 '세션 편집' 에 그대로 이어지도록.
+    tabs.syncFromSaved(sessions);
+  };
   const applyDisplayOptionsImpl = (s: Settings): void => {
     sidebar.setDisplayOptions(s.sortByRecent, s.showSessionDetail, s.recentLimit);
     sidebar.setFolderSort(s.folderSort);

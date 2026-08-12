@@ -61,6 +61,82 @@ export function conflictDialog(name: string, remaining: number): Promise<Conflic
   });
 }
 
+// ── 이어받기(0.74.0) ──
+//
+// 전송이 끊기면 받다 만 조각(`.part`)을 남긴다. 다음에 같은 파일을 옮기려 하면 여기서
+// 묻는다 — 내용이 같은 파일인지는 확인할 방법이 없으므로(서버가 그 사이 파일을 바꿨을
+// 수도 있다) 크기를 보여 주고 사용자가 고르게 한다. 다른 클라이언트도 같은 방식이다.
+
+export type ResumeChoice = "resume" | "restart" | "skip" | "cancel";
+
+export interface ResumeResult {
+  choice: ResumeChoice;
+  applyToRest: boolean;
+}
+
+const fmtBytes = (n: number): string => {
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${i === 0 ? v : v.toFixed(1)} ${u[i]}`;
+};
+
+export function resumeDialog(name: string, done: number, total: number): Promise<ResumeResult> {
+  return new Promise((resolve) => {
+    openModal(
+      (close) => {
+        const card = document.createElement("div");
+        const title = document.createElement("h3");
+        title.textContent = "받다 만 파일이 있습니다";
+        const msg = document.createElement("div");
+        msg.className = "modal-msg";
+        const pct = total > 0 ? Math.floor((done / total) * 100) : 0;
+        msg.textContent =
+          `'${name}' 을(를) 옮기다 중단된 조각이 남아 있습니다 — ` +
+          `${fmtBytes(done)} / ${fmtBytes(total)} (${pct}%).\n` +
+          `중단된 뒤 원본이 바뀌었다면 이어받은 파일이 깨집니다. 확실하지 않으면 처음부터 받으세요.`;
+        msg.style.whiteSpace = "pre-line";
+
+        const applyRow = document.createElement("label");
+        applyRow.className = "check-row";
+        const apply = document.createElement("input");
+        apply.type = "checkbox";
+        const applyText = document.createElement("span");
+        applyText.textContent = "이후 항목에도 모두 적용";
+        applyRow.append(apply, applyText);
+
+        const buttons = document.createElement("div");
+        buttons.className = "modal-buttons conflict-buttons";
+        const mk = (label: string, choice: ResumeChoice, accent = false) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = label;
+          if (accent) b.className = "btn-accent";
+          b.addEventListener("click", () => {
+            close();
+            resolve({ choice, applyToRest: apply.checked });
+          });
+          return b;
+        };
+        buttons.append(
+          mk("취소", "cancel"),
+          mk("건너뛰기", "skip"),
+          mk("처음부터", "restart"),
+          mk("이어받기", "resume", true),
+        );
+
+        card.append(title, msg, applyRow, buttons);
+        return card;
+      },
+      () => resolve({ choice: "cancel", applyToRest: false }),
+    );
+  });
+}
+
 /** "이름 (2).txt" 형태로 겹치지 않는 이름을 만든다. */
 export function uniqueName(name: string, exists: (candidate: string) => boolean): string {
   if (!exists(name)) return name;

@@ -373,6 +373,65 @@ export function confirmDialog(message: string): Promise<boolean> {
 }
 
 /**
+ * 여러 줄 붙여넣기 확인(0.74.0). 붙여 넣을 내용을 그대로 보여 주고 되짚게 한다 —
+ * 터미널에서는 줄바꿈이 곧 실행이라, 잘못 복사한 여러 줄이 운영 서버에서 그대로 돈다.
+ *
+ * 기본 포커스는 '취소' 에 둔다(호스트키 확인과 같은 이유) — 습관적인 Enter 로
+ * 통과되면 안 되는 물음이다. Esc·바깥 클릭도 취소로 본다.
+ */
+export function pasteConfirmDialog(text: string): Promise<boolean> {
+  // 줄 세는 규칙은 확인 여부를 판단할 때와 같아야 한다 — 끝의 줄바꿈 하나는 세지 않는다.
+  // (다르면 "2줄 이상일 때 확인"인데 창에는 3줄이라고 적히는 식으로 어긋난다.)
+  const lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+  return new Promise((resolve) => {
+    openModal(
+      (close) => {
+        const card = document.createElement("div");
+        card.className = "paste-card";
+        const title = document.createElement("h3");
+        title.textContent = "여러 줄을 붙여넣습니다";
+        const msg = document.createElement("div");
+        msg.className = "modal-msg";
+        const endsWithNewline = /\n\s*$/.test(text);
+        msg.textContent =
+          `${lines.length}줄 (${text.length}자)을 이 세션에 붙여넣습니다.` +
+          (endsWithNewline ? " 마지막 줄바꿈까지 있어 그대로 실행됩니다." : "");
+
+        // 미리보기는 앞 12줄까지 — 창이 화면을 넘기지 않게 하고, 나머지는 줄 수로 알린다.
+        const HEAD = 12;
+        const pre = document.createElement("pre");
+        pre.className = "paste-preview";
+        pre.textContent =
+          lines.slice(0, HEAD).join("\n") +
+          (lines.length > HEAD ? `\n… 그 밖 ${lines.length - HEAD}줄` : "");
+
+        const buttons = document.createElement("div");
+        buttons.className = "modal-buttons";
+        const no = document.createElement("button");
+        no.textContent = "취소";
+        no.addEventListener("click", () => {
+          close();
+          resolve(false);
+        });
+        const yes = document.createElement("button");
+        yes.className = "btn-accent";
+        yes.textContent = "붙여넣기";
+        yes.addEventListener("click", () => {
+          close();
+          resolve(true);
+        });
+        buttons.append(no, yes);
+
+        card.append(title, msg, pre, buttons);
+        setTimeout(() => no.focus(), 0);
+        return card;
+      },
+      () => resolve(false),
+    );
+  });
+}
+
+/**
  * 처음 보는 호스트의 키 지문 확인. 반환 true 일 때만 접속을 이어간다.
  *
  * 확인(confirmDialog)과 달리 기본 포커스를 '취소'에 둔다 — Enter 를 습관적으로 눌러
