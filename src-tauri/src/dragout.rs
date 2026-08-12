@@ -454,7 +454,15 @@ pub fn start(
             // 살아 있는 스트림이 없어지면 끝낸다.
             let mut msg = MSG::default();
             let mut idle = 0u32;
+            // 상대가 스트림을 끝내 놓지 않는 경우에도 스레드가 영원히 남지는 않게 한다.
+            // 6시간이면 어떤 정상 전송보다 넉넉하다(50ms 주기 × 이 횟수).
+            let mut ticks = 0u32;
+            const MAX_TICKS: u32 = 6 * 60 * 60 * 20;
             loop {
+                ticks += 1;
+                if ticks > MAX_TICKS {
+                    break;
+                }
                 while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);

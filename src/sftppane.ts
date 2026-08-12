@@ -686,6 +686,11 @@ export class Pane {
         const picked = this.entries.filter((x) => paths.includes(x.path) && !x.isDir);
         if (picked.length > 0) {
           e.preventDefault(); // 웹뷰 드래그는 시작하지 않는다(둘이 겹치면 안 된다)
+          // 폴더가 섞여 있으면 파일만 나간다 — 조용히 빠지면 사용자는 다 옮긴 줄 안다.
+          const folders = paths.length - picked.length;
+          if (folders > 0) {
+            this.ctx.setStatus(`폴더 ${folders}개는 끌어내기에서 제외했습니다(파일만 지원).`);
+          }
           const id = this.ctx.getSftpId();
           if (id) {
             void this.ctx

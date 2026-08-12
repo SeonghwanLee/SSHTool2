@@ -528,8 +528,13 @@ export async function openSftpBrowser(
   // 앞 작업이 실패해도 다음은 돌아야 하므로 성공·실패 양쪽에 이어 붙인다.
   let chain: Promise<void> = Promise.resolve();
   const enqueue = (job: () => Promise<void>): Promise<void> => {
-    const next = chain.then(job, job);
-    chain = next.catch(() => undefined);
+    // 호출부는 모두 결과를 무시하므로(void), 거부를 그대로 돌려주면 '처리되지 않은
+    // 거부'로 남아 진단 로그에 오류만 쌓인다. 여기서 받아 상태줄로 돌린다.
+    const next = chain.then(job, job).catch((e) => {
+      console.error("전송 작업 실패", e);
+      setStatus(`전송 실패: ${String(e)}`);
+    });
+    chain = next;
     return next;
   };
   // 줄을 서는 동안 패널이 다른 폴더로 옮겨 갈 수 있다 — **넣는 시점의** 항목과

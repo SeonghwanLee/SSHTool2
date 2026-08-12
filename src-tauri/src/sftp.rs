@@ -257,14 +257,23 @@ fn chunk_for(limit: u64) -> usize {
 
 /// 조각 하나를 옮기는 데 허용된 시간을 채운다. 조각마다 독립 계산이라 제한값을
 /// 바꾸면 즉시 반영되고, 누적 오차가 쌓이지 않는다(느리게 틀리는 쪽이라 안전하다).
-async fn pace(limit: u64, moved: usize, started: Instant) {
+///
+/// 쉬는 동안에도 취소 플래그를 본다 — 아주 낮은 제한(예: 1KB/s)에서는 한 조각을
+/// 기다리는 시간이 몇 초가 되어, 통째로 자면 취소 버튼이 그만큼 먹통이 된다.
+async fn pace(limit: u64, moved: usize, started: Instant, flag: &AtomicBool) {
     if limit == 0 || moved == 0 {
         return;
     }
     let want = Duration::from_secs_f64(moved as f64 / limit as f64);
-    let took = started.elapsed();
-    if want > took {
-        tokio::time::sleep(want - took).await;
+    let mut left = want.saturating_sub(started.elapsed());
+    const SLICE: Duration = Duration::from_millis(200);
+    while !left.is_zero() {
+        if flag.load(Ordering::SeqCst) {
+            return; // 취소됐다 — 남은 시간을 채울 이유가 없다
+        }
+        let step = left.min(SLICE);
+        tokio::time::sleep(step).await;
+        left -= step;
     }
 }
 
@@ -387,7 +396,7 @@ pub async fn download(
                 .await
                 .map_err(|e| format!("로컬 쓰기 실패: {e}"))?;
             done += n as u64;
-            pace(limit, n, started).await;
+            pace(limit, n, started, &flag).await;
             if last_emit.map_or(true, |t| t.elapsed() >= EMIT_EVERY) {
                 last_emit = Some(Instant::now());
                 let _ = app.emit(
@@ -531,7 +540,7 @@ pub async fn upload(
                 .await
                 .map_err(|e| format!("원격 쓰기 실패: {e}"))?;
             done += n as u64;
-            pace(limit, n, started).await;
+            pace(limit, n, started, &flag).await;
             if last_emit.map_or(true, |t| t.elapsed() >= EMIT_EVERY) {
                 last_emit = Some(Instant::now());
                 let _ = app.emit(
