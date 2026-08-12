@@ -71,7 +71,10 @@ jobs:
           set -o pipefail
           if ! cargo check --target x86_64-pc-windows-msvc --message-format short 2>&1 | tee check.log; then
             echo "::error::cargo check 실패 — 아래는 로그 끝 40줄"
-            tail -n 40 check.log | while IFS= read -r l; do
+            # 진행 로그(Checking/Compiling…)와 색 코드를 걷어 내야 오류가 잘리지 않는다.
+            sed 's/\x1b\[[0-9;]*m//g' check.log \
+              | grep -vE "^[[:space:]]*(Checking|Compiling|Updating|Locking|Adding|Downloading|Downloaded|Finished|Blocking)" \
+              | tail -n 40 | while IFS= read -r l; do
               echo "::error::${l}"
             done
             exit 1

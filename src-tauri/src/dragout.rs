@@ -25,8 +25,9 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use windows::core::{implement, Interface, Ref, Result as WinResult, HRESULT, PCWSTR};
-use windows::Win32::Foundation::{BOOL, E_FAIL, E_NOTIMPL, S_FALSE, S_OK};
+// BOOL·HRESULT 는 0.62 에서 windows::core 소속이다(Win32::Foundation 아님).
+use windows::core::{implement, Ref, Result as WinResult, BOOL, HRESULT};
+use windows::Win32::Foundation::{E_FAIL, E_NOTIMPL, S_FALSE, S_OK};
 use windows::Win32::System::Com::{
     IAdviseSink, IDataObject, IDataObject_Impl, IEnumFORMATETC, IEnumSTATDATA, ISequentialStream_Impl,
     IStream, IStream_Impl, FORMATETC, STATSTG, STGC, STATFLAG, STGMEDIUM, STREAM_SEEK,
