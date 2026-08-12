@@ -54,8 +54,6 @@ const DRAGDROP_S_USEDEFAULTCURSORS: HRESULT = HRESULT(0x0004_0102_u32 as i32);
 const DV_E_FORMATETC: HRESULT = HRESULT(0x8004_0064_u32 as i32);
 /// 스트림에서 지원하지 않는 조작(되감기 등).
 const STG_E_INVALIDFUNCTION: HRESULT = HRESULT(0x8003_0001_u32 as i32);
-/// STATSTG.type — 스트림.
-const STGTY_STREAM: u32 = 2;
 /// FILEDESCRIPTORW.dwFlags — 크기와 진행률 UI 를 쓴다는 표시.
 const FD_FILESIZE: u32 = 0x0000_0040;
 const FD_PROGRESSUI: u32 = 0x0000_4000;
@@ -195,8 +193,9 @@ impl IStream_Impl for RemoteStream_Impl {
         }
         // 크기를 여기서 정확히 알려 줘야 탐색기가 미리 자리를 잡고 진행률을 낼 수 있다.
         unsafe {
+            // 종류(type) 필드는 판마다 이름이 달라 건드리지 않는다. 탐색기가 실제로 보는
+            // 값은 크기뿐이고, 나머지는 0 으로 둬도 파일 복사 경로에 지장이 없다.
             let mut s: STATSTG = std::mem::zeroed();
-            s.type_ = STGTY_STREAM;
             s.cbSize = self.size;
             *pstatstg = s;
         }
@@ -248,13 +247,21 @@ impl FileGroup {
         let mut blob = Vec::with_capacity(4 + self.items.len() * std::mem::size_of::<FILEDESCRIPTORW>());
         blob.extend_from_slice(&(self.items.len() as u32).to_le_bytes());
         for it in &self.items {
+            // 이 구조체는 packed 라 필드 참조(&fd.x, fd.arr[..])를 만들 수 없다 —
+            // 정렬이 어긋난 참조는 Rust 에서 금지다. 포인터로 직접 써 넣는다.
             let mut fd: FILEDESCRIPTORW = unsafe { std::mem::zeroed() };
-            fd.dwFlags = FD_FILESIZE | FD_PROGRESSUI;
-            fd.nFileSizeHigh = (it.size >> 32) as u32;
-            fd.nFileSizeLow = (it.size & 0xFFFF_FFFF) as u32;
             let mut name: Vec<u16> = it.name.encode_utf16().take(259).collect();
             name.push(0);
-            fd.cFileName[..name.len()].copy_from_slice(&name);
+            unsafe {
+                std::ptr::addr_of_mut!(fd.dwFlags).write_unaligned(FD_FILESIZE | FD_PROGRESSUI);
+                std::ptr::addr_of_mut!(fd.nFileSizeHigh).write_unaligned((it.size >> 32) as u32);
+                std::ptr::addr_of_mut!(fd.nFileSizeLow)
+                    .write_unaligned((it.size & 0xFFFF_FFFF) as u32);
+                let dst = std::ptr::addr_of_mut!(fd.cFileName) as *mut u16;
+                for (i, ch) in name.iter().enumerate() {
+                    dst.add(i).write_unaligned(*ch);
+                }
+            }
             let bytes = unsafe {
                 std::slice::from_raw_parts(
                     (&fd as *const FILEDESCRIPTORW) as *const u8,
