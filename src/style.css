@@ -2222,10 +2222,9 @@ body.sftp-resizing * {
   background: var(--panel);
   display: flex;
   flex-direction: column;
-  min-height: 0;
-}
-.sftp-queue.hidden {
-  display: none;
+  /* 줄어들지 않는다 — 기본값(flex-shrink:1)이면 위쪽 목록에 밀려 23px 로 짜부라져
+     창 아래 경계에 걸친다(0.75.0 실기 보고). 큐는 제 높이를 지켜야 읽을 수 있다. */
+  flex: 0 0 auto;
 }
 .queue-head {
   display: flex;
@@ -2233,6 +2232,11 @@ body.sftp-resizing * {
   gap: 8px;
   padding: 4px 8px;
   font-size: 12px;
+  cursor: pointer; /* 머리말 아무 데나 눌러 접고 편다 — 작은 셰브론만 누르게 하지 않는다 */
+  user-select: none;
+}
+.queue-head:hover {
+  background: var(--panel-2);
 }
 .queue-toggle {
   background: transparent;
@@ -2254,7 +2258,9 @@ body.sftp-resizing * {
   color: var(--muted);
 }
 .queue-list {
-  max-height: 150px;
+  /* 한 줄만 보이면 큐가 아니다 — 최소 높이를 줘서 서너 줄은 늘 보이게 한다. */
+  min-height: 92px;
+  max-height: 168px;
   overflow: auto;
   border-top: 1px solid var(--border);
 }
@@ -2292,6 +2298,12 @@ body.sftp-resizing * {
   white-space: nowrap;
 }
 /* 항목별 취소(×) — 대기·전송 중인 줄에만 나온다. */
+.queue-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
 .queue-x {
   background: transparent;
   border: none;

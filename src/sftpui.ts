@@ -10,7 +10,6 @@ import {
   sftpUpload,
   sftpCancel,
   sftpSetRateLimit,
-  sftpDragOut,
   sftpMkdir,
   sftpRemove,
   sftpRename,
@@ -99,8 +98,6 @@ export async function openSftpBrowser(
   defaultLocalDir?: string,
   /** 설정의 전송 속도 상한(KB/s, 0 = 무제한). 창에서 즉석으로 바꿀 수 있다. */
   defaultRateKbps?: number,
-  /** 설정의 '탐색기로 끌어내기'. 켜면 원격 목록의 끌기가 OS 드래그가 된다. */
-  dragOut = false,
 ): Promise<void> {
   const overlay = document.createElement("div");
   overlay.className = "sftp-overlay";
@@ -469,8 +466,6 @@ export async function openSftpBrowser(
     showProgress,
     hideProgress,
     watchEdit,
-    dragOutEnabled: () => dragOut,
-    dragOut: (items) => sftpDragOut(sftpId!, items),
   };
   const local = new Pane(pctx, "local");
   const remote = new Pane(pctx, "remote");

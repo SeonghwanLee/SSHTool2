@@ -1440,6 +1440,45 @@ try {
       expect(after === before + 1, `재시도가 실패분 1건만 보내지 않았다: ${before} → ${after}`);
     });
 
+    await t.test("전송 큐 배치 — 전송 전에도 보이고, 짜부라지거나 창 밖으로 나가지 않는다", async () => {
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const g = await page.evaluate(() => {
+        const q = document.querySelector(".sftp-queue");
+        if (!q) return "큐 없음";
+        const qr = q.getBoundingClientRect();
+        const panel = document.querySelector(".sftp-panel").getBoundingClientRect();
+        const list = document.querySelector(".queue-list").getBoundingClientRect();
+        return {
+          display: getComputedStyle(q).display,
+          listH: Math.round(list.height),
+          // 창 안에 들어와 있어야 한다(0.75.0 에서 아래 경계에 걸쳐 잘렸다).
+          overflow: Math.round(qr.bottom - panel.bottom),
+        };
+      });
+      expect(typeof g === "object", `전송 큐를 찾지 못했다: ${g}`);
+      expect(g.display !== "none", "전송이 없을 때 큐가 아예 숨겨져 있다 — 기능이 있는지 알 수 없다");
+      expect(g.listH >= 60, `큐 목록이 ${g.listH}px 로 짜부라졌다 — 줄을 읽을 수 없다`);
+      expect(g.overflow <= 1, `큐가 창 밖으로 ${g.overflow}px 삐져나왔다`);
+
+      // 머리말을 누르면 접히고, 다시 누르면 펴진다(작은 셰브론만 누르게 하지 않는다).
+      await page.click(".queue-head");
+      await page.waitForTimeout(200);
+      const folded = await page.evaluate(
+        () => document.querySelector(".queue-list").getBoundingClientRect().height,
+      );
+      await page.click(".queue-head");
+      await page.waitForTimeout(200);
+      const unfolded = await page.evaluate(
+        () => document.querySelector(".queue-list").getBoundingClientRect().height,
+      );
+      expect(folded === 0, `머리말을 눌러도 접히지 않는다(${folded}px)`);
+      expect(unfolded >= 60, `다시 눌러도 펴지지 않는다(${unfolded}px)`);
+    });
+
     await t.test("전송 큐 — 전송 중에 넣어도 거절하지 않고 줄을 선다", async () => {
       await dismissModals(page);
       if ((await page.locator(".sftp-panel").count()) === 0) {

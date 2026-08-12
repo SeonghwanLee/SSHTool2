@@ -1,6 +1,6 @@
 [package]
 name = "sshtool2"
-version = "0.75.0"
+version = "0.75.1"
 description = "SSHTool2"
 authors = ["Seonghwan Lee"]
 edition = "2021"
@@ -35,27 +35,6 @@ ureq = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-# 탐색기 끌어내기(지연 렌더링 IDataObject/IStream). #[implement] 매크로가 COM 구현부
-# (참조 카운트·QueryInterface)를 만들어 준다 — vtable 을 손으로 짜지 않는다.
-windows = { version = "0.62", features = [
-  # 주의: 0.62 에는 "implement" 기능이 없다(그 판부터 #[implement] 매크로가 기본
-  # 제공된다). 넣으면 "does not have that feature" 로 의존성 해석부터 실패한다.
-  "Win32_Foundation",
-  "Win32_System_Com",
-  # STGMEDIUM·STATSTG 와 IDataObject_Impl 이 이 두 기능 뒤에 잠겨 있다
-  # (STGMEDIUM 이 GDI 핸들을 품고 있어 Gdi 까지 함께 필요하다).
-  "Win32_System_Com_StructuredStorage",
-  "Win32_Graphics_Gdi",
-  "Win32_System_DataExchange",
-  "Win32_System_Memory",
-  "Win32_System_Ole",
-  "Win32_System_SystemServices",
-  "Win32_UI_Shell",
-  "Win32_UI_WindowsAndMessaging",
-] }
-# #[implement] 매크로가 만들어 내는 코드는 ::windows_core:: 절대 경로를 쓴다 —
-# windows 크레이트의 re-export 로는 풀리지 않아 직접 의존으로 둔다.
-windows-core = "0.62"
 
 [profile.release]
 panic = "abort"

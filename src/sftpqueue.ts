@@ -54,7 +54,7 @@ const STATE_TEXT: Record<QueueState, string> = {
 
 export function createQueuePanel(): QueueApi {
   const root = document.createElement("div");
-  root.className = "sftp-queue hidden";
+  root.className = "sftp-queue";
 
   const head = document.createElement("div");
   head.className = "queue-head";
@@ -137,6 +137,12 @@ export function createQueuePanel(): QueueApi {
 
   const draw = (): void => {
     list.innerHTML = "";
+    if (items.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "queue-empty";
+      empty.textContent = "전송할 항목이 없습니다 — 파일을 끌어다 놓거나 우클릭해 보내면 여기에 줄을 섭니다.";
+      list.appendChild(empty);
+    }
     for (const e of items) list.appendChild(rowOf(e));
     const n = (s: QueueState): number => items.filter((x) => x.state === s).length;
     const failed = n("fail");
@@ -150,9 +156,18 @@ export function createQueuePanel(): QueueApi {
     list.querySelector(".queue-row.q-run")?.scrollIntoView({ block: "nearest" });
   };
 
-  toggle.addEventListener("click", () => {
+  const toggleFold = (): void => {
     collapsed = !collapsed;
     root.classList.toggle("collapsed", collapsed);
+  };
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleFold();
+  });
+  // 셰브론은 작다 — 머리말 어디를 눌러도 접히고 펴지게 한다(버튼 자리는 제외).
+  head.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    toggleFold();
   });
   retryBtn.addEventListener("click", () => {
     const failed = items.filter((x) => x.state === "fail");
@@ -183,7 +198,6 @@ export function createQueuePanel(): QueueApi {
         cancelled.delete(items[i].key);
         items.splice(i, 1);
       }
-      root.classList.remove("hidden");
       draw();
     },
     ensure(e) {
@@ -192,7 +206,6 @@ export function createQueuePanel(): QueueApi {
       const entry: QueueEntry = { ...e, state: "wait" };
       byKey.set(e.key, entry);
       items.push(entry);
-      root.classList.remove("hidden");
       draw();
     },
     setState(key, state, note) {
