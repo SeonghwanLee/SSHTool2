@@ -2263,7 +2263,7 @@ body.sftp-resizing * {
 }
 .queue-row {
   display: grid;
-  grid-template-columns: 56px 40px 1fr auto auto;
+  grid-template-columns: 56px 40px 1fr auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 3px 10px;
@@ -2290,6 +2290,19 @@ body.sftp-resizing * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 항목별 취소(×) — 대기·전송 중인 줄에만 나온다. */
+.queue-x {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+}
+.queue-x:hover {
+  color: var(--error);
 }
 .queue-size,
 .queue-note {

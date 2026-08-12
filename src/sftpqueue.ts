@@ -27,7 +27,7 @@ export interface QueueEntry {
 
 export interface QueueApi {
   root: HTMLElement;
-  /** 새 묶음 시작 — 지난 목록을 비운다. */
+  /** 새 묶음 시작. 큐는 이어지므로 지우지 않는다 — 끝난 항목만 오래된 순으로 정리한다. */
   begin(): void;
   /** 없으면 대기 상태로 넣는다(이미 있으면 그대로 둔다). */
   ensure(e: Omit<QueueEntry, "state">): void;
@@ -35,7 +35,14 @@ export interface QueueApi {
   failedItems(): QueueEntry[];
   /** 실패분 다시 시도 버튼이 부를 함수. */
   setRetry(fn: (items: QueueEntry[]) => void): void;
+  /** 이 항목이 취소됐는가 — 전송 직전과 실패 처리에서 본다. */
+  isCancelled(key: string): boolean;
+  /** 전송 중인 항목을 끊는 방법(창이 넣어 준다). 대기 중인 항목은 큐가 알아서 뺀다. */
+  setCancelRunning(fn: () => void): void;
 }
+
+/** 목록에 남겨 두는 최대 줄 수 — 끝난 것부터 오래된 순으로 지운다. */
+const MAX_ROWS = 200;
 
 const STATE_TEXT: Record<QueueState, string> = {
   wait: "대기",
@@ -75,7 +82,10 @@ export function createQueuePanel(): QueueApi {
 
   const items: QueueEntry[] = [];
   const byKey = new Map<string, QueueEntry>();
+  /** 사용자가 취소한 항목 — 차례가 와도 보내지 않는다. */
+  const cancelled = new Set<string>();
   let retry: (items: QueueEntry[]) => void = () => {};
+  let cancelRunning: () => void = () => {};
   let collapsed = false;
 
   const rowOf = (e: QueueEntry): HTMLElement => {
@@ -95,6 +105,26 @@ export function createQueuePanel(): QueueApi {
     size.className = "queue-size";
     size.textContent = e.size > 0 ? fmtSize(e.size) : "";
     row.append(st, dir, name, size);
+    // 아직 안 끝난 항목만 끊을 수 있다. 전송 중이면 그 파일만 끊고 다음으로 넘어간다.
+    if (e.state === "wait" || e.state === "run") {
+      const x = document.createElement("button");
+      x.className = "queue-x";
+      x.textContent = "×";
+      x.title = e.state === "run" ? "이 파일 전송 중단" : "대기에서 빼기";
+      x.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        cancelled.add(e.key);
+        if (e.state === "run") {
+          cancelRunning(); // 백엔드 전송을 끊는다 — 결과 표시는 전송 쪽이 맡는다
+        } else {
+          e.state = "skip";
+          e.note = "취소됨";
+          draw();
+        }
+      });
+      row.appendChild(x);
+    }
     if (e.note) {
       const note = document.createElement("span");
       note.className = "queue-note";
@@ -142,12 +172,22 @@ export function createQueuePanel(): QueueApi {
   return {
     root,
     begin() {
-      items.length = 0;
-      byKey.clear();
+      // 큐는 이어진다(0.75.0) — 전송 중에 새로 넣은 것이 앞의 목록을 지우면 안 된다.
+      // 목록이 무한정 자라지 않게 끝난 항목만 오래된 순으로 덜어 낸다.
+      while (items.length > MAX_ROWS) {
+        const i = items.findIndex(
+          (x) => x.state === "done" || x.state === "skip" || x.state === "fail",
+        );
+        if (i < 0) break;
+        byKey.delete(items[i].key);
+        cancelled.delete(items[i].key);
+        items.splice(i, 1);
+      }
       root.classList.remove("hidden");
       draw();
     },
     ensure(e) {
+      cancelled.delete(e.key); // 다시 넣는 것은 새 요청이다(재시도 포함)
       if (byKey.has(e.key)) return;
       const entry: QueueEntry = { ...e, state: "wait" };
       byKey.set(e.key, entry);
@@ -165,6 +205,10 @@ export function createQueuePanel(): QueueApi {
     failedItems: () => items.filter((x) => x.state === "fail"),
     setRetry(fn) {
       retry = fn;
+    },
+    isCancelled: (key) => cancelled.has(key),
+    setCancelRunning(fn) {
+      cancelRunning = fn;
     },
   };
 }

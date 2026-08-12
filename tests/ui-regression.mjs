@@ -1420,7 +1420,8 @@ try {
         retryShown: document.querySelector(".queue-retry")?.style.display !== "none",
       }));
       expect(q.visible, "전송 큐가 보이지 않는다");
-      expect(q.rows.length === 2, `큐 항목이 2건이 아니다: ${JSON.stringify(q.rows)}`);
+      // 큐는 묶음마다 비우지 않고 이어진다(0.75.0) — 앞 전송 기록이 함께 있어도 정상이다.
+      expect(q.rows.length >= 2, `큐 항목이 모자란다: ${JSON.stringify(q.rows)}`);
       expect(
         q.rows.some((r) => r.name === "q1.txt" && r.state === "완료"),
         `성공 항목이 완료로 남지 않았다: ${JSON.stringify(q.rows)}`,
@@ -1437,6 +1438,58 @@ try {
       await page.waitForTimeout(1200);
       const after = await page.evaluate(() => window.__dlCount);
       expect(after === before + 1, `재시도가 실패분 1건만 보내지 않았다: ${before} → ${after}`);
+    });
+
+    await t.test("전송 큐 — 전송 중에 넣어도 거절하지 않고 줄을 선다", async () => {
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const r = await page.evaluate(async () => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        let running = 0;
+        let maxParallel = 0;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_download") {
+            running++;
+            maxParallel = Math.max(maxParallel, running);
+            await new Promise((r) => setTimeout(r, 400)); // 느린 전송을 흉내
+            running--;
+            return null;
+          }
+          if (cmd === "local_stat") return null;
+          if (cmd === "local_list") return [];
+          return prev(cmd, args);
+        };
+        const pane = window.__sftpTest?.panes?.remote?.();
+        if (!pane) return "패널 훅 없음";
+        const mk = (n) => ({
+          name: n,
+          path: `/home/u/${n}`,
+          isDir: false,
+          size: 10,
+          modified: 1,
+        });
+        // 첫 전송이 도는 도중에 두 번째를 넣는다 — 예전에는 여기서 거절당했다.
+        const first = window.__sftpTest.transferItems(window.__sftpTest.panes.local(), [mk("k1.txt")]);
+        await new Promise((r) => setTimeout(r, 150));
+        const second = window.__sftpTest.transferItems(window.__sftpTest.panes.local(), [mk("k2.txt")]);
+        await Promise.all([first, second]);
+        const rows = [...document.querySelectorAll(".queue-row")].map((x) => ({
+          name: x.querySelector(".queue-name")?.textContent,
+          state: x.querySelector(".queue-state")?.textContent,
+        }));
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return { rows, maxParallel };
+      });
+      expect(typeof r === "object", `전송 큐 검사를 못 했다: ${r}`);
+      const done = r.rows.filter((x) => x.state === "완료").map((x) => x.name);
+      expect(
+        done.includes("k1.txt") && done.includes("k2.txt"),
+        `줄 서서 둘 다 끝나지 않았다: ${JSON.stringify(r.rows)}`,
+      );
+      expect(r.maxParallel === 1, `동시에 ${r.maxParallel}건이 돌았다 — 순차 실행이어야 한다`);
     });
 
     await t.test("전송 속도 제한 — 창에서 고르면 즉시 백엔드로 간다", async () => {

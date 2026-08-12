@@ -38,7 +38,6 @@ import { createProgressStrip } from "./sftpprogress";
 import { createQueuePanel } from "./sftpqueue";
 import { Pane, type PaneCtx } from "./sftppane";
 import {
-  xTransferInto,
   xTransferItems,
   xDownloadToPicked,
   xOnOsFilesDropped,
@@ -446,7 +445,14 @@ export async function openSftpBrowser(
   // 프로덕션 빌드에서는 이 가지째 제거된다(DEV 가 false 상수로 치환).
   if (import.meta.env.DEV) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__sftpTest = { watchEdit, pollEdits };
+    (window as any).__sftpTest = {
+      watchEdit,
+      pollEdits,
+      // 큐·전송 경로 검증용 — 창 안 클로저라 밖에서 부를 방법이 이것뿐이다.
+      panes: { local: () => local, remote: () => remote },
+      transferItems: (dest: Pane, items: Entry[], destDir?: string) =>
+        transferItems(dest, items, destDir),
+    };
   }
 
   // 파일 목록 패널(Pane)은 sftppane.ts 로 분리(0.67.0) — 창이 쥔 상태·동작은 PaneCtx 로 넘긴다.
@@ -514,14 +520,38 @@ export async function openSftpBrowser(
     listed: listedCache,
     resumeAll: null,
     queue,
+    enqueue: (job) => enqueue(job),
     panes: { local: () => local, remote: () => remote },
   };
-  const transferInto = (dest: Pane, paths: string[]): Promise<void> => xTransferInto(xctx, dest, paths);
-  const transferItems = (dest: Pane, items: Entry[], destDirOverride?: string): Promise<void> =>
-    xTransferItems(xctx, dest, items, destDirOverride);
+  // 전송 대기열(0.75.0) — 앞 전송이 도는 중에도 새 요청을 거절하지 않고 줄을 세운다.
+  // 순차 실행은 유지한다(연결이 하나뿐이라 동시에 돌리면 진행률·취소가 뒤엉킨다).
+  // 앞 작업이 실패해도 다음은 돌아야 하므로 성공·실패 양쪽에 이어 붙인다.
+  let chain: Promise<void> = Promise.resolve();
+  const enqueue = (job: () => Promise<void>): Promise<void> => {
+    const next = chain.then(job, job);
+    chain = next.catch(() => undefined);
+    return next;
+  };
+  // 줄을 서는 동안 패널이 다른 폴더로 옮겨 갈 수 있다 — **넣는 시점의** 항목과
+  // 대상 폴더를 붙잡아 둔다. 그러지 않으면 엉뚱한 폴더로 보내진다.
+  const transferInto = (dest: Pane, paths: string[]): Promise<void> => {
+    const items = dest.other.entries.filter((e) => paths.includes(e.path));
+    const destDir = dest.path;
+    return enqueue(() => xTransferItems(xctx, dest, items, destDir));
+  };
+  const transferItems = (dest: Pane, items: Entry[], destDirOverride?: string): Promise<void> => {
+    const destDir = destDirOverride ?? dest.path;
+    return enqueue(() => xTransferItems(xctx, dest, items, destDir));
+  };
   const downloadToPicked = (items: Entry[]): Promise<void> => xDownloadToPicked(xctx, items);
   const onOsFilesDropped = (dt: DataTransfer, destDir?: string): Promise<void> =>
     xOnOsFilesDropped(xctx, dt, destDir);
+
+  // 큐의 × 버튼(전송 중인 항목) — 그 파일만 끊고 다음으로 넘어간다.
+  // xfer.cancelled 는 건드리지 않는다(그건 묶음 전체 취소다).
+  queue.setCancelRunning(() => {
+    if (xfer.current) void sftpCancel(xfer.current);
+  });
 
   // 실패분 다시 시도 — 동기화와 같은 계획 실행 경로를 쓴다(충돌을 다시 묻지 않는다).
   queue.setRetry((failed) => {

@@ -55,6 +55,12 @@ export interface TransferCtx {
   resumeAll: ResumeChoice | null;
   /** 전송 큐 — 무엇이 남았고 무엇이 실패했는지 보여 준다. */
   queue: QueueApi;
+  /**
+   * 전송 작업을 줄 세운다(0.75.0). 앞 전송이 끝난 뒤에 돈다 — 전에는 전송 중이면
+   * 새 요청을 거절했다("이미 전송 중입니다"). 순차 실행은 그대로다(연결이 하나라
+   * 동시에 돌리면 진행률·취소가 뒤엉킨다).
+   */
+  enqueue: (job: () => Promise<void>) => Promise<void>;
   panes: { local: () => Pane; remote: () => Pane };
 }
 
@@ -69,12 +75,6 @@ export interface Pane {
 }
 
 // ── 전송 ──
-
-/** dest 패널로 소스 경로들을 전송(폴더는 재귀). */
-export async function xTransferInto(ctx: TransferCtx, dest: Pane, paths: string[]): Promise<void> {
-  // 목록에 보이는 항목을 옮기는 경로 — 경로를 현재 목록에서 실제 항목으로 바꿔 넘긴다.
-  await xTransferItems(ctx, dest, dest.other.entries.filter((e) => paths.includes(e.path)));
-}
 
 /**
  * 항목을 실제로 옮긴다. 목록(`entries`)에 없는 것도 옮길 수 있어야 해서 경로가 아니라
@@ -170,8 +170,11 @@ export async function xTransferItems(
       await transferOne(ctx, src.side, item, destDir, targetName);
     } catch (e) {
       // 심볼릭 링크·권한 오류 등 한 항목의 실패로 나머지를 중단하지 않는다.
-      failed++;
-      console.error("전송 실패", item.path, e);
+      // 사용자가 그 항목만 끊은 것은 실패가 아니다(큐에 '취소됨'으로 남는다).
+      if (!ctx.queue.isCancelled(item.path)) {
+        failed++;
+        console.error("전송 실패", item.path, e);
+      }
     }
   }
 
@@ -368,6 +371,10 @@ async function transferOne(
       srcPath: entry.path,
       destDir,
     });
+    if (ctx.queue.isCancelled(entry.path)) {
+      ctx.queue.setState(entry.path, "skip", "취소됨");
+      return;
+    }
     const resumeFrom = await decideResume(ctx, from, entry, destPath);
     if (resumeFrom === null) {
       ctx.queue.setState(entry.path, "skip", ctx.xfer.cancelled ? "취소됨" : "건너뜀");
@@ -385,7 +392,11 @@ async function transferOne(
     } catch (e) {
       // 실패는 큐에 남겨 나중에 다시 시도할 수 있게 한다. 던지기는 그대로 — 위쪽
       // 집계(실패 개수)와 폴더 재귀의 기존 동작을 바꾸지 않는다.
-      ctx.queue.setState(entry.path, ctx.xfer.cancelled ? "skip" : "fail", String(e).slice(0, 120));
+      ctx.queue.setState(
+        entry.path,
+        ctx.xfer.cancelled || ctx.queue.isCancelled(entry.path) ? "skip" : "fail",
+        ctx.queue.isCancelled(entry.path) ? "취소됨" : String(e).slice(0, 120),
+      );
       ctx.setTransfer(null);
       throw e;
     }
@@ -570,7 +581,8 @@ export async function xOnOsFilesDropped(
     return;
   }
   ctx.xfer.transferring = false;
-  await xTransferItems(ctx, ctx.panes.remote(), items, destDir);
+  // 전송은 큐에 넣는다 — 다른 전송이 돌고 있어도 거절하지 않고 줄을 선다.
+  await ctx.enqueue(() => xTransferItems(ctx, ctx.panes.remote(), items, destDir));
   // 스테이징 사본 정리 — 전송이 실패했어도 임시 파일을 남길 이유가 없다.
   await localRemove(root, true).catch(() => undefined);
 }
