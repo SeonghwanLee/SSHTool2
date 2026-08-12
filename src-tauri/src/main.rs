@@ -397,6 +397,40 @@ async fn sftp_canonicalize(
     sftp::canonicalize(&state, &id, path).await
 }
 
+/// 파일이 있는 폴더를 탐색기로 열고 **그 파일을 선택해** 보여 준다.
+/// 경로를 클립보드에 넣어 주는 것보다 한 단계 적다 — 사용자는 파일을 찾는 게 목적이다.
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        // explorer 의 /select 는 인자 이스케이프에 까다롭다 — 공백이 든 경로가 깨지지
+        // 않도록 원문 그대로(raw_arg) 넘긴다.
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{path}\""))
+            .spawn()
+            .map_err(|e| format!("탐색기 실행 실패: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        // 다른 OS 에서는 파일이 든 폴더를 연다(선택 표시는 지원이 제각각이다).
+        let dir = std::path::Path::new(&path)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| "상위 폴더를 찾을 수 없습니다".to_string())?;
+        #[cfg(target_os = "macos")]
+        let program = "open";
+        #[cfg(not(target_os = "macos"))]
+        let program = "xdg-open";
+        std::process::Command::new(program)
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("파일 관리자 실행 실패: {e}"))?;
+        Ok(())
+    }
+}
+
 /// 설정 폴더를 OS 파일 탐색기로 연다(로그·known_hosts 등 확인용).
 #[tauri::command]
 fn open_config_dir(app: AppHandle) -> Result<(), String> {
@@ -768,6 +802,7 @@ fn main() {
             sftp_stat,
             sftp_set_rate_limit,
             open_config_dir,
+            reveal_path,
             keystore_store,
             keystore_get,
             keystore_has,

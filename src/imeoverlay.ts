@@ -55,9 +55,16 @@ export function pinCompositionOverlay(term: Terminal): void {
       pinned = null;
     });
 
-    const original = helper.updateCompositionElements.bind(helper);
-    helper.updateCompositionElements = (dontRecurse?: unknown) => {
-      original(dontRecurse);
+    /**
+     * 지금 커서를 보고 오버레이 자리를 다시 잡는다.
+     *
+     * **렌더마다** 부른다. 예전에는 조합 이벤트(자모 타건)에만 불렀는데, 그러면 앱이
+     * 화면을 다시 그리며 커서를 잠깐 다른 자리에 두는 순간이 그대로 굳어 버린다 —
+     * 그 뒤 커서가 제자리로 돌아와도 다음 타건 전까지 오버레이는 틀린 자리에 남는다
+     * (실기 증상: 조합 글자 앞이 한 칸 벌어짐). 이제 매 렌더에 다시 재므로 어긋남이
+     * 한 프레임을 넘기지 못한다.
+     */
+    const place = (): void => {
       if (pinned === null || !helper._isComposing || !pinEnabled) return;
       try {
         const buf = core._bufferService?.buffer;
@@ -96,6 +103,15 @@ export function pinCompositionOverlay(term: Terminal): void {
         /* 계측 실패 시 이번 렌더는 기본 위치(원본이 이미 놓았다)로 둔다 */
       }
     };
+
+    const original = helper.updateCompositionElements.bind(helper);
+    helper.updateCompositionElements = (dontRecurse?: unknown) => {
+      original(dontRecurse);
+      place();
+    };
+    // 조합 이벤트가 없는 사이에도 따라간다 — 서버 에코는 타건 사이에 도착한다.
+    term.onRender(() => place());
+    term.onCursorMove(() => place());
   } catch {
     // 내부 구조가 예상과 다르면 고정 없이 기본 동작 — 기능 하나가 앱을 위협하지 않는다.
   }

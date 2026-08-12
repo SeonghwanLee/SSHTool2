@@ -13,7 +13,14 @@ import { THEMES } from "./themes";
 import { knownHostsDialog } from "./knownhosts";
 import { save as saveDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { backupExport, backupExportZip, backupImport, debugLogPath, factoryReset } from "./ipc";
+import {
+  backupExport,
+  backupExportZip,
+  backupImport,
+  debugLogPath,
+  revealPath,
+  factoryReset,
+} from "./ipc";
 import {
   alertDialog,
   confirmDialog,
@@ -465,7 +472,7 @@ export function settingsDialog(
         "접속·끊김과 터미널이 받은 원시 데이터를 파일에 남깁니다.\n" +
           "원인을 알 수 없는 증상을 알릴 때 켜세요. 켜는 순간 파일이 새로 시작되고, " +
           "20MB 를 넘으면 잘라냅니다.\n" +
-          "'경로 복사'로 파일 위치를 확인할 수 있습니다.",
+          "'폴더 열기'를 누르면 탐색기가 열리며 로그 파일이 선택됩니다.",
         "진단 로그 안내",
       ),
     );
@@ -480,13 +487,13 @@ export function settingsDialog(
 
     const logPathRow = controlRow("로그 파일 위치");
     logPathRow.appendChild(
-      mkSmallButton("경로 복사", async () => {
+      mkSmallButton("폴더 열기", async () => {
+        // 경로를 복사해 주는 것은 한 단계 더 걸린다 — 파일을 바로 보여 준다.
         try {
           const path = await debugLogPath();
-          await navigator.clipboard.writeText(path);
-          await alertDialog(`클립보드에 복사했습니다.\n\n${path}`, "진단 로그");
+          await revealPath(path);
         } catch (e) {
-          await alertDialog(`경로를 확인하지 못했습니다: ${String(e)}`);
+          await alertDialog(`로그 파일 위치를 열지 못했습니다: ${String(e)}`);
         }
       }),
     );

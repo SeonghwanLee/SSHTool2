@@ -125,6 +125,9 @@ export const hostkeysClear = (): Promise<void> => invoke("hostkeys_clear");
 
 export const openConfigDir = (): Promise<void> => invoke("open_config_dir");
 
+/** 파일이 있는 폴더를 열고 그 파일을 선택해 보여 준다(Windows 탐색기 /select). */
+export const revealPath = (path: string): Promise<void> => invoke("reveal_path", { path });
+
 // ── OS 키체인(이 PC 자동 잠금해제) ──────────────────────────────────────────
 export const keystoreStore = (master: string): Promise<void> =>
   invoke("keystore_store", { master });
