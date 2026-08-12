@@ -7,9 +7,6 @@ edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-# #[implement] 매크로가 만들어 내는 코드는 ::windows_core:: 절대 경로를 쓴다 —
-# windows 크레이트가 re-export 만 해서는 부족하고, 직접 의존으로 있어야 한다.
-windows-core = "0.62"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -38,8 +35,8 @@ ureq = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-# 탐색기 끌어내기(지연 렌더링 IDataObject/IStream). implement 기능으로 COM 구현부
-# (참조 카운트·QueryInterface)를 매크로가 만들어 준다 — vtable 을 손으로 짜지 않는다.
+# 탐색기 끌어내기(지연 렌더링 IDataObject/IStream). #[implement] 매크로가 COM 구현부
+# (참조 카운트·QueryInterface)를 만들어 준다 — vtable 을 손으로 짜지 않는다.
 windows = { version = "0.62", features = [
   # 주의: 0.62 에는 "implement" 기능이 없다(그 판부터 #[implement] 매크로가 기본
   # 제공된다). 넣으면 "does not have that feature" 로 의존성 해석부터 실패한다.
@@ -56,6 +53,9 @@ windows = { version = "0.62", features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
+# #[implement] 매크로가 만들어 내는 코드는 ::windows_core:: 절대 경로를 쓴다 —
+# windows 크레이트의 re-export 로는 풀리지 않아 직접 의존으로 둔다.
+windows-core = "0.62"
 
 [profile.release]
 panic = "abort"
