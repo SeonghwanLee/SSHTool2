@@ -281,7 +281,7 @@ pub async fn download(
     remote_path: String,
     local_path: String,
     transfer_id: String,
-    /// 0 이 아니면 그 바이트 위치부터 이어받는다(.part 뒤에 붙여 쓴다).
+    // 0 이 아니면 그 바이트 위치부터 이어받는다(.part 뒤에 붙여 쓴다).
     resume_from: u64,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
@@ -417,7 +417,7 @@ pub async fn upload(
     local_path: String,
     remote_path: String,
     transfer_id: String,
-    /// 0 이 아니면 그 바이트 위치부터 이어 올린다(서버의 .part 뒤에 붙여 쓴다).
+    // 0 이 아니면 그 바이트 위치부터 이어 올린다(서버의 .part 뒤에 붙여 쓴다).
     resume_from: u64,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
