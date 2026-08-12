@@ -62,19 +62,17 @@ jobs:
       - name: cargo check
         working-directory: src-tauri
         shell: bash
-        # 실패 시 오류 줄을 어노테이션으로 내보낸다 — 개발 장비(리눅스)는 로그 API 에
+        # 실패하면 로그 끝을 어노테이션으로 내보낸다 — 개발 장비(리눅스)는 로그 API 에
         # 인증이 필요해 못 읽지만, 어노테이션은 공개 저장소에서 비인증으로 읽힌다.
+        #
+        # 조건부 grep 을 쓰던 판(0.74.0)은 실패했는데도 어노테이션이 한 줄도 안 나왔다.
+        # 원인을 가리려 애쓰는 대신, 실패하면 **무조건** 표식 + 로그 끝을 내보낸다.
         run: |
           set -o pipefail
-          cargo check --target x86_64-pc-windows-msvc --message-format short 2>&1 | tee /tmp/check.log || {
-            # --message-format short 는 "경로:줄:칸: error: 내용" 형태라 줄머리가 error 가
-            # 아니다. 예전 패턴(^error)은 그래서 한 줄도 못 잡았고, 실패해도 어노테이션이
-            # 비어 원인을 볼 수 없었다(0.74.0). 줄 어디에 있든 잡는다.
-            grep -m 15 -E "^error|: error" /tmp/check.log \
-              | while IFS= read -r l; do echo "::error::${l}"; done
-            # 그래도 한 줄도 못 잡았을 때를 위해 로그 끝을 남긴다 — 원인 없는 실패는 없어야 한다.
-            if ! grep -qE "^error|: error" /tmp/check.log; then
-              tail -n 30 /tmp/check.log | while IFS= read -r l; do echo "::error::${l}"; done
-            fi
+          if ! cargo check --target x86_64-pc-windows-msvc --message-format short 2>&1 | tee check.log; then
+            echo "::error::cargo check 실패 — 아래는 로그 끝 40줄"
+            tail -n 40 check.log | while IFS= read -r l; do
+              echo "::error::${l}"
+            done
             exit 1
-          }
+          fi
