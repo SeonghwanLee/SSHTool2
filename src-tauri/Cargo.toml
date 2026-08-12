@@ -7,6 +7,9 @@ edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# #[implement] 매크로가 만들어 내는 코드는 ::windows_core:: 절대 경로를 쓴다 —
+# windows 크레이트가 re-export 만 해서는 부족하고, 직접 의존으로 있어야 한다.
+windows-core = "0.62"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -42,6 +45,10 @@ windows = { version = "0.62", features = [
   # 제공된다). 넣으면 "does not have that feature" 로 의존성 해석부터 실패한다.
   "Win32_Foundation",
   "Win32_System_Com",
+  # STGMEDIUM·STATSTG 와 IDataObject_Impl 이 이 두 기능 뒤에 잠겨 있다
+  # (STGMEDIUM 이 GDI 핸들을 품고 있어 Gdi 까지 함께 필요하다).
+  "Win32_System_Com_StructuredStorage",
+  "Win32_Graphics_Gdi",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
