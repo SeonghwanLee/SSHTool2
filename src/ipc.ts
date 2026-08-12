@@ -232,6 +232,12 @@ export const sftpUpload = (
   resumeFrom = 0,
 ): Promise<void> => invoke("sftp_upload", { id, localPath, remotePath, transferId, resumeFrom });
 
+/** 탐색기로 끌어내기 — 즉시 반환하고 실제 끌기는 백엔드 전용 스레드에서 돈다. */
+export const sftpDragOut = (
+  id: string,
+  items: { name: string; path: string; size: number }[],
+): Promise<void> => invoke("sftp_drag_out", { id, items });
+
 /** 전송 속도 상한(KB/s, 0 = 무제한). 전송 도중에 바꿔도 다음 조각부터 듣는다. */
 export const sftpSetRateLimit = (kbps: number): Promise<void> =>
   invoke("sftp_set_rate_limit", { kbps: Math.max(0, Math.round(kbps)) });

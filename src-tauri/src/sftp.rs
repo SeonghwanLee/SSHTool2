@@ -609,6 +609,50 @@ pub async fn stat(state: &SftpMap, id: &str, path: String) -> Result<Option<(u64
         .map(|m| (m.size.unwrap_or(0), u64::from(m.mtime.unwrap_or(0)))))
 }
 
+/// 끌어내기(dragout)용 — 원격 파일을 조각 단위로 읽어 채널로 흘린다.
+///
+/// 받는 쪽(탐색기 복사 스레드)이 느리면 채널이 차서 자연히 기다린다 — 메모리가 자라지
+/// 않는다. 받는 쪽이 사라지면 send 가 실패하고 여기서 조용히 멈춘다(= 취소).
+pub async fn stream_file(
+    app: &AppHandle,
+    id: &str,
+    path: String,
+    chunk: usize,
+    tx: tokio::sync::mpsc::Sender<Result<Vec<u8>, String>>,
+) {
+    let state = app.state::<SftpMap>();
+    let conn = match get_conn(&state, id) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.send(Err(e)).await;
+            return;
+        }
+    };
+    let wire = text_to_wire(&path, conn.encoding);
+    let mut f = match conn.sftp.open(&wire).await {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = tx.send(Err(format!("원격 파일 열기 실패: {e}"))).await;
+            return;
+        }
+    };
+    let mut buf = vec![0u8; chunk];
+    loop {
+        match f.read(&mut buf).await {
+            Ok(0) => return,
+            Ok(n) => {
+                if tx.send(Ok(buf[..n].to_vec())).await.is_err() {
+                    return; // 받는 쪽이 없어졌다 = 사용자가 취소했거나 창이 닫혔다
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(Err(format!("원격 읽기 실패: {e}"))).await;
+                return;
+            }
+        }
+    }
+}
+
 /// 원격 경로를 절대경로로 정규화(초기 "." → 실제 홈 경로). 상위 폴더 이동에 필요.
 pub async fn canonicalize(state: &SftpMap, id: &str, path: String) -> Result<String, String> {
     let conn = get_conn(state, id)?;

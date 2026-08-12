@@ -60,6 +60,14 @@ export interface Settings {
    */
   sftpRateLimitKbps: number;
   /**
+   * 원격 목록에서 탐색기로 끌어내기(Windows 지연 렌더링). 기본 꺼짐 — 네이티브 드래그라
+   * 실기 확인이 쌓이기 전까지는 켠 사람만 쓰게 한다.
+   *
+   * 켜면 원격 목록의 끌기가 **OS 드래그**가 되므로, 원격→로컬 패널로 끌어 옮기는
+   * 기존 동작은 그동안 쓸 수 없다(우클릭 '← 다운로드'로 하면 된다).
+   */
+  sftpDragOut: boolean;
+  /**
    * 진단 로그(debug.log) 사용 여부. 터미널이 받은 원시 바이트까지 남기므로 기본은 꺼짐이다 —
    * 화면에 뜬 설정값·키·토큰이 그대로 파일에 남는다. 문제를 재현하는 동안에만 켠다.
    */
@@ -107,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pasteConfirmLines: 2,
   sftpLocalDir: "",
   sftpRateLimitKbps: 0,
+  sftpDragOut: false,
   verboseLog: false,
   offlineMode: false,
   folderSort: {},

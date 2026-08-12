@@ -408,6 +408,19 @@ export function settingsDialog(
     rateRow.appendChild(rateWrap);
     gen.appendChild(rateRow);
 
+    gen.appendChild(
+      checkRow("원격 파일을 탐색기로 끌어내기 (실험적)", working.sftpDragOut, (v) => {
+        working = { ...working, sftpDragOut: v };
+        apply();
+      }),
+    );
+    const dragNote = document.createElement("div");
+    dragNote.className = "settings-hint";
+    dragNote.textContent =
+      "켜면 원격 목록에서 끌기가 OS 드래그가 됩니다 — 탐색기·바탕화면에 놓으면 그 자리에 받습니다. " +
+      "그동안 원격→로컬 패널로 끌어 옮기는 동작은 쓸 수 없습니다(우클릭 '← 다운로드'를 쓰세요).";
+    gen.appendChild(dragNote);
+
     const sftpDirRow = controlRow("SFTP 기본 로컬 폴더");
     const sftpDir = document.createElement("input");
     sftpDir.type = "text";

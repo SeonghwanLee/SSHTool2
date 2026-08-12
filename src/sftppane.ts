@@ -49,6 +49,10 @@ export interface PaneCtx {
   setTransfer: (id: string | null) => void;
   /** 원격 파일을 임시본으로 연 뒤, 그 파일이 바뀌면 서버로 되올린다(0.67.0). */
   watchEdit: (localPath: string, remotePath: string, name: string) => void;
+  /** 설정에서 '탐색기로 끌어내기' 를 켰는가. */
+  dragOutEnabled: () => boolean;
+  /** 원격 파일들을 OS 드래그로 내보낸다(백엔드 전용 스레드에서 돈다). */
+  dragOut: (items: { name: string; path: string; size: number }[]) => Promise<void>;
   showProgress: (name: string, done: number, total: number) => void;
   hideProgress: () => void;
 }
@@ -675,6 +679,22 @@ export class Pane {
         this.markSelection(); // draw() 금지 — 드래그 중인 노드가 제거되면 드래그가 죽는다
       }
       const paths = [...this.selected];
+      // 탐색기 끌어내기(설정에서 켠 경우) — 원격 목록의 파일만 해당한다.
+      // 웹뷰의 HTML 드래그로는 OS 로 파일을 내보낼 수 없어, 여기서 끊고 백엔드가
+      // 네이티브 드래그를 시작한다(지연 렌더링). 폴더는 아직 대상이 아니다.
+      if (this.side === "remote" && this.ctx.dragOutEnabled()) {
+        const picked = this.entries.filter((x) => paths.includes(x.path) && !x.isDir);
+        if (picked.length > 0) {
+          e.preventDefault(); // 웹뷰 드래그는 시작하지 않는다(둘이 겹치면 안 된다)
+          const id = this.ctx.getSftpId();
+          if (id) {
+            void this.ctx
+              .dragOut(picked.map((x) => ({ name: x.name, path: x.path, size: x.size })))
+              .catch((err) => this.ctx.setStatus(`끌어내기 실패: ${String(err)}`));
+          }
+          return;
+        }
+      }
       e.dataTransfer?.setData(
         "application/x-sshtool",
         JSON.stringify({ side: this.side, paths }),

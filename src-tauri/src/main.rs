@@ -12,6 +12,8 @@ mod paths;
 mod portfwd;
 mod browser;
 mod debuglog;
+#[cfg(windows)]
+mod dragout;
 mod rdp;
 mod sftp;
 mod ssh;
@@ -371,6 +373,23 @@ async fn sftp_upload(
 #[tauri::command]
 fn sftp_set_rate_limit(rate: State<'_, sftp::RateLimit>, kbps: u64) {
     rate.store(kbps.saturating_mul(1024), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 원격 파일을 탐색기로 끌어내기(지연 렌더링). 즉시 반환하고 전용 스레드에서 돈다.
+#[cfg(windows)]
+#[tauri::command]
+fn sftp_drag_out(
+    app: AppHandle,
+    id: String,
+    items: Vec<dragout::DragItem>,
+) -> Result<(), String> {
+    dragout::start(app, id, items)
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn sftp_drag_out(_app: AppHandle, _id: String, _items: Vec<serde_json::Value>) -> Result<(), String> {
+    Err("이 기능은 Windows 에서만 동작합니다".into())
 }
 
 /// 원격 파일의 크기·수정시각 — 이어받기 판단(.part 크기)과 폴더 비교에 쓴다.
@@ -767,6 +786,7 @@ fn main() {
             sftp_canonicalize,
             sftp_stat,
             sftp_set_rate_limit,
+            sftp_drag_out,
             open_config_dir,
             keystore_store,
             keystore_get,
