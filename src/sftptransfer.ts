@@ -16,6 +16,7 @@ import {
   stageSweep,
 } from "./ipc";
 import { localStat, sftpStat } from "./ipc";
+import type { QueueApi } from "./sftpqueue";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   conflictDialog,
@@ -52,6 +53,8 @@ export interface TransferCtx {
   listed: Map<string, Entry[]>;
   /** 이어받기 물음에 "모두 적용"을 고른 경우의 선택. 묶음마다 초기화한다. */
   resumeAll: ResumeChoice | null;
+  /** 전송 큐 — 무엇이 남았고 무엇이 실패했는지 보여 준다. */
+  queue: QueueApi;
   panes: { local: () => Pane; remote: () => Pane };
 }
 
@@ -121,6 +124,19 @@ export async function xTransferItems(
   // 전송에서 그대로 쓴다. 측정이 실패해 비면 전송이 직접 조회한다(기존 경로).
   ctx.listed = new Map();
   ctx.resumeAll = null; // 이어받기 선택은 이번 묶음에서만 유효하다
+  ctx.queue.begin();
+  // 최상위 파일은 미리 줄 세운다. 폴더 안은 들어갈 때 한 단계씩 채운다(목록을 그때 읽으므로).
+  for (const it of items) {
+    if (it.isDir) continue;
+    ctx.queue.ensure({
+      key: it.path,
+      name: it.name,
+      size: it.size,
+      dir: src.side === "local" ? "up" : "down",
+      srcPath: it.path,
+      destDir,
+    });
+  }
   ctx.bundle.total = await measureTotal(ctx, src.side, items, ctx.listed).catch(() => 0);
   ctx.bundle.done = 0;
   setBundle(ctx);
@@ -141,7 +157,10 @@ export async function xTransferItems(
         : await conflictDialog(targetName, items.length - i - 1);
       if (decision.applyToRest) applied = decision.choice;
       if (decision.choice === "cancel") break;
-      if (decision.choice === "skip") continue;
+      if (decision.choice === "skip") {
+        ctx.queue.setState(item.path, "skip", "같은 이름 — 건너뜀");
+        continue;
+      }
       if (decision.choice === "rename") {
         targetName = uniqueName(targetName, (c) => hasName(c));
       }
@@ -202,6 +221,17 @@ export async function xTransferPlan(
   ctx.xfer.cancelled = false;
   ctx.listed = new Map();
   ctx.resumeAll = null;
+  ctx.queue.begin();
+  for (const p of plan) {
+    ctx.queue.ensure({
+      key: p.entry.path,
+      name: p.entry.name,
+      size: p.entry.size,
+      dir: from === "local" ? "up" : "down",
+      srcPath: p.entry.path,
+      destDir: p.destDir,
+    });
+  }
   ctx.bundle.total = plan.reduce((s, p) => s + (p.entry.isDir ? 0 : p.entry.size), 0);
   ctx.bundle.done = 0;
   setBundle(ctx);
@@ -329,15 +359,37 @@ async function transferOne(
   const destPath = joinPath(destDir, destName);
 
   if (!entry.isDir) {
+    // 폴더 안에서 들어온 파일은 여기서 처음 큐에 오른다(최상위는 묶음 시작 때 이미 올랐다).
+    ctx.queue.ensure({
+      key: entry.path,
+      name: entry.name,
+      size: entry.size,
+      dir: from === "local" ? "up" : "down",
+      srcPath: entry.path,
+      destDir,
+    });
     const resumeFrom = await decideResume(ctx, from, entry, destPath);
-    if (resumeFrom === null) return; // 건너뛰기 / 취소
+    if (resumeFrom === null) {
+      ctx.queue.setState(entry.path, "skip", ctx.xfer.cancelled ? "취소됨" : "건너뜀");
+      return;
+    }
     const transferId = crypto.randomUUID();
     ctx.setTransfer(transferId);
+    ctx.queue.setState(entry.path, "run");
     if (ctx.bundle.total > 0) ctx.showProgress(entry.name, ctx.bundle.done, ctx.bundle.total);
     else ctx.showProgress(entry.name, 0, entry.size);
-    if (from === "local")
-      await sftpUpload(ctx.getSftpId()!, entry.path, destPath, transferId, resumeFrom);
-    else await sftpDownload(ctx.getSftpId()!, entry.path, destPath, transferId, resumeFrom);
+    try {
+      if (from === "local")
+        await sftpUpload(ctx.getSftpId()!, entry.path, destPath, transferId, resumeFrom);
+      else await sftpDownload(ctx.getSftpId()!, entry.path, destPath, transferId, resumeFrom);
+    } catch (e) {
+      // 실패는 큐에 남겨 나중에 다시 시도할 수 있게 한다. 던지기는 그대로 — 위쪽
+      // 집계(실패 개수)와 폴더 재귀의 기존 동작을 바꾸지 않는다.
+      ctx.queue.setState(entry.path, ctx.xfer.cancelled ? "skip" : "fail", String(e).slice(0, 120));
+      ctx.setTransfer(null);
+      throw e;
+    }
+    ctx.queue.setState(entry.path, "done");
     ctx.setTransfer(null);
     // 이 파일 몫을 누적한다. 다음 파일의 진행 이벤트는 여기에 더해져 전체 진행이 된다.
     ctx.bundle.done = Math.min(ctx.bundle.total || Number.MAX_SAFE_INTEGER, ctx.bundle.done + entry.size);
@@ -355,6 +407,17 @@ async function transferOne(
     ((from === "local"
       ? await localList(entry.path)
       : await sftpList(ctx.getSftpId()!, entry.path)) as Entry[]);
+  for (const child of children) {
+    if (child.name === "." || child.name === ".." || child.isDir) continue;
+    ctx.queue.ensure({
+      key: child.path,
+      name: child.name,
+      size: child.size,
+      dir: from === "local" ? "up" : "down",
+      srcPath: child.path,
+      destDir: destPath,
+    });
+  }
   for (const child of children) {
     if (ctx.xfer.cancelled) return;
     if (child.name === "." || child.name === "..") continue;

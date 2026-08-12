@@ -232,6 +232,10 @@ export const sftpUpload = (
   resumeFrom = 0,
 ): Promise<void> => invoke("sftp_upload", { id, localPath, remotePath, transferId, resumeFrom });
 
+/** 전송 속도 상한(KB/s, 0 = 무제한). 전송 도중에 바꿔도 다음 조각부터 듣는다. */
+export const sftpSetRateLimit = (kbps: number): Promise<void> =>
+  invoke("sftp_set_rate_limit", { kbps: Math.max(0, Math.round(kbps)) });
+
 /** 원격 파일의 [크기, 수정시각(초)] — 없으면 null. localStat 의 원격판. */
 export const sftpStat = (id: string, path: string): Promise<[number, number] | null> =>
   invoke<[number, number] | null>("sftp_stat", { id, path });

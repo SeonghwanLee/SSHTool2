@@ -1,0 +1,195 @@
+<!doctype html>
+<!-- 경쟁 제품 기능 비교 — SecureCRT · MobaXterm · WinSCP · FileZilla 대비.
+     판정은 각 제품의 공식 기능 페이지 기재 기준. 갱신일을 본문에 명시할 것. -->
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SSHTool2 — 기능 비교</title>
+  <meta name="description" content="SecureCRT · MobaXterm · WinSCP · FileZilla 공식 기능과 SSHTool2 비교표." />
+  <style>
+    /* 앱·다운로드 페이지와 같은 에버포레스트 팔레트. */
+    :root {
+      --bg: #2d353b; --panel: #343f44; --panel2: #3d484d; --border: #4f585e;
+      --fg: #d3c6aa; --muted: #859289; --accent: #a7c080; --accent-ink: #2d353b;
+      --blue: #7fbbb3; --red: #e67e80; --yellow: #dbbc7f;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--fg);
+      font-family: "Segoe UI", "Malgun Gothic", sans-serif; line-height: 1.6;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+    header { padding: 56px 0 32px; }
+    .logo { font-family: Consolas, monospace; font-size: 15px; color: var(--accent); letter-spacing: 1px; }
+    h1 { font-size: 34px; margin: 8px 0 6px; }
+    h1 .accent { color: var(--accent); }
+    .tagline { color: var(--muted); font-size: 15px; }
+    .asof { color: var(--muted); font-size: 13px; margin-top: 10px; }
+    .asof a { color: var(--blue); }
+
+    section { padding: 34px 0; border-top: 1px solid var(--border); }
+    h2 { font-size: 20px; color: var(--accent); margin-bottom: 6px; }
+    .lead { color: var(--muted); font-size: 13.5px; margin-bottom: 16px; }
+
+    /* 넓은 표는 좁은 화면에서 가로로만 스크롤한다(본문은 흔들리지 않게). */
+    .scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 620px; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+    td.mark, th.mark { text-align: center; width: 96px; }
+    tr.gap td { background: var(--panel); font-weight: 600; }
+    tr.us td:first-child { color: var(--yellow); }
+    .yes { color: var(--accent); font-weight: 700; }
+    .no { color: var(--red); font-weight: 700; }
+    .part { color: var(--yellow); font-weight: 700; }
+    .na { color: var(--muted); }
+    .new { color: var(--accent); font-size: 11px; margin-left: 4px; white-space: nowrap; }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+    ul.plain { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    ul.plain li {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 16px; font-size: 13.5px;
+    }
+    .note {
+      background: var(--panel); border-left: 3px solid var(--yellow);
+      padding: 12px 16px; border-radius: 0 8px 8px 0; margin-top: 16px;
+      font-size: 13px; color: var(--muted);
+    }
+    .note b { color: var(--yellow); }
+    footer { padding: 32px 0 48px; border-top: 1px solid var(--border);
+             text-align: center; color: var(--muted); font-size: 12.5px; }
+    footer a { color: var(--blue); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">&gt;_ SSHTool2</div>
+      <h1>다른 도구와 <span class="accent">무엇이 다른가</span></h1>
+      <p class="tagline">SecureCRT · MobaXterm · WinSCP · FileZilla 의 공식 기능과 하나씩 견줘 봤습니다.</p>
+      <p class="asof">
+        2026년 8월 12일 기준 · 판정은 각 제품 <b>공식 기능 페이지 기재</b>를 따릅니다 ·
+        <a href="./index.html">다운로드로 돌아가기</a>
+      </p>
+    </header>
+
+    <section>
+      <h2>터미널 · 세션</h2>
+      <p class="lead">SecureCRT · MobaXterm 과 견줍니다. 파일 전송 전용 도구(WinSCP · FileZilla)에는 해당하지 않는 항목입니다.</p>
+      <div class="legend">
+        <span><span class="yes">O</span> 있음</span>
+        <span><span class="part">△</span> 제한적</span>
+        <span><span class="no">X</span> 없음</span>
+      </div>
+      <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>기능</th>
+            <th class="mark">SecureCRT</th>
+            <th class="mark">MobaXterm</th>
+            <th class="mark">SSHTool2</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>탭 · 화면 분할</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>세션 폴더 관리 · 빠른 접속</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>접속 후 자동 명령 · 트리거</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>로컬 셸 세션</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>원격 데스크톱(RDP)</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>여러 서버 동시 명령</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>마스터 비밀번호 · 자격증명 보관</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>호스트키 확인 · 관리</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>포트 포워딩 (-L / -R)</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr class="us"><td>여러 줄 붙여넣기 확인<span class="new">v0.74.0</span></td><td class="mark yes">O</td><td class="mark no">X</td><td class="mark yes">O</td></tr>
+          <tr class="us"><td>점프 호스트(SSH 게이트웨이)</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr class="us"><td>SSH 에이전트 연동</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr class="us"><td>동적 포워딩 (-D, SOCKS)</td><td class="mark yes">O</td><td class="mark no">X</td><td class="mark no">X</td></tr>
+          <tr class="us"><td>키워드 실시간 강조</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr class="us"><td>세션 로그 회전 · 파일명 규칙</td><td class="mark yes">O</td><td class="mark part">△</td><td class="mark part">△</td></tr>
+          <tr><td>프록시(SOCKS · HTTP)</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>Telnet · 시리얼(COM)</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>X11 포워딩 / X 서버</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>스크립팅(Python · VBScript) · 매크로</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>Zmodem · Xmodem · Kermit</td><td class="mark yes">O</td><td class="mark no">X</td><td class="mark no">X</td></tr>
+          <tr><td>VNC</td><td class="mark no">X</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>Kerberos · 스마트카드 · FIPS</td><td class="mark yes">O</td><td class="mark no">X</td><td class="mark no">X</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>파일 전송</h2>
+      <p class="lead">WinSCP · FileZilla 와 견줍니다. SSHTool2 의 SFTP 창이 대응하는 영역입니다.</p>
+      <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>기능</th>
+            <th class="mark">WinSCP</th>
+            <th class="mark">FileZilla</th>
+            <th class="mark">SSHTool2</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>로컬 · 원격 이중 패널</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>드래그앤드롭 전송</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>원격 파일 즉시 편집</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>마스터 비밀번호</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr><td>4GB 초과 파일</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr class="us"><td>이어받기(resume)<span class="new">v0.74.0</span></td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr class="us"><td>폴더 비교 · 동기화<span class="new">v0.74.0</span></td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark yes">O</td></tr>
+          <tr class="us"><td>전송 큐(대기 · 재시도)</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr class="us"><td>파일 이름 필터 · 검색</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr class="us"><td>원격 경로 북마크</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr class="us"><td>전송 속도 제한</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>동기화 브라우징(양쪽 동시 이동)</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>Pageant(SSH 에이전트) 연동</td><td class="mark yes">O</td><td class="mark yes">O</td><td class="mark no">X</td></tr>
+          <tr><td>FTP · WebDAV · S3</td><td class="mark yes">O</td><td class="mark part">△</td><td class="mark no">X</td></tr>
+          <tr><td>스크립팅 · .NET 연동</td><td class="mark yes">O</td><td class="mark no">X</td><td class="mark no">X</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>SSHTool2 에만 있는 것</h2>
+      <p class="lead">네 제품의 공식 기능 목록에는 없고 SSHTool2 에는 있는 것들입니다.</p>
+      <ul class="plain">
+        <li><b>외부 프로그램 세션 가져오기</b><br />PuTTY · SecureCRT · MobaXterm · WinSCP · FileZilla 5종의 저장된 세션을 폴더 구조까지 그대로 가져옵니다.</li>
+        <li><b>세션 색 태그</b><br />운영과 개발을 색으로 구분해 목록과 탭에 띠로 표시합니다.</li>
+        <li><b>자동 재접속</b><br />예기치 않게 끊기면 정해진 간격 · 횟수만큼 스스로 다시 붙습니다(직접 끊은 경우는 제외).</li>
+        <li><b>세션 빠른 찾기(Ctrl+P)</b><br />이름 · 계정@호스트 · 폴더로 검색해 Enter 로 바로 접속합니다.</li>
+        <li><b>내부망 모드</b><br />인터넷이 차단된 환경에서 외부로 나가는 UI와 주소를 감춥니다.</li>
+        <li><b>한글 환경 최적화</b><br />IME 조합 표시 · EUC-KR 서버 파일명 · 글자 폭 보정을 전용 테스트로 검증합니다.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>이 표를 읽는 법</h2>
+      <p class="lead">
+        비교 대상은 오랜 기간 다듬어진 상용 · 대형 오픈소스 제품입니다. 기능 수로 겨루자는 표가 아니라,
+        <b>무엇을 아직 안 갖췄는지</b> 스스로 확인하려고 만든 표입니다. 표시가 X 인 항목은 그대로 개발 목록에 올라 있습니다.
+      </p>
+      <div class="note">
+        <b>출처와 한계</b> — 판정은 각 제품이 공식적으로 밝힌 기능 목록을 기준으로 했습니다. 실제 제품에는
+        목록에 적히지 않은 기능이 더 있을 수 있고, 같은 이름의 기능이라도 깊이가 다를 수 있습니다.
+        특히 FileZilla 는 공식 기능 페이지에 접근하지 못해(HTTP 403) 프로젝트 사이트와 공개 문서로 대신했으므로,
+        그 열은 다른 셋보다 근거가 약합니다.
+      </div>
+    </section>
+
+    <footer>
+      <a href="./index.html">다운로드</a>
+      &nbsp;·&nbsp;
+      <a href="./changelog.html">전체 변경 이력</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/SeonghwanLee/SSHTool2">GitHub</a>
+    </footer>
+  </div>
+</body>
+</html>

@@ -325,6 +325,7 @@ async fn sftp_download(
     local_path: String,
     transfer_id: String,
     resume_from: u64,
+    rate: State<'_, sftp::RateLimit>,
 ) -> Result<(), String> {
     sftp::download(
         app,
@@ -335,6 +336,7 @@ async fn sftp_download(
         local_path,
         transfer_id,
         resume_from,
+        &rate,
     )
     .await
 }
@@ -349,6 +351,7 @@ async fn sftp_upload(
     remote_path: String,
     transfer_id: String,
     resume_from: u64,
+    rate: State<'_, sftp::RateLimit>,
 ) -> Result<(), String> {
     sftp::upload(
         app,
@@ -359,8 +362,15 @@ async fn sftp_upload(
         remote_path,
         transfer_id,
         resume_from,
+        &rate,
     )
     .await
+}
+
+/// 전송 속도 상한(KB/s, 0 = 무제한). 전송 도중에 바꿔도 다음 조각부터 듣는다.
+#[tauri::command]
+fn sftp_set_rate_limit(rate: State<'_, sftp::RateLimit>, kbps: u64) {
+    rate.store(kbps.saturating_mul(1024), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// 원격 파일의 크기·수정시각 — 이어받기 판단(.part 크기)과 폴더 비교에 쓴다.
@@ -709,6 +719,7 @@ fn main() {
         .manage(VaultState::default())
         .manage(SftpMap::default())
         .manage(sftp::TransferCancel::default())
+        .manage(sftp::RateLimit::new(0))
         .manage(LocalMap::default())
         .manage(hostkey::HostKeyPrompts::default())
         .invoke_handler(tauri::generate_handler![
@@ -755,6 +766,7 @@ fn main() {
             sftp_cancel,
             sftp_canonicalize,
             sftp_stat,
+            sftp_set_rate_limit,
             open_config_dir,
             keystore_store,
             keystore_get,

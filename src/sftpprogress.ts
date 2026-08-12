@@ -1,7 +1,7 @@
 // SFTP 전송 진행 스트립 — 파일명·진행 막대·전송률·전체 진행(3/10)·취소 버튼.
 // sftpui.ts 에서 분리(0.67.0). 로직 변경 없음.
 
-import { sftpCancel } from "./ipc";
+import { sftpCancel, sftpSetRateLimit } from "./ipc";
 import { applyIcon } from "./icons";
 import { fmtSize, type TransferState } from "./sftpcommon";
 
@@ -12,7 +12,17 @@ export interface ProgressStrip {
   hideProgress: () => void;
 }
 
-export function createProgressStrip(xfer: TransferState): ProgressStrip {
+/** 속도 상한 고르개의 후보(KB/s). 0 = 무제한. */
+const RATE_CHOICES: { label: string; kbps: number }[] = [
+  { label: "무제한", kbps: 0 },
+  { label: "200 KB/s", kbps: 200 },
+  { label: "500 KB/s", kbps: 500 },
+  { label: "1 MB/s", kbps: 1024 },
+  { label: "5 MB/s", kbps: 5 * 1024 },
+  { label: "10 MB/s", kbps: 10 * 1024 },
+];
+
+export function createProgressStrip(xfer: TransferState, defaultKbps = 0): ProgressStrip {
   // ── 전송 진행 스트립 ──
   const strip = document.createElement("div");
   strip.className = "sftp-progress hidden";
@@ -35,7 +45,30 @@ export function createProgressStrip(xfer: TransferState): ProgressStrip {
     xfer.cancelled = true;
     if (xfer.current) void sftpCancel(xfer.current);
   });
-  strip.append(pName, bar, pInfo, cancelBtn);
+  // 속도 상한 — 전송이 보이는 자리에서 바로 바꾼다. "지금 이 전송이 회선을 다 먹으니
+  // 줄이자"가 실제 상황이라 설정 창을 오가는 동선으로는 늦다. 여기서 바꾼 값은
+  // 설정에 저장하지 않는다(급해서 줄인 값이 다음 주까지 따라다니지 않게).
+  const rateSel = document.createElement("select");
+  rateSel.className = "prog-rate";
+  rateSel.title = "전송 속도 제한 — 지금 전송에 바로 적용됩니다(설정에는 저장하지 않음)";
+  // 설정의 기본값이 후보에 없으면 그 값도 후보에 넣어 준다(직접 입력한 수치 보존).
+  const choices = RATE_CHOICES.some((c) => c.kbps === defaultKbps)
+    ? RATE_CHOICES
+    : [...RATE_CHOICES, { label: `${defaultKbps} KB/s`, kbps: defaultKbps }].sort(
+        (a, b) => a.kbps - b.kbps,
+      );
+  for (const c of choices) {
+    const o = document.createElement("option");
+    o.value = String(c.kbps);
+    o.textContent = c.label;
+    o.selected = c.kbps === defaultKbps;
+    rateSel.appendChild(o);
+  }
+  rateSel.addEventListener("change", () => {
+    void sftpSetRateLimit(Number(rateSel.value));
+  });
+
+  strip.append(pName, bar, pInfo, rateSel, cancelBtn);
 
   // 전송 속도 계산용(이전 진행 시점).
   let speedName = "";

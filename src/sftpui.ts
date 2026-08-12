@@ -9,6 +9,7 @@ import {
   sftpDownload,
   sftpUpload,
   sftpCancel,
+  sftpSetRateLimit,
   sftpMkdir,
   sftpRemove,
   sftpRename,
@@ -33,6 +34,7 @@ import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { attachResizeHandles } from "./sftpwindow";
 import { DirTree } from "./sftptree";
 import { createProgressStrip } from "./sftpprogress";
+import { createQueuePanel } from "./sftpqueue";
 import { Pane, type PaneCtx } from "./sftppane";
 import {
   xTransferInto,
@@ -95,6 +97,8 @@ export async function openSftpBrowser(
   onAuthenticated?: () => void | Promise<void>,
   /** 설정의 'SFTP 기본 로컬 폴더'. 빈 값이면 OS 기본을 쓴다. */
   defaultLocalDir?: string,
+  /** 설정의 전송 속도 상한(KB/s, 0 = 무제한). 창에서 즉석으로 바꿀 수 있다. */
+  defaultRateKbps?: number,
 ): Promise<void> {
   const overlay = document.createElement("div");
   overlay.className = "sftp-overlay";
@@ -248,7 +252,11 @@ export async function openSftpBrowser(
   };
 
   // 진행 스트립(막대·속도·취소)은 sftpprogress.ts 로 분리(0.67.0).
-  const { strip, showProgress, setOverall, hideProgress } = createProgressStrip(xfer);
+  const rateKbps = Math.max(0, Math.round(defaultRateKbps ?? 0));
+  const { strip, showProgress, setOverall, hideProgress } = createProgressStrip(xfer, rateKbps);
+  // 설정의 기본값을 백엔드에 심는다. 창에서 고르면 그때부터 그 값이 쓰인다(저장하지 않음).
+  void sftpSetRateLimit(rateKbps).catch(() => undefined);
+  const queue = createQueuePanel();
   onSftpProgress((e) => {
     if (disposed || e.transferId !== xfer.current) return;
     // 파일 하나가 아니라 묶음 전체 기준으로 보여 준다 — 열 개를 보내는데 파일마다
@@ -483,7 +491,7 @@ export async function openSftpBrowser(
     window.addEventListener("mouseup", onUp);
   });
 
-  panel.append(header, body, strip);
+  panel.append(header, body, queue.root, strip);
 
   // 전송·탐색기 연계는 sftptransfer.ts 로 분리(0.67.0). 창이 쥐고 있던 상태·표시
   // 함수는 컨텍스트(TransferCtx)로 넘긴다 — 클로저를 그대로 옮길 수 없기 때문이다.
@@ -500,6 +508,7 @@ export async function openSftpBrowser(
     bundle,
     listed: listedCache,
     resumeAll: null,
+    queue,
     panes: { local: () => local, remote: () => remote },
   };
   const transferInto = (dest: Pane, paths: string[]): Promise<void> => xTransferInto(xctx, dest, paths);
@@ -508,6 +517,22 @@ export async function openSftpBrowser(
   const downloadToPicked = (items: Entry[]): Promise<void> => xDownloadToPicked(xctx, items);
   const onOsFilesDropped = (dt: DataTransfer, destDir?: string): Promise<void> =>
     xOnOsFilesDropped(xctx, dt, destDir);
+
+  // 실패분 다시 시도 — 동기화와 같은 계획 실행 경로를 쓴다(충돌을 다시 묻지 않는다).
+  queue.setRetry((failed) => {
+    const dir = failed[0].dir;
+    void xTransferPlan(
+      xctx,
+      dir === "up" ? "local" : "remote",
+      failed.map((f) => ({
+        entry: { name: f.name, path: f.srcPath, isDir: false, size: f.size, modified: 0 },
+        destDir: f.destDir,
+      })),
+      [],
+    ).then(({ sent, failed: bad }) => {
+      setStatus(bad > 0 ? `재시도 — ${sent}개 성공, ${bad}개 실패` : `재시도 — ${sent}개 성공`);
+    });
+  });
 
   syncBtn.addEventListener("click", () => {
     openSyncDialog({

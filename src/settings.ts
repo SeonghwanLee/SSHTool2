@@ -54,6 +54,12 @@ export interface Settings {
    */
   sftpLocalDir: string;
   /**
+   * SFTP 전송 속도 상한(KB/s). 0 = 무제한(기본). 여기 값은 '기본값'이고, 전송 중에는
+   * SFTP 창에서 즉석으로 바꿀 수 있다 — 급해서 한 번 줄인 값이 다음 주까지 따라다니지
+   * 않도록 창에서 바꾼 것은 저장하지 않는다.
+   */
+  sftpRateLimitKbps: number;
+  /**
    * 진단 로그(debug.log) 사용 여부. 터미널이 받은 원시 바이트까지 남기므로 기본은 꺼짐이다 —
    * 화면에 뜬 설정값·키·토큰이 그대로 파일에 남는다. 문제를 재현하는 동안에만 켠다.
    */
@@ -100,6 +106,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarDocked: true,
   pasteConfirmLines: 2,
   sftpLocalDir: "",
+  sftpRateLimitKbps: 0,
   verboseLog: false,
   offlineMode: false,
   folderSort: {},

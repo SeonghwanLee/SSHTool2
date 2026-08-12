@@ -1370,6 +1370,100 @@ try {
       );
     });
 
+    await t.test("전송 큐 — 항목이 줄 서고 실패는 남아 다시 시도할 수 있다", async () => {
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      await page.evaluate(() => {
+        window.__dlCount = 0;
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_list")
+            return [
+              { name: "q1.txt", path: "/home/u/q1.txt", isDir: false, size: 10, modified: 1 },
+              { name: "q2.txt", path: "/home/u/q2.txt", isDir: false, size: 20, modified: 1 },
+            ];
+          if (cmd === "local_stat") return null;
+          if (cmd === "local_list") return [];
+          if (cmd === "sftp_download") {
+            window.__dlCount++;
+            // q2 만 실패시킨다 — 실패가 큐에 남는지 보기 위해서다.
+            if (args.remotePath.includes("q2")) throw new Error("권한 없음");
+            return null;
+          }
+          return prev(cmd, args);
+        };
+      });
+      await page.locator(".sftp-pane").nth(1).locator(".sftp-list").click({ position: { x: 40, y: 200 } });
+      await page.keyboard.press("F5");
+      await page.waitForTimeout(600);
+      // 두 파일을 모두 골라 내려받는다.
+      await page.locator(".sftp-pane").nth(1).locator(".sftp-row:not(.sftp-updir)").first().click();
+      await page.keyboard.press("Control+a");
+      await page.waitForTimeout(200);
+      await page.locator(".sftp-pane").nth(1).locator(".sftp-row:not(.sftp-updir)").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-item")]
+          .find((x) => x.textContent.includes("다운로드") && !x.textContent.includes("폴더 지정"))
+          ?.click(),
+      );
+      await page.waitForTimeout(1500);
+      const q = await page.evaluate(() => ({
+        visible: !document.querySelector(".sftp-queue")?.classList.contains("hidden"),
+        rows: [...document.querySelectorAll(".queue-row")].map((r) => ({
+          name: r.querySelector(".queue-name")?.textContent,
+          state: r.querySelector(".queue-state")?.textContent,
+        })),
+        retryShown: document.querySelector(".queue-retry")?.style.display !== "none",
+      }));
+      expect(q.visible, "전송 큐가 보이지 않는다");
+      expect(q.rows.length === 2, `큐 항목이 2건이 아니다: ${JSON.stringify(q.rows)}`);
+      expect(
+        q.rows.some((r) => r.name === "q1.txt" && r.state === "완료"),
+        `성공 항목이 완료로 남지 않았다: ${JSON.stringify(q.rows)}`,
+      );
+      expect(
+        q.rows.some((r) => r.name === "q2.txt" && r.state === "실패"),
+        `실패 항목이 큐에 남지 않았다: ${JSON.stringify(q.rows)}`,
+      );
+      expect(q.retryShown, "실패가 있는데 '실패 다시 시도' 가 보이지 않는다");
+
+      // 다시 시도 — 실패한 것만 보낸다.
+      const before = await page.evaluate(() => window.__dlCount);
+      await page.evaluate(() => document.querySelector(".queue-retry")?.click());
+      await page.waitForTimeout(1200);
+      const after = await page.evaluate(() => window.__dlCount);
+      expect(after === before + 1, `재시도가 실패분 1건만 보내지 않았다: ${before} → ${after}`);
+    });
+
+    await t.test("전송 속도 제한 — 창에서 고르면 즉시 백엔드로 간다", async () => {
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const opts = await page.evaluate(() =>
+        [...(document.querySelector(".prog-rate")?.options ?? [])].map((o) => o.value),
+      );
+      expect(opts.includes("0") && opts.includes("1024"), `속도 후보가 없다: ${JSON.stringify(opts)}`);
+      const sent = await page.evaluate(async () => {
+        window.__ipc.length = 0;
+        const sel = document.querySelector(".prog-rate");
+        sel.value = "1024";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 300));
+        return window.__ipc.filter(([c]) => c === "sftp_set_rate_limit").map(([, a]) => a.kbps);
+      });
+      // 앞 테스트들이 invoke 를 여러 겹 감싸 한 호출이 여러 번 기록된다 — 개수가 아니라 값으로 본다.
+      expect(
+        sent.length >= 1 && sent.every((v) => v === 1024),
+        `속도 제한이 전달되지 않았다: ${JSON.stringify(sent)}`,
+      );
+    });
+
     await page.close();
   }
 

@@ -377,6 +377,37 @@ export function settingsDialog(
     offlineNote.style.display = working.offlineMode ? "" : "none";
     gen.appendChild(offlineNote);
 
+    // 전송 속도 상한의 '기본값'. 급할 때 줄이는 것은 SFTP 창에서 즉석으로 한다.
+    // 저장은 KB/s 하나로 하고 화면에서만 단위를 고른다 — 값과 단위를 따로 저장하면
+    // 둘이 어긋난 파일이 생길 수 있다(예: 단위만 MB 로 바뀐 채 값이 그대로).
+    const rateRow = controlRow("SFTP 전송 속도 제한 (0=무제한)");
+    const rateWrap = document.createElement("span");
+    rateWrap.className = "rate-wrap";
+    // 1MB 의 배수면 MB 로 보여 준다 — 5120 보다 5 MB/s 가 읽기 쉽다.
+    const asMb = working.sftpRateLimitKbps >= 1024 && working.sftpRateLimitKbps % 1024 === 0;
+    const rateIn = numInput(String(asMb ? working.sftpRateLimitKbps / 1024 : working.sftpRateLimitKbps), 0, 100000, 1);
+    const rateUnit = document.createElement("select");
+    for (const [value, text] of [
+      ["kb", "KB/s"],
+      ["mb", "MB/s"],
+    ]) {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = text;
+      o.selected = (value === "mb") === asMb;
+      rateUnit.appendChild(o);
+    }
+    const applyRate = (): void => {
+      const n = clampNum(rateIn, 0, 100000, 0);
+      working = { ...working, sftpRateLimitKbps: rateUnit.value === "mb" ? n * 1024 : n };
+      apply();
+    };
+    rateIn.addEventListener("change", applyRate);
+    rateUnit.addEventListener("change", applyRate);
+    rateWrap.append(rateIn, rateUnit);
+    rateRow.appendChild(rateWrap);
+    gen.appendChild(rateRow);
+
     const sftpDirRow = controlRow("SFTP 기본 로컬 폴더");
     const sftpDir = document.createElement("input");
     sftpDir.type = "text";

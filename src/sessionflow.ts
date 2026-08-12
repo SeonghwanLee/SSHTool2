@@ -162,7 +162,7 @@ export async function openSftpFor(s: SessionInfo): Promise<void> {
   // 살아있는 연결을 재사용할 때는 자격증명이 필요 없다 — 묻지도 않는다(0.62.0).
   // 묻고 나서 버리면, 오타 난 비밀번호가 검증 없이 저장될 입구만 열어 준다.
   if (liveSftpOf(s.id)) {
-    await openSftpBrowser(s, "", undefined, settings.sftpLocalDir);
+    await openSftpBrowser(s, "", undefined, settings.sftpLocalDir, settings.sftpRateLimitKbps);
     return;
   }
   // SFTP 는 셸과 별개의 연결이라 자격증명이 필요 — 저장분 우선, 없으면 프롬프트.
@@ -180,6 +180,7 @@ export async function openSftpFor(s: SessionInfo): Promise<void> {
     creds.password,
     () => credentials.onConnected(s, creds),
     settings.sftpLocalDir,
+    settings.sftpRateLimitKbps,
   );
 }
 

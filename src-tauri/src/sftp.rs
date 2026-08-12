@@ -236,6 +236,38 @@ const CHUNK: usize = 64 * 1024;
 /// 주기 사이에 끝나는 짧은 전송도 100% 가 정확히 찍힌다.
 const EMIT_EVERY: Duration = Duration::from_secs(1);
 
+// ── 전송 속도 제한(0.75.0) ────────────────────────────────────────────────────
+//
+// 초당 바이트. 0 = 무제한. 전송 도중에 바꿔도 다음 조각부터 곧바로 듣는다 —
+// "지금 이 전송이 회선을 다 먹으니 줄이자"가 실제 상황이라 시작 시점 값에 묶으면
+// 쓸모가 절반이다. 그래서 값을 전송 인자로 받지 않고 공유 상태에서 매 조각 읽는다.
+//
+// SFTP 는 읽기도 우리가 요청해야 오는 구조라, 받는 쪽도 요청을 늦추면 실제 회선
+// 사용량이 그만큼 내려간다(터미널 수신과 달리 별도 흐름제어가 필요 없다).
+pub type RateLimit = std::sync::atomic::AtomicU64;
+
+/// 이번 조각으로 읽을 바이트 수. 제한이 낮을수록 조각을 잘게 썬다 —
+/// 조각이 크면 그만큼 오래 자게 되고, 취소 반응도 그만큼 늦어진다(1/8초 목표).
+fn chunk_for(limit: u64) -> usize {
+    if limit == 0 {
+        return CHUNK;
+    }
+    (limit / 8).clamp(8 * 1024, CHUNK as u64) as usize
+}
+
+/// 조각 하나를 옮기는 데 허용된 시간을 채운다. 조각마다 독립 계산이라 제한값을
+/// 바꾸면 즉시 반영되고, 누적 오차가 쌓이지 않는다(느리게 틀리는 쪽이라 안전하다).
+async fn pace(limit: u64, moved: usize, started: Instant) {
+    if limit == 0 || moved == 0 {
+        return;
+    }
+    let want = Duration::from_secs_f64(moved as f64 / limit as f64);
+    let took = started.elapsed();
+    if want > took {
+        tokio::time::sleep(want - took).await;
+    }
+}
+
 fn base_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
@@ -283,6 +315,7 @@ pub async fn download(
     transfer_id: String,
     // 0 이 아니면 그 바이트 위치부터 이어받는다(.part 뒤에 붙여 쓴다).
     resume_from: u64,
+    rate: &RateLimit,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
     let flag = register_cancel(cancels, &transfer_id);
@@ -339,8 +372,11 @@ pub async fn download(
             if flag.load(Ordering::SeqCst) {
                 return Err("전송이 취소되었습니다".to_string());
             }
+            let limit = rate.load(Ordering::Relaxed);
+            let step = chunk_for(limit);
+            let started = Instant::now();
             let n = remote
-                .read(&mut buf)
+                .read(&mut buf[..step])
                 .await
                 .map_err(|e| format!("원격 읽기 실패: {e}"))?;
             if n == 0 {
@@ -351,6 +387,7 @@ pub async fn download(
                 .await
                 .map_err(|e| format!("로컬 쓰기 실패: {e}"))?;
             done += n as u64;
+            pace(limit, n, started).await;
             if last_emit.map_or(true, |t| t.elapsed() >= EMIT_EVERY) {
                 last_emit = Some(Instant::now());
                 let _ = app.emit(
@@ -419,6 +456,7 @@ pub async fn upload(
     transfer_id: String,
     // 0 이 아니면 그 바이트 위치부터 이어 올린다(서버의 .part 뒤에 붙여 쓴다).
     resume_from: u64,
+    rate: &RateLimit,
 ) -> Result<(), String> {
     let conn = get_conn(state, id)?;
     let flag = register_cancel(cancels, &transfer_id);
@@ -478,8 +516,11 @@ pub async fn upload(
             if flag.load(Ordering::SeqCst) {
                 return Err("전송이 취소되었습니다".to_string());
             }
+            let limit = rate.load(Ordering::Relaxed);
+            let step = chunk_for(limit);
+            let started = Instant::now();
             let n = local
-                .read(&mut buf)
+                .read(&mut buf[..step])
                 .await
                 .map_err(|e| format!("로컬 읽기 실패: {e}"))?;
             if n == 0 {
@@ -490,6 +531,7 @@ pub async fn upload(
                 .await
                 .map_err(|e| format!("원격 쓰기 실패: {e}"))?;
             done += n as u64;
+            pace(limit, n, started).await;
             if last_emit.map_or(true, |t| t.elapsed() >= EMIT_EVERY) {
                 last_emit = Some(Instant::now());
                 let _ = app.emit(

@@ -2216,6 +2216,115 @@ body.sftp-resizing * {
   margin-right: 6px;
 }
 
+/* ── 전송 큐(창 하단) ── */
+.sftp-queue {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sftp-queue.hidden {
+  display: none;
+}
+.queue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.queue-toggle {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.sftp-queue.collapsed .queue-toggle {
+  transform: rotate(-90deg);
+}
+.queue-label {
+  font-weight: 600;
+}
+.queue-counts {
+  flex: 1 1 auto;
+  color: var(--muted);
+}
+.queue-list {
+  max-height: 150px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+.sftp-queue.collapsed .queue-list {
+  display: none;
+}
+.queue-row {
+  display: grid;
+  grid-template-columns: 56px 40px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.queue-row:nth-child(odd) {
+  background: var(--panel-2);
+}
+.queue-state {
+  color: var(--muted);
+}
+.queue-row.q-run .queue-state {
+  color: var(--accent);
+  font-weight: 600;
+}
+.queue-row.q-fail .queue-state {
+  color: var(--error);
+  font-weight: 600;
+}
+.queue-dir {
+  color: var(--muted);
+}
+.queue-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-size,
+.queue-note {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.queue-note {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 설정의 속도 상한 — 숫자 + 단위(KB/MB) 한 줄. */
+.rate-wrap {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.rate-wrap select {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+/* 속도 상한 고르개 — 진행 스트립 안. */
+.prog-rate {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 1px 4px;
+}
+
 /* ── 폴더 비교·동기화 창 ── */
 .sync-card {
   min-width: 640px;
