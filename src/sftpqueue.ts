@@ -57,6 +57,24 @@ const STATE_TEXT: Record<QueueState, string> = {
   skip: "건너뜀",
 };
 
+/**
+ * 세션별 큐 패널. 창을 접었다 다시 열어도 **같은 목록**을 보게 한다 — 전송은 창과
+ * 무관하게 이어지는데 목록만 새로 비면 "전송이 끊겼다"로 읽힌다(실기 보고).
+ */
+const panels = new Map<string, QueueApi>();
+export function queuePanelFor(sessionId: string): QueueApi {
+  let q = panels.get(sessionId);
+  if (!q) {
+    q = createQueuePanel();
+    panels.set(sessionId, q);
+  }
+  return q;
+}
+/** 연결을 끊을 때 함께 버린다(그 세션의 큐는 의미가 없어진다). */
+export function dropQueuePanel(sessionId: string): void {
+  panels.delete(sessionId);
+}
+
 export function createQueuePanel(): QueueApi {
   const root = document.createElement("div");
   root.className = "sftp-queue";

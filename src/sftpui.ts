@@ -34,7 +34,7 @@ import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { attachResizeHandles } from "./sftpwindow";
 import { DirTree } from "./sftptree";
 import { createProgressStrip } from "./sftpprogress";
-import { createQueuePanel } from "./sftpqueue";
+import { queuePanelFor, dropQueuePanel } from "./sftpqueue";
 import { Pane, type PaneCtx } from "./sftppane";
 import {
   xTransferItems,
@@ -252,10 +252,13 @@ export async function openSftpBrowser(
 
   // 진행 스트립(막대·속도·취소)은 sftpprogress.ts 로 분리(0.67.0).
   const rateKbps = Math.max(0, Math.round(defaultRateKbps ?? 0));
-  const { strip, showProgress, setOverall, hideProgress } = createProgressStrip(xfer, rateKbps);
+  const { strip, showProgress, setOverall, hideProgress } = createProgressStrip(xfer, rateKbps, () =>
+    cancelAll(),
+  );
   // 설정의 기본값을 백엔드에 심는다. 창에서 고르면 그때부터 그 값이 쓰인다(저장하지 않음).
   void sftpSetRateLimit(rateKbps).catch(() => undefined);
-  const queue = createQueuePanel();
+  // 창이 아니라 **세션**에 매인다 — 접었다 열어도 줄 서 있던 목록이 그대로 보인다.
+  const queue = queuePanelFor(session.id);
   onSftpProgress((e) => {
     if (disposed || e.transferId !== xfer.current) return;
     // 파일 하나가 아니라 묶음 전체 기준으로 보여 준다 — 열 개를 보내는데 파일마다
@@ -353,6 +356,7 @@ export async function openSftpBrowser(
     window.removeEventListener("resize", onWinResize);
     liveSftp.delete(session.id);
     transferStates.delete(session.id);
+    dropQueuePanel(session.id);
     if (sftpId) void sftpDisconnect(sftpId);
     overlay.remove();
     notifyLive();
@@ -522,15 +526,34 @@ export async function openSftpBrowser(
   // 순차 실행은 유지한다(연결이 하나뿐이라 동시에 돌리면 진행률·취소가 뒤엉킨다).
   // 앞 작업이 실패해도 다음은 돌아야 하므로 성공·실패 양쪽에 이어 붙인다.
   let chain: Promise<void> = Promise.resolve();
+  /**
+   * 취소 세대. 취소를 누르면 하나 올라가고, 그 이전에 줄 선 작업은 차례가 와도
+   * 실행하지 않는다.
+   *
+   * 왜 필요한가: 취소는 지금 도는 묶음만 멈췄고, 줄 서 있던 묶음은 새 묶음으로
+   * 시작하며 `xfer.cancelled` 를 false 로 되돌려 그대로 나갔다 — 사용자는 연결을
+   * 끊어야만 멈출 수 있었다(실기 보고).
+   */
+  let abortGen = 0;
   const enqueue = (job: () => Promise<void>): Promise<void> => {
+    const gen = abortGen;
     // 호출부는 모두 결과를 무시하므로(void), 거부를 그대로 돌려주면 '처리되지 않은
     // 거부'로 남아 진단 로그에 오류만 쌓인다. 여기서 받아 상태줄로 돌린다.
-    const next = chain.then(job, job).catch((e) => {
-      console.error("전송 작업 실패", e);
-      setStatus(`전송 실패: ${String(e)}`);
-    });
+    const next = chain
+      .catch(() => undefined) // 앞 작업의 실패가 뒤 작업을 막지는 않는다
+      .then(() => (gen === abortGen ? job() : undefined))
+      .catch((e) => {
+        console.error("전송 작업 실패", e);
+        setStatus(`전송 실패: ${String(e)}`);
+      });
     chain = next;
     return next;
+  };
+  /** 지금 것과 줄 서 있는 것 전부 취소 — 진행 스트립의 취소 버튼과 큐가 함께 쓴다. */
+  const cancelAll = (): void => {
+    abortGen++;
+    xfer.cancelled = true;
+    if (xfer.current) void sftpCancel(xfer.current);
   };
   // 줄을 서는 동안 패널이 다른 폴더로 옮겨 갈 수 있다 — **넣는 시점의** 항목과
   // 대상 폴더를 붙잡아 둔다. 그러지 않으면 엉뚱한 폴더로 보내진다.
@@ -555,7 +578,7 @@ export async function openSftpBrowser(
   // '대기 모두 취소' — 지금 도는 묶음의 남은 차례를 세운다(진행 중인 파일은 끝까지 간다).
   // 큐에 아직 오르지 않은 폴더 하위 파일까지 멈추려면 이 플래그가 필요하다.
   queue.setCancelWaiting(() => {
-    xfer.cancelled = true;
+    cancelAll(); // 줄 서 있는 묶음까지 함께 멈춘다
     setStatus("남은 전송을 취소했습니다.");
   });
 

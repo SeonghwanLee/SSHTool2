@@ -606,6 +606,101 @@ pub async fn upload(
     result
 }
 
+
+// ── 드롭 업로드(스트리밍) ─────────────────────────────────────────────────────
+//
+// 탐색기에서 끌어다 놓은 파일은 웹뷰가 **내용만** 주고 경로는 주지 않는다. 예전에는
+// 그 내용을 임시 폴더에 사본으로 만든 뒤 그 사본을 다시 올렸다 — 디스크에 한 번 쓰고
+// 한 번 더 읽는 셈이라, 사용자 눈에는 "업로드가 끝났는데 또 올라간다"로 보였다.
+// 이제 조각을 받는 즉시 서버의 .part 에 이어 쓴다. 임시 사본이 없다.
+//
+// 조각마다 열고 닫는다(핸들을 커맨드 사이에 들고 있지 않는다). 4MB 조각 기준으로
+// 열기·닫기 비용은 무시할 만하고, 앱이 죽거나 창이 닫혀도 매달린 핸들이 남지 않는다.
+
+/// 조각 하나를 원격 `.part` 의 offset 자리에 쓴다.
+pub async fn upload_chunk(
+    state: &SftpMap,
+    rate: &RateLimit,
+    id: &str,
+    remote_path: String,
+    offset: u64,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    let conn = get_conn(state, id)?;
+    let wire = text_to_wire(&remote_path, conn.encoding);
+    let part_path = format!("{wire}.part");
+    let started = Instant::now();
+
+    let mut f = conn
+        .sftp
+        .open_with_flags(&part_path, OpenFlags::WRITE | OpenFlags::CREATE)
+        .await
+        .map_err(|e| format!("원격 파일 열기 실패: {e}"))?;
+    f.seek(std::io::SeekFrom::Start(offset))
+        .await
+        .map_err(|e| format!("원격 위치 이동 실패: {e}"))?;
+    f.write_all(&data)
+        .await
+        .map_err(|e| format!("원격 쓰기 실패: {e}"))?;
+    f.flush().await.map_err(|e| format!("flush 실패: {e}"))?;
+    f.shutdown().await.map_err(|e| format!("close 실패: {e}"))?;
+
+    // 속도 제한은 여기서도 듣는다 — 드롭 업로드만 제한을 벗어나면 설정이 거짓말이 된다.
+    let limit = rate.load(Ordering::Relaxed);
+    if limit > 0 {
+        let want = Duration::from_secs_f64(data.len() as f64 / limit as f64);
+        let took = started.elapsed();
+        if want > took {
+            tokio::time::sleep(want - took).await;
+        }
+    }
+    Ok(())
+}
+
+/// 다 보냈다 — `.part` 를 제자리로 옮긴다(기존 파일은 백업 경유로 안전하게 교체).
+pub async fn upload_finish(state: &SftpMap, id: &str, remote_path: String) -> Result<(), String> {
+    let conn = get_conn(state, id)?;
+    let wire = text_to_wire(&remote_path, conn.encoding);
+    let part_path = format!("{wire}.part");
+    finalize_remote(&conn, &part_path, &wire).await
+}
+
+/// 이 파일은 처음부터 다시 — 남아 있는 `.part` 를 버린다.
+pub async fn upload_discard(state: &SftpMap, id: &str, remote_path: String) -> Result<(), String> {
+    let conn = get_conn(state, id)?;
+    let wire = text_to_wire(&remote_path, conn.encoding);
+    let _ = conn.sftp.remove_file(format!("{wire}.part")).await;
+    Ok(())
+}
+
+/// `.part` → 대상 이름. 대상을 **먼저 지우지 않는다** — rename 이 실패하면 원본까지
+/// 잃기 때문이다(진단 0.62.0). 백업으로 비켜 두고 넣은 뒤 백업을 지운다.
+async fn finalize_remote(conn: &SftpConn, part_path: &str, remote_path: &str) -> Result<(), String> {
+    let bak_path = format!("{remote_path}.stbakold");
+    let had_old = conn.sftp.metadata(remote_path.to_string()).await.is_ok();
+    if had_old {
+        let _ = conn.sftp.remove_file(&bak_path).await;
+        conn.sftp
+            .rename(remote_path, &bak_path)
+            .await
+            .map_err(|e| format!("기존 원격 파일 대피 실패: {e}"))?;
+    }
+    match conn.sftp.rename(part_path, remote_path).await {
+        Ok(()) => {
+            if had_old {
+                let _ = conn.sftp.remove_file(&bak_path).await;
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if had_old {
+                let _ = conn.sftp.rename(&bak_path, remote_path).await;
+            }
+            Err(format!("원격 파일 교체 실패: {e}"))
+        }
+    }
+}
+
 /// 원격 파일의 크기·수정시각(초). 없으면 None — 이어받기 판단과 폴더 비교에 쓴다.
 pub async fn stat(state: &SftpMap, id: &str, path: String) -> Result<Option<(u64, u64)>, String> {
     let conn = get_conn(state, id)?;

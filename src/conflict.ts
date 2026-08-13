@@ -85,20 +85,29 @@ const fmtBytes = (n: number): string => {
   return `${i === 0 ? v : v.toFixed(1)} ${u[i]}`;
 };
 
-export function resumeDialog(name: string, done: number, total: number): Promise<ResumeResult> {
+export function resumeDialog(
+  name: string,
+  done: number,
+  total: number,
+  /** 방향 — 올릴 때와 받을 때의 말이 다르다("이어보내기" / "이어받기"). */
+  dir: "up" | "down" = "down",
+): Promise<ResumeResult> {
+  const 보냄 = dir === "up";
   return new Promise((resolve) => {
     openModal(
       (close) => {
         const card = document.createElement("div");
         const title = document.createElement("h3");
-        title.textContent = "받다 만 파일이 있습니다";
+        title.textContent = 보냄 ? "보내다 만 파일이 있습니다" : "받다 만 파일이 있습니다";
         const msg = document.createElement("div");
         msg.className = "modal-msg";
         const pct = total > 0 ? Math.floor((done / total) * 100) : 0;
         msg.textContent =
-          `'${name}' 을(를) 옮기다 중단된 조각이 남아 있습니다 — ` +
+          `'${name}' 을(를) ${보냄 ? "보내다" : "받다"} 중단된 조각이 남아 있습니다 — ` +
           `${fmtBytes(done)} / ${fmtBytes(total)} (${pct}%).\n` +
-          `중단된 뒤 원본이 바뀌었다면 이어받은 파일이 깨집니다. 확실하지 않으면 처음부터 받으세요.`;
+          (보냄
+            ? "중단된 뒤 원본이 바뀌었다면 이어 보낸 파일이 깨집니다. 확실하지 않으면 처음부터 보내세요."
+            : "중단된 뒤 원본이 바뀌었다면 이어받은 파일이 깨집니다. 확실하지 않으면 처음부터 받으세요.");
         msg.style.whiteSpace = "pre-line";
 
         const applyRow = document.createElement("label");
@@ -126,7 +135,7 @@ export function resumeDialog(name: string, done: number, total: number): Promise
           mk("취소", "cancel"),
           mk("건너뛰기", "skip"),
           mk("처음부터", "restart"),
-          mk("이어받기", "resume", true),
+          mk(보냄 ? "이어보내기" : "이어받기", "resume", true),
         );
 
         card.append(title, msg, applyRow, buttons);

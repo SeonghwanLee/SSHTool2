@@ -22,7 +22,12 @@ const RATE_CHOICES: { label: string; kbps: number }[] = [
   { label: "10 MB/s", kbps: 10 * 1024 },
 ];
 
-export function createProgressStrip(xfer: TransferState, defaultKbps = 0): ProgressStrip {
+export function createProgressStrip(
+  xfer: TransferState,
+  defaultKbps = 0,
+  /** 취소 버튼이 할 일. 주지 않으면 지금 파일만 끊는다(예전 동작). */
+  onCancel?: () => void,
+): ProgressStrip {
   // ── 전송 진행 스트립 ──
   const strip = document.createElement("div");
   strip.className = "sftp-progress hidden";
@@ -42,6 +47,10 @@ export function createProgressStrip(xfer: TransferState, defaultKbps = 0): Progr
   applyIcon(cancelBtn, "cancel");
   cancelBtn.title = "전송 취소";
   cancelBtn.addEventListener("click", () => {
+    if (onCancel) {
+      onCancel();
+      return;
+    }
     xfer.cancelled = true;
     if (xfer.current) void sftpCancel(xfer.current);
   });

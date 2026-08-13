@@ -1108,15 +1108,14 @@ try {
       expect(!hl.local && hl.remote, `하이라이트 상태: ${JSON.stringify(hl)}`);
     });
 
-    await t.test("탐색기 드롭 업로드 — 스테이징 후 업로드·정리까지 이어진다", async () => {
+    await t.test("탐색기 드롭 업로드 — 임시 사본 없이 곧바로 서버에 쓴다", async () => {
       await page.evaluate(() => (window.__ipc.length = 0));
       await page.evaluate(() => {
         const prev = window.__TAURI_INTERNALS__.invoke;
         window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
           window.__ipc.push([cmd, args]);
-          if (cmd === "local_temp_dir") return "C:\\Temp";
-          if (["stage_write", "stage_sweep", "local_mkdir", "local_remove", "sftp_upload"].includes(cmd))
-            return null;
+          if (["sftp_upload_chunk", "sftp_upload_finish", "sftp_mkdir"].includes(cmd)) return null;
+          if (cmd === "sftp_stat") return null;
           if (cmd === "sftp_list" || cmd === "local_list") return [];
           return prev(cmd, args);
         };
@@ -1127,18 +1126,22 @@ try {
           .querySelectorAll(".sftp-list")[1]
           .dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
       });
-      await page.waitForTimeout(1200);
+      await page.waitForTimeout(1500);
       const calls = await page.evaluate(() => ({
-        stage: window.__ipc.filter(([c]) => c === "stage_write").length,
-        up: window.__ipc.filter(([c]) => c === "sftp_upload").map(([, a]) => a?.remotePath),
-        cleanup: window.__ipc.some(([c, a]) => c === "local_remove" && a?.isDir === true),
+        chunks: window.__ipc.filter(([c]) => c === "sftp_upload_chunk").map(([, a]) => a?.remotePath),
+        finish: window.__ipc.filter(([c]) => c === "sftp_upload_finish").map(([, a]) => a?.remotePath),
+        // 예전 방식(임시 폴더에 사본 → 다시 업로드)의 흔적이 남아 있으면 안 된다.
+        staged: window.__ipc.filter(([c]) => c === "stage_write" || c === "sftp_upload").length,
       }));
-      expect(calls.stage >= 1, "stage_write 가 호출되지 않았다");
       expect(
-        calls.up.length === 1 && String(calls.up[0]).endsWith("/드롭테스트.txt"),
-        `업로드 호출이 어긋난다: ${JSON.stringify(calls.up)}`,
+        calls.chunks.length >= 1 && String(calls.chunks[0]).endsWith("/드롭테스트.txt"),
+        `조각 업로드가 어긋난다: ${JSON.stringify(calls.chunks)}`,
       );
-      expect(calls.cleanup, "임시 스테이징 폴더가 정리되지 않았다");
+      expect(
+        calls.finish.length === 1 && String(calls.finish[0]).endsWith("/드롭테스트.txt"),
+        `마무리(.part → 대상)가 한 번 불리지 않았다: ${JSON.stringify(calls.finish)}`,
+      );
+      expect(calls.staged === 0, `임시 사본 경로가 아직 남아 있다(${calls.staged}회)`);
     });
 
     await t.test("원격 우클릭에 '폴더 지정해 다운로드' 가 있다 (로컬엔 없다)", async () => {
@@ -1570,6 +1573,59 @@ try {
       expect(r.waitBefore >= 3, `대기 항목이 줄 서지 않았다: ${JSON.stringify(r)}`);
       expect(r.waitAfter === 0, `대기 취소 후에도 ${r.waitAfter}개가 목록에 남았다`);
       expect(r.sent <= 2, `취소했는데 ${r.sent}개나 전송됐다 — 남은 차례가 멈추지 않는다`);
+    });
+
+    await t.test("전송 취소 — 줄 서 있던 묶음까지 함께 멈춘다", async () => {
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const started = await page.evaluate(async () => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        const started = [];
+        const cancelled = [];
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_upload") {
+            started.push(args.remotePath.split("/").pop());
+            for (let i = 0; i < 12; i++) {
+              await new Promise((r) => setTimeout(r, 50));
+              if (cancelled.includes(args.transferId)) throw new Error("전송이 취소되었습니다");
+            }
+            return null;
+          }
+          if (cmd === "sftp_cancel") {
+            cancelled.push(args.transferId);
+            return null;
+          }
+          if (cmd === "local_stat") return null;
+          if (cmd === "local_list") return [];
+          return prev(cmd, args);
+        };
+        const t = window.__sftpTest;
+        const mk = (p, i) => ({
+          name: `${p}${i}.bin`,
+          path: `C:\\작업\\${p}${i}.bin`,
+          isDir: false,
+          size: 100,
+          modified: 1,
+        });
+        const j1 = t.transferItems(t.panes.remote(), [1, 2].map((i) => mk("a", i)));
+        await new Promise((r) => setTimeout(r, 100));
+        const j2 = t.transferItems(t.panes.remote(), [1, 2].map((i) => mk("b", i))); // 줄 세우기
+        await new Promise((r) => setTimeout(r, 200));
+        document.querySelector(".sftp-progress .tree-act")?.click(); // 취소
+        await new Promise((r) => setTimeout(r, 2500));
+        await Promise.all([j1, j2]);
+        window.__TAURI_INTERNALS__.invoke = prev;
+        return started;
+      });
+      // 예전에는 지금 묶음만 멈추고 줄 서 있던 b* 묶음이 그대로 나갔다(연결을 끊어야 멈췄다).
+      expect(
+        !started.some((n) => n.startsWith("b")),
+        `취소했는데 줄 서 있던 묶음이 나갔다: ${JSON.stringify(started)}`,
+      );
+      expect(started.length <= 2, `취소 후에도 전송이 이어졌다: ${JSON.stringify(started)}`);
     });
 
     await t.test("전송 속도 제한 — 창에서 고르면 즉시 백엔드로 간다", async () => {

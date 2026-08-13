@@ -10,13 +10,16 @@ import {
   sftpMkdir,
   localList,
   localMkdir,
-  localRemove,
-  localTempDir,
-  stageWrite,
-  stageSweep,
 } from "./ipc";
-import { localStat, sftpStat } from "./ipc";
+import {
+  localStat,
+  sftpStat,
+  sftpUploadChunk,
+  sftpUploadFinish,
+  sftpUploadDiscard,
+} from "./ipc";
 import type { QueueApi } from "./sftpqueue";
+import { logLine } from "./debuglog";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   conflictDialog,
@@ -25,6 +28,7 @@ import {
   type ConflictChoice,
   type ConflictResult,
   type ResumeChoice,
+  type ResumeResult,
 } from "./conflict";
 import {
   joinPath,
@@ -340,7 +344,7 @@ async function decideResume(
 
   const decision = ctx.resumeAll
     ? { choice: ctx.resumeAll, applyToRest: true }
-    : await resumeDialog(entry.name, part, entry.size);
+    : await resumeDialog(entry.name, part, entry.size, from === "local" ? "up" : "down");
   if (decision.applyToRest) ctx.resumeAll = decision.choice;
   if (decision.choice === "cancel") {
     ctx.xfer.cancelled = true;
@@ -381,6 +385,7 @@ async function transferOne(
       return;
     }
     const transferId = crypto.randomUUID();
+    const startedAt = performance.now();
     ctx.setTransfer(transferId);
     ctx.queue.setState(entry.path, "run");
     if (ctx.bundle.total > 0) ctx.showProgress(entry.name, ctx.bundle.done, ctx.bundle.total);
@@ -402,6 +407,16 @@ async function transferOne(
     }
     ctx.queue.setState(entry.path, "done");
     ctx.setTransfer(null);
+    // 경로별 속도 비교용 — 진단 로그가 꺼져 있으면 비용이 없다.
+    {
+      const sec = (performance.now() - startedAt) / 1000;
+      const mbps = sec > 0 ? entry.size / sec / (1024 * 1024) : 0;
+      logLine(
+        "SFTP",
+        `${from === "local" ? "올림" : "받음"} ${entry.name} ${entry.size}B ` +
+          `${sec.toFixed(2)}s ${mbps.toFixed(2)}MB/s 이어받기=${resumeFrom}`,
+      );
+    }
     // 이 파일 몫을 누적한다. 다음 파일의 진행 이벤트는 여기에 더해져 전체 진행이 된다.
     ctx.bundle.done = Math.min(ctx.bundle.total || Number.MAX_SAFE_INTEGER, ctx.bundle.done + entry.size);
     setBundle(ctx);
@@ -451,8 +466,6 @@ export async function xDownloadToPicked(ctx: TransferCtx, items: Entry[]): Promi
   await xTransferItems(ctx, ctx.panes.local(), items, dir.replace(/[\\/]+$/, "") || dir);
 }
 
-/** 스테이징 조각 크기. 한 번의 IPC 로 보내는 파일 내용의 양이다. */
-const STAGE_CHUNK = 4 * 1024 * 1024;
 
 /** 디렉터리 항목의 자식 전부 읽기 — readEntries 는 한 번에 일부만 주므로 빌 때까지 반복. */
 const readAllEntries = (reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> =>
@@ -488,27 +501,34 @@ async function collectEntry(
   }
 }
 
-/** 파일 하나를 조각 단위로 임시 폴더에 복사한다(진행 표시·취소 확인 포함). */
-async function stageFile(
-  ctx: TransferCtx,f: File, target: string, base: number, total: number): Promise<void> {
-  if (f.size === 0) {
-    await stageWrite(target, new Uint8Array(0), false);
-    return;
-  }
-  for (let off = 0; off < f.size; off += STAGE_CHUNK) {
-    if (ctx.xfer.cancelled) throw new Error("취소");
-    const end = Math.min(f.size, off + STAGE_CHUNK);
-    const buf = new Uint8Array(await f.slice(off, end).arrayBuffer());
-    await stageWrite(target, buf, off > 0);
-    ctx.showProgress(`가져오는 중: ${f.name}`, base + end, total);
-  }
-}
-
 /**
  * 탐색기 드롭 업로드. 웹뷰는 드롭된 파일의 OS 경로를 주지 않으므로(경로를 주는
  * 네이티브 드롭을 켜면 앱 내부 드래그가 전부 죽는다) 내용을 읽어 임시 폴더에
  * 복원한 뒤, 평소 업로드와 같은 경로로 전송한다 — 진행률·충돌 처리도 그대로 탄다.
  * destDir 를 주면(트리 폴더에 조준한 드롭) 그 폴더로, 아니면 현재 원격 폴더로.
+ */
+/** 한 번에 서버로 보내는 조각 크기. base64 로 커지므로 1MB 가 무난하다. */
+const UPLOAD_CHUNK = 1024 * 1024;
+
+/** Blob 조각을 base64 로 — FileReader 가 네이티브로 처리해 큰 조각도 스택을 넘지 않는다. */
+const toBase64 = (blob: Blob): Promise<string> =>
+  new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onerror = () => rej(r.error ?? new Error("조각 읽기 실패"));
+    r.onload = () => {
+      const s = String(r.result);
+      res(s.slice(s.indexOf(",") + 1)); // "data:...;base64," 접두 제거
+    };
+    r.readAsDataURL(blob);
+  });
+
+/**
+ * 탐색기 드롭 업로드 — 읽은 조각을 **곧바로** 서버에 이어 쓴다(0.76.0).
+ *
+ * 예전에는 드롭된 내용을 임시 폴더에 사본으로 만든 뒤 그 사본을 다시 올렸다. 웹뷰가
+ * 파일의 OS 경로를 주지 않기 때문인데(경로를 주는 네이티브 드롭을 켜면 앱 내부 드래그가
+ * 전부 죽는다), 그 탓에 디스크에 한 번 쓰고 한 번 더 읽었고 화면에도 진행이 두 번
+ * 지나갔다("업로드가 끝났는데 또 올라간다" — 실기 보고). 이제 한 단계다.
  */
 export async function xOnOsFilesDropped(
   ctx: TransferCtx,
@@ -519,71 +539,156 @@ export async function xOnOsFilesDropped(
   const tops: { entry: FileSystemEntry | null; file: File | null }[] = [];
   for (const it of Array.from(dt.items)) {
     if (it.kind !== "file") continue;
-    // webkitGetAsEntry 는 폴더까지 준다. 없거나 실패하면 File(파일만)로 받는다.
     const entry = typeof it.webkitGetAsEntry === "function" ? it.webkitGetAsEntry() : null;
     tops.push({ entry, file: entry ? null : it.getAsFile() });
   }
   if (tops.every((t) => !t.entry && !t.file)) return;
-  if (!ctx.getSftpId()) {
+  const id = ctx.getSftpId();
+  if (!id) {
     ctx.setStatus("원격에 접속되지 않았습니다.");
     return;
   }
+
+  // 파일 목록·폴더 목록을 먼저 모은다(내용은 아직 읽지 않는다 — 목록만).
+  const col = { files: [] as { file: File; rel: string }[], dirs: [] as string[] };
+  try {
+    ctx.setStatus("탐색기 항목 읽는 중…");
+    for (const t of tops) {
+      if (t.entry) await collectEntry(t.entry, t.entry.name, col);
+      else if (t.file) col.files.push({ file: t.file, rel: t.file.name });
+    }
+  } catch (e) {
+    ctx.setStatus(`탐색기 항목을 읽지 못했습니다: ${String(e)}`);
+    return;
+  }
+  if (col.files.length === 0 && col.dirs.length === 0) return;
+
+  const root = destDir ?? ctx.panes.remote().path;
+  // 전송은 큐에 넣는다 — 다른 전송이 돌고 있어도 거절하지 않고 줄을 선다.
+  await ctx.enqueue(() => streamUpload(ctx, id, root, col));
+}
+
+/** 모은 파일들을 조각 단위로 서버에 직접 쓴다. */
+async function streamUpload(
+  ctx: TransferCtx,
+  id: string,
+  root: string,
+  col: { files: { file: File; rel: string }[]; dirs: string[] },
+): Promise<void> {
   if (ctx.xfer.transferring) {
     ctx.setStatus("이미 전송 중입니다. 끝난 뒤 다시 시도하세요.");
     return;
   }
-
   ctx.xfer.transferring = true;
   ctx.xfer.cancelled = false;
-  void stageSweep().catch(() => undefined);
-  const root = joinPath(
-    (await localTempDir()).replace(/[\\/]+$/, ""),
-    `sshtool2-drop-${crypto.randomUUID()}`,
-  );
-  const items: Entry[] = [];
-  try {
-    ctx.setStatus("탐색기 항목 읽는 중…");
-    await localMkdir(root);
-    const col = { files: [] as { file: File; rel: string }[], dirs: [] as string[] };
-    const topMeta: { name: string; isDir: boolean }[] = [];
-    for (const t of tops) {
-      if (t.entry) {
-        await collectEntry(t.entry, t.entry.name, col);
-        topMeta.push({ name: t.entry.name, isDir: t.entry.isDirectory });
-      } else if (t.file) {
-        col.files.push({ file: t.file, rel: t.file.name });
-        topMeta.push({ name: t.file.name, isDir: false });
-      }
-    }
-    // 빈 폴더도 임시 사본에 있어야 원격에 만들어진다.
-    for (const d of col.dirs) await localMkdir(joinPath(root, d));
-    const total = col.files.reduce((s, x) => s + x.file.size, 0);
-    let done = 0;
-    for (const { file, rel } of col.files) {
-      await stageFile(ctx, file, joinPath(root, rel), done, total);
-      done += file.size;
-    }
-    ctx.hideProgress();
-    for (const t of topMeta) {
-      items.push({
-        name: t.name,
-        path: joinPath(root, t.name),
-        isDir: t.isDir,
-        size: t.isDir ? 0 : (col.files.find((f) => f.rel === t.name)?.file.size ?? 0),
-        modified: 0,
-      });
-    }
-  } catch (e) {
-    ctx.hideProgress();
-    ctx.xfer.transferring = false;
-    ctx.setStatus(ctx.xfer.cancelled ? "가져오기 취소됨" : `탐색기 항목을 읽지 못했습니다: ${e}`);
-    await localRemove(root, true).catch(() => undefined);
-    return;
-  }
-  ctx.xfer.transferring = false;
-  // 전송은 큐에 넣는다 — 다른 전송이 돌고 있어도 거절하지 않고 줄을 선다.
-  await ctx.enqueue(() => xTransferItems(ctx, ctx.panes.remote(), items, destDir));
-  // 스테이징 사본 정리 — 전송이 실패했어도 임시 파일을 남길 이유가 없다.
-  await localRemove(root, true).catch(() => undefined);
-}
+  ctx.resumeAll = null;
+  ctx.queue.begin();
 
+  const pathOf = (rel: string): string => joinPath(root, rel);
+  for (const f of col.files) {
+    ctx.queue.ensure({
+      key: pathOf(f.rel),
+      name: f.file.name,
+      size: f.file.size,
+      dir: "up",
+      srcPath: f.rel,
+      destDir: root,
+    });
+  }
+  ctx.bundle.total = col.files.reduce((s, f) => s + f.file.size, 0);
+  ctx.bundle.done = 0;
+  setBundle(ctx);
+
+  // 폴더를 상위부터 만든다(하위를 먼저 만들면 부모가 없어 실패한다).
+  for (const d of [...col.dirs].sort((a, b) => a.length - b.length)) {
+    if (ctx.xfer.cancelled) break;
+    await sftpMkdir(id, pathOf(d)).catch(() => undefined);
+  }
+
+  let failed = 0;
+  for (let i = 0; i < col.files.length; i++) {
+    if (ctx.xfer.cancelled) break;
+    const { file, rel } = col.files[i];
+    const dest = pathOf(rel);
+    if (ctx.queue.isCancelled(dest)) {
+      ctx.queue.setState(dest, "skip", "취소됨");
+      continue;
+    }
+    if (col.files.length > 1) ctx.setOverall(`${i + 1}/${col.files.length}`);
+
+    // 이어보내기 — 서버에 남은 조각이 있으면 묻는다(로컬 패널 업로드와 같은 규칙).
+    let offset = 0;
+    const part = (await sftpStat(id, `${dest}.part`).catch(() => null))?.[0] ?? 0;
+    if (part > 0 && part < file.size) {
+      const d: ResumeResult = ctx.resumeAll
+        ? { choice: ctx.resumeAll, applyToRest: true }
+        : await resumeDialog(file.name, part, file.size, "up");
+      if (d.applyToRest) ctx.resumeAll = d.choice;
+      if (d.choice === "cancel") {
+        ctx.xfer.cancelled = true;
+        break;
+      }
+      if (d.choice === "skip") {
+        ctx.queue.setState(dest, "skip", "건너뜀");
+        continue;
+      }
+      offset = d.choice === "resume" ? part : 0;
+    }
+    if (offset === 0 && part > 0) await sftpUploadDiscard(id, dest).catch(() => undefined);
+
+    ctx.queue.setState(dest, "run");
+    const startedAt = performance.now();
+    try {
+      let sent = offset;
+      while (sent < file.size) {
+        if (ctx.xfer.cancelled) break;
+        const end = Math.min(file.size, sent + UPLOAD_CHUNK);
+        const b64 = await toBase64(file.slice(sent, end));
+        await sftpUploadChunk(id, dest, sent, b64);
+        sent = end;
+        ctx.showProgress(
+          file.name,
+          ctx.bundle.total > 0 ? ctx.bundle.done + sent : sent,
+          ctx.bundle.total > 0 ? ctx.bundle.total : file.size,
+        );
+        const live = liveSftp.get(ctx.session.id);
+        if (live && ctx.bundle.total > 0) {
+          live.name = file.name;
+          live.done = Math.min(ctx.bundle.total, ctx.bundle.done + sent);
+          live.total = ctx.bundle.total;
+          notifyLive();
+        }
+      }
+      if (ctx.xfer.cancelled || ctx.queue.isCancelled(dest)) {
+        ctx.queue.setState(dest, "skip", "취소됨");
+        break;
+      }
+      await sftpUploadFinish(id, dest);
+      ctx.queue.setState(dest, "done");
+      const sec = (performance.now() - startedAt) / 1000;
+      logLine(
+        "SFTP",
+        `올림(드롭) ${file.name} ${file.size}B ${sec.toFixed(2)}s ` +
+          `${sec > 0 ? (file.size / sec / (1024 * 1024)).toFixed(2) : "0"}MB/s 이어보내기=${offset}`,
+      );
+    } catch (e) {
+      failed++;
+      ctx.queue.setState(dest, "fail", String(e).slice(0, 120));
+      console.error("드롭 업로드 실패", dest, e);
+    }
+    ctx.bundle.done += file.size;
+    setBundle(ctx);
+  }
+
+  ctx.hideProgress();
+  ctx.setOverall("");
+  ctx.setTransfer(null);
+  ctx.xfer.transferring = false;
+  ctx.bundle.total = 0;
+  ctx.bundle.done = 0;
+  setBundle(ctx);
+  ctx.setStatus(
+    ctx.xfer.cancelled ? "전송 취소됨" : failed > 0 ? `전송 완료 (${failed}개 실패)` : "전송 완료",
+  );
+  if (!ctx.isDisposed()) await ctx.panes.remote().reload();
+}

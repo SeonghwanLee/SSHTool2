@@ -373,6 +373,42 @@ fn sftp_set_rate_limit(rate: State<'_, sftp::RateLimit>, kbps: u64) {
     rate.store(kbps.saturating_mul(1024), std::sync::atomic::Ordering::Relaxed);
 }
 
+/// 드롭 업로드(스트리밍) — 조각을 원격 .part 에 이어 쓴다. 내용은 base64 로 받는다
+/// (숫자 배열로 넘기면 4MB 조각이 수십 MB JSON 이 된다).
+#[tauri::command]
+async fn sftp_upload_chunk(
+    state: State<'_, SftpMap>,
+    rate: State<'_, sftp::RateLimit>,
+    id: String,
+    remote_path: String,
+    offset: u64,
+    data_b64: String,
+) -> Result<(), String> {
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(data_b64.as_bytes())
+        .map_err(|e| format!("조각 해독 실패: {e}"))?;
+    sftp::upload_chunk(&state, &rate, &id, remote_path, offset, data).await
+}
+
+#[tauri::command]
+async fn sftp_upload_finish(
+    state: State<'_, SftpMap>,
+    id: String,
+    remote_path: String,
+) -> Result<(), String> {
+    sftp::upload_finish(&state, &id, remote_path).await
+}
+
+#[tauri::command]
+async fn sftp_upload_discard(
+    state: State<'_, SftpMap>,
+    id: String,
+    remote_path: String,
+) -> Result<(), String> {
+    sftp::upload_discard(&state, &id, remote_path).await
+}
+
 /// 원격 파일의 크기·수정시각 — 이어받기 판단(.part 크기)과 폴더 비교에 쓴다.
 #[tauri::command]
 async fn sftp_stat(
@@ -800,6 +836,9 @@ fn main() {
             sftp_cancel,
             sftp_canonicalize,
             sftp_stat,
+            sftp_upload_chunk,
+            sftp_upload_finish,
+            sftp_upload_discard,
             sftp_set_rate_limit,
             open_config_dir,
             reveal_path,

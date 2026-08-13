@@ -239,6 +239,22 @@ export const sftpUpload = (
 export const sftpSetRateLimit = (kbps: number): Promise<void> =>
   invoke("sftp_set_rate_limit", { kbps: Math.max(0, Math.round(kbps)) });
 
+/** 드롭 업로드(스트리밍) — 조각을 원격 .part 의 offset 자리에 이어 쓴다. */
+export const sftpUploadChunk = (
+  id: string,
+  remotePath: string,
+  offset: number,
+  dataB64: string,
+): Promise<void> => invoke("sftp_upload_chunk", { id, remotePath, offset, dataB64 });
+
+/** 다 보냈다 — .part 를 제자리로 옮긴다. */
+export const sftpUploadFinish = (id: string, remotePath: string): Promise<void> =>
+  invoke("sftp_upload_finish", { id, remotePath });
+
+/** 남아 있는 .part 를 버린다(처음부터 다시 보낼 때). */
+export const sftpUploadDiscard = (id: string, remotePath: string): Promise<void> =>
+  invoke("sftp_upload_discard", { id, remotePath });
+
 /** 원격 파일의 [크기, 수정시각(초)] — 없으면 null. localStat 의 원격판. */
 export const sftpStat = (id: string, path: string): Promise<[number, number] | null> =>
   invoke<[number, number] | null>("sftp_stat", { id, path });
