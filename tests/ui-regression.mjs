@@ -1108,6 +1108,45 @@ try {
       expect(!hl.local && hl.remote, `하이라이트 상태: ${JSON.stringify(hl)}`);
     });
 
+    await t.test("탐색기 드롭 업로드 — 같은 이름이면 묻는다(묻지 않고 덮어쓰지 않는다)", async () => {
+      await dismissModals(page);
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.evaluate(() => {
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          window.__ipc.push([cmd, args]);
+          if (["sftp_upload_chunk", "sftp_upload_finish", "sftp_mkdir"].includes(cmd)) return null;
+          if (cmd === "sftp_stat") return null;
+          // 대상 폴더에 같은 이름이 이미 있다.
+          if (cmd === "sftp_list")
+            return [{ name: "겹침.txt", path: "/home/u/겹침.txt", isDir: false, size: 5, modified: 1 }];
+          if (cmd === "local_list") return [];
+          return prev(cmd, args);
+        };
+        const dt = new DataTransfer();
+        dt.items.add(new File(["새 내용"], "겹침.txt"));
+        document
+          .querySelectorAll(".sftp-list")[1]
+          .dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(900);
+      const asked = await page.evaluate(
+        () => [...document.querySelectorAll(".modal-card h3")].some((h) => h.textContent.includes("같은 이름")),
+      );
+      expect(asked, "같은 이름인데 묻지 않고 덮어쓴다");
+      // '건너뛰기' 를 고르면 아무것도 올라가지 않아야 한다.
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".modal-card button")]
+          .find((b) => b.textContent === "건너뛰기")
+          ?.click(),
+      );
+      await page.waitForTimeout(700);
+      const sent = await page.evaluate(
+        () => window.__ipc.filter(([c]) => c === "sftp_upload_chunk").length,
+      );
+      expect(sent === 0, `건너뛰기를 골랐는데 ${sent}조각이 올라갔다`);
+    });
+
     await t.test("탐색기 드롭 업로드 — 임시 사본 없이 곧바로 서버에 쓴다", async () => {
       await page.evaluate(() => (window.__ipc.length = 0));
       await page.evaluate(() => {

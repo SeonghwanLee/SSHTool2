@@ -573,8 +573,9 @@ async function streamUpload(
   ctx: TransferCtx,
   id: string,
   root: string,
-  col: { files: { file: File; rel: string }[]; dirs: string[] },
+  input: { files: { file: File; rel: string }[]; dirs: string[] },
 ): Promise<void> {
+  let col = input;
   if (ctx.xfer.transferring) {
     ctx.setStatus("이미 전송 중입니다. 끝난 뒤 다시 시도하세요.");
     return;
@@ -583,6 +584,62 @@ async function streamUpload(
   ctx.xfer.cancelled = false;
   ctx.resumeAll = null;
   ctx.queue.begin();
+
+  // ── 같은 이름 확인 ──
+  //
+  // 스트리밍으로 바꾸면서 이 단계가 빠졌었다(0.76.0) — 묻지 않고 덮어썼다. 드롭은
+  // 실수로 하기 쉬운 조작이라 반드시 물어야 한다. 예전(임시 사본 경로)과 같은 규칙으로
+  // **최상위 항목만** 본다. 폴더 안까지 파고들며 묻지는 않는다(그때도 그랬다).
+  const names = new Set(
+    ((await sftpList(id, root).catch(() => [])) as Entry[]).map((e) => e.name),
+  );
+  /** 최상위 이름이 바뀐 경우의 대응표("사진" → "사진 (2)"). 하위 경로도 함께 옮긴다. */
+  const renamed = new Map<string, string>();
+  const skipTop = new Set<string>();
+  const topNames = [
+    ...new Set(
+      [...col.dirs, ...col.files.map((f) => f.rel)]
+        .map((rel) => rel.split("/")[0])
+        .filter(Boolean),
+    ),
+  ];
+  let applied: ConflictChoice | null = null;
+  for (let i = 0; i < topNames.length; i++) {
+    const top = topNames[i];
+    if (!names.has(top)) continue;
+    const decision: ConflictResult = applied
+      ? { choice: applied, applyToRest: true }
+      : await conflictDialog(top, topNames.length - i - 1);
+    if (decision.applyToRest) applied = decision.choice;
+    if (decision.choice === "cancel") {
+      ctx.xfer.transferring = false;
+      ctx.setStatus("전송 취소됨");
+      return;
+    }
+    if (decision.choice === "skip") skipTop.add(top);
+    else if (decision.choice === "rename") {
+      const next = uniqueName(top, (c) => names.has(c));
+      names.add(next);
+      renamed.set(top, next);
+    }
+  }
+  /** 최상위 이름 교체를 반영한 상대 경로. */
+  const mapRel = (rel: string): string => {
+    const cut = rel.indexOf("/");
+    const top = cut < 0 ? rel : rel.slice(0, cut);
+    const next = renamed.get(top);
+    return next ? next + rel.slice(top.length) : rel;
+  };
+  const dropped = (rel: string): boolean => skipTop.has(rel.split("/")[0]);
+  col = {
+    files: col.files.filter((f) => !dropped(f.rel)).map((f) => ({ ...f, rel: mapRel(f.rel) })),
+    dirs: col.dirs.filter((d) => !dropped(d)).map(mapRel),
+  };
+  if (col.files.length === 0 && col.dirs.length === 0) {
+    ctx.xfer.transferring = false;
+    ctx.setStatus("보낼 항목이 없습니다(모두 건너뜀).");
+    return;
+  }
 
   const pathOf = (rel: string): string => joinPath(root, rel);
   for (const f of col.files) {
@@ -598,6 +655,7 @@ async function streamUpload(
   ctx.bundle.total = col.files.reduce((s, f) => s + f.file.size, 0);
   ctx.bundle.done = 0;
   setBundle(ctx);
+  ctx.setStatus(ctx.bundle.total > 0 ? `전송 시작 (${fmtSize(ctx.bundle.total)})` : "전송 시작");
 
   // 폴더를 상위부터 만든다(하위를 먼저 만들면 부모가 없어 실패한다).
   for (const d of [...col.dirs].sort((a, b) => a.length - b.length)) {
