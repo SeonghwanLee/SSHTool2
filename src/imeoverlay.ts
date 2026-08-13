@@ -85,9 +85,34 @@ export function pinCompositionOverlay(term: Terminal): void {
 
         const left = Math.min(pinned.col, Math.max(0, cols - 1)) * cell.width;
         const top = pinned.row * cell.height;
+
+        // 조합 문자열 앞의 공백은 표시에서 뺀다.
+        //
+        // 왜: 실기 영상을 픽셀로 재 보니 조합 글자가 확정 글자들의 흐름보다 오른쪽에
+        // 그려졌고(같은 낱말 안 글자 사이 간격 1~6px 인데 조합 글자 앞은 14~27px),
+        // 특히 **띄어쓰기 직후 첫 글자**에서 벌어짐이 컸다. IME 가 조합 문자열에 앞
+        // 공백을 함께 담으면 그 공백이 그대로 한 칸을 밀어 낸다 — 그 공백은 확정될 때
+        // 어차피 서버가 그려 주므로 미리 보여 줄 이유가 없다.
+        const view0 = helper._compositionView as HTMLElement | undefined;
+        if (view0 && typeof view0.textContent === "string") {
+          const trimmed = view0.textContent.replace(/^[ \u3000]+/, "");
+          if (trimmed !== view0.textContent) view0.textContent = trimmed;
+        }
         // 조합 위치 진단 — 커서와 고정점이 어긋나는 순간을 그대로 남긴다.
         // (진단 로그가 꺼져 있으면 logLine 이 즉시 반환하므로 평소 비용은 없다.)
-        logLine("IME", `커서=${buf.x},${buf.y} 고정=${pinned.col},${pinned.row} 셀폭=${Math.round(cell.width)}`);
+        {
+          // 다음 증적 한 번으로 원인이 갈리도록, 화면에 실제로 놓인 x 와 조합 문자열의
+          // 코드포인트까지 남긴다(문자열은 앞 8자만 — 로그가 부풀지 않게).
+          const v = helper._compositionView as HTMLElement | undefined;
+          const text = (v?.textContent ?? "").slice(0, 8);
+          const code = [...text].map((c) => c.codePointAt(0)?.toString(16)).join(" ");
+          const realX = v ? Math.round(v.getBoundingClientRect().left) : -1;
+          logLine(
+            "IME",
+            `커서=${buf.x},${buf.y} 고정=${pinned.col},${pinned.row} 셀폭=${cell.width.toFixed(2)}` +
+              ` 놓을x=${Math.round(left)} 실제x=${realX} 조합="${text}"(${code})`,
+          );
+        }
         const view = helper._compositionView as HTMLElement | undefined;
         if (view) {
           view.style.left = `${left}px`;
