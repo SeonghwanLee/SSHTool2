@@ -4112,8 +4112,6 @@ dependencies = [
 [[package]]
 name = "russh-sftp"
 version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ed8949eca4163c18a8f59ff96d32cf61e9c13b9735e21ef32b3907f4aafa1a9"
 dependencies = [
  "bitflags 2.13.1",
  "bytes",
@@ -4883,7 +4881,7 @@ dependencies = [
 
 [[package]]
 name = "sshtool2"
-version = "0.63.0"
+version = "0.76.4"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",

@@ -2995,6 +2995,10 @@ button.busy {
   align-items: flex-start;
   padding-top: 12vh;
   z-index: 1200; /* 일반 모달(1000)보다 위 — 작업 중 즉시 뜨는 창이다 */
+  /* #modal-root 가 pointer-events:none 이라 여기서 되살리지 않으면 클릭이 그대로
+     아래 터미널로 새어 나간다 — 창은 떠 있는데 행을 눌러도 반응이 없고, 입력 칸이
+     포커스를 잃어 키보드까지 죽는다(0.76.4 에서 고침). .modal-overlay 와 같은 이유. */
+  pointer-events: auto;
 }
 .palette-card {
   width: min(680px, 92vw);

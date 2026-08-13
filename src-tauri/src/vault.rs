@@ -168,9 +168,8 @@ fn read_file(app: &AppHandle) -> Result<Option<VaultFile>, String> {
 fn write_file(app: &AppHandle, vf: &VaultFile) -> Result<(), String> {
     let path = vault_path(app)?;
     let data = serde_json::to_string_pretty(vf).map_err(|e| format!("볼트 직렬화 실패: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, data).map_err(|e| format!("볼트 임시 쓰기 실패: {e}"))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("볼트 교체 실패: {e}"))
+    // 설정·세션과 같은 원자적 쓰기를 쓴다(임시 파일 → fsync → 교체).
+    crate::paths::write_atomic(&path, &data)
 }
 
 fn current_dek(state: &VaultState) -> Result<[u8; 32], String> {

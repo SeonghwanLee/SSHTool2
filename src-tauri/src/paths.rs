@@ -23,7 +23,17 @@ pub fn write_atomic(path: &Path, data: &str) -> Result<(), String> {
 /// 바이트 버전 — 암호화된 설정 파일(filecrypt)은 UTF-8 이 아니다.
 pub fn write_atomic_bytes(path: &Path, data: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, data).map_err(|e| format!("임시 파일 쓰기 실패({}): {e}", tmp.display()))?;
+    // 디스크까지 밀어낸 뒤 교체한다. rename 만으로는 "이름은 바뀌었는데 내용은 아직
+    // 캐시에 있는" 상태가 가능해, 전원이 나가면 0바이트 파일이 남는다.
+    {
+        use std::io::Write;
+        let mut f =
+            fs::File::create(&tmp).map_err(|e| format!("임시 파일 생성 실패({}): {e}", tmp.display()))?;
+        f.write_all(data)
+            .map_err(|e| format!("임시 파일 쓰기 실패({}): {e}", tmp.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("임시 파일 저장 실패({}): {e}", tmp.display()))?;
+    }
     // fs::rename 은 Windows 에서도 기존 파일을 덮어쓴다(MOVEFILE_REPLACE_EXISTING).
     // 미리 지우면 파일이 없는 순간이 생겨 원자성이 깨지므로 그대로 교체한다.
     fs::rename(&tmp, path).map_err(|e| format!("파일 교체 실패({}): {e}", path.display()))

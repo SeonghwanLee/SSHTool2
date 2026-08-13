@@ -66,7 +66,7 @@ pub fn append(app: &AppHandle, text: &str) -> Result<(), String> {
         .map_err(|e| format!("진단 로그 쓰기 실패: {e}"))
 }
 
-/// `YYYY-MM-DD HH:MM:SS` — 로컬 시각. 날짜 계산용 크레이트를 새로 들이지 않으려고
+/// `YYYY-MM-DD HH:MM:SS UTC` — 날짜 계산용 크레이트를 새로 들이지 않으려고
 /// UTC 초에서 직접 환산한다(진단용이라 초 단위면 충분하다).
 fn now() -> String {
     let secs = std::time::SystemTime::now()

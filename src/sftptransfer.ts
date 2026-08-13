@@ -668,8 +668,14 @@ async function streamUpload(
     if (ctx.xfer.cancelled) break;
     const { file, rel } = col.files[i];
     const dest = pathOf(rel);
+    // 건너뛴 파일도 제 몫을 진행에 채워 넣는다 — 빼먹으면 전체 진행이 100% 에 닿지 않는다.
+    const skipFile = (note: string): void => {
+      ctx.queue.setState(dest, "skip", note);
+      ctx.bundle.done += file.size;
+      setBundle(ctx);
+    };
     if (ctx.queue.isCancelled(dest)) {
-      ctx.queue.setState(dest, "skip", "취소됨");
+      skipFile("취소됨");
       continue;
     }
     if (col.files.length > 1) ctx.setOverall(`${i + 1}/${col.files.length}`);
@@ -687,7 +693,7 @@ async function streamUpload(
         break;
       }
       if (d.choice === "skip") {
-        ctx.queue.setState(dest, "skip", "건너뜀");
+        skipFile("건너뜀");
         continue;
       }
       offset = d.choice === "resume" ? part : 0;
@@ -700,6 +706,9 @@ async function streamUpload(
       let sent = offset;
       while (sent < file.size) {
         if (ctx.xfer.cancelled) break;
+        // 이 줄만 취소한 경우도 조각 사이에서 바로 멈춘다 — 드롭 업로드는 백엔드에
+        // 끊을 전송 id 가 없어(조각마다 끝난다) 여기서 보지 않으면 끝까지 올라간다.
+        if (ctx.queue.isCancelled(dest)) break;
         const end = Math.min(file.size, sent + UPLOAD_CHUNK);
         const b64 = await toBase64(file.slice(sent, end));
         await sftpUploadChunk(id, dest, sent, b64);
@@ -718,17 +727,20 @@ async function streamUpload(
         }
       }
       if (ctx.xfer.cancelled || ctx.queue.isCancelled(dest)) {
+        // 한 줄만 취소한 것과 묶음 전체 취소는 다르다 — 예전에는 줄 하나를 취소하면
+        // 뒤에 줄 선 파일이 통째로 사라졌다. 전체 취소일 때만 묶음을 끝낸다.
         ctx.queue.setState(dest, "skip", "취소됨");
-        break;
+        if (ctx.xfer.cancelled) break;
+      } else {
+        await sftpUploadFinish(id, dest);
+        ctx.queue.setState(dest, "done");
+        const sec = (performance.now() - startedAt) / 1000;
+        logLine(
+          "SFTP",
+          `올림(드롭) ${file.name} ${file.size}B ${sec.toFixed(2)}s ` +
+            `${sec > 0 ? (file.size / sec / (1024 * 1024)).toFixed(2) : "0"}MB/s 이어보내기=${offset}`,
+        );
       }
-      await sftpUploadFinish(id, dest);
-      ctx.queue.setState(dest, "done");
-      const sec = (performance.now() - startedAt) / 1000;
-      logLine(
-        "SFTP",
-        `올림(드롭) ${file.name} ${file.size}B ${sec.toFixed(2)}s ` +
-          `${sec > 0 ? (file.size / sec / (1024 * 1024)).toFixed(2) : "0"}MB/s 이어보내기=${offset}`,
-      );
     } catch (e) {
       failed++;
       ctx.queue.setState(dest, "fail", String(e).slice(0, 120));

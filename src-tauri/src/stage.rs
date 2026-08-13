@@ -52,11 +52,17 @@ fn checked(path: &str, temp: &Path) -> Result<PathBuf, String> {
 
 /// 하루 지난 스테이징 잔재 제거 — 전송 중 강제 종료되면 임시 폴더가 남는다.
 /// 정상 흐름은 전송 직후 프론트가 지우므로, 여기는 사고 뒷정리 전용이다.
+///
+/// 업데이터 잔재도 같이 걷는다. tauri-plugin-updater 는 내려받은 인스톨러를
+/// `%TEMP%/SSHTool2-<버전>-updater-<난수>/` 에 풀고 `.keep()` 으로 **일부러 남긴다**
+/// — 앱이 죽은 뒤 그 인스톨러가 실행돼야 하므로 자기가 지울 수 없다. 그래서 업데이트
+/// 할 때마다 8MB 짜리 폴더가 하나씩 쌓인다. 지금 실행 중인 버전의 것은 건드리지
+/// 않는다(방금 설치를 끝낸 그 폴더일 수 있다).
 pub fn sweep() {
     let temp = std::env::temp_dir();
     let Ok(rd) = fs::read_dir(&temp) else { return };
     for e in rd.flatten() {
-        if !e.file_name().to_string_lossy().starts_with(PREFIX) {
+        if !is_sweepable(&e.file_name().to_string_lossy(), env!("CARGO_PKG_VERSION")) {
             continue;
         }
         let old = e
@@ -68,5 +74,34 @@ pub fn sweep() {
         if old {
             let _ = fs::remove_dir_all(e.path());
         }
+    }
+}
+
+/// 지워도 되는 임시 폴더 이름인가 — 나이 판단은 호출부가 한다.
+/// 이름만 보고 정하므로 여기에만 규칙을 두고 시험한다.
+fn is_sweepable(name: &str, current_version: &str) -> bool {
+    if name.starts_with(PREFIX) {
+        return true;
+    }
+    let updater = name.starts_with("SSHTool2-") && name.contains("-updater-");
+    updater && !name.contains(&format!("-{current_version}-updater-"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_sweepable;
+
+    #[test]
+    fn 드롭_스테이징과_지난_업데이터만_걷는다() {
+        // 드롭 스테이징은 버전과 무관하게 대상이다.
+        assert!(is_sweepable("sshtool2-drop-abc123", "0.76.4"));
+        // 지난 버전의 업데이터 잔재 — 8MB 인스톨러가 들어 있다.
+        assert!(is_sweepable("SSHTool2-0.76.2-updater-Xy9", "0.76.4"));
+        // 지금 도는 버전의 것은 방금 설치를 끝낸 그 폴더일 수 있어 남긴다.
+        assert!(!is_sweepable("SSHTool2-0.76.4-updater-Xy9", "0.76.4"));
+        // 남의 폴더는 절대 건드리지 않는다.
+        assert!(!is_sweepable("SSHTool2Backup", "0.76.4"));
+        assert!(!is_sweepable("chrome_installer", "0.76.4"));
+        assert!(!is_sweepable("SSHTool2-0.76.2-installer.exe", "0.76.4"));
     }
 }

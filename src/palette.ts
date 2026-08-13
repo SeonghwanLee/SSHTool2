@@ -193,6 +193,23 @@ function showPalette(): void {
   overlay.addEventListener("mousedown", (e) => {
     if (e.target === overlay) closePalette();
   });
+  // 카드 안 빈 곳(여백·힌트·목록 배경)을 누르면 포커스가 body 로 빠져 키 입력이 전부
+  // 죽는다 — 창은 떠 있는데 아무 반응이 없어 '먹통' 으로 보인다. 눌러도 입력 칸이
+  // 포커스를 잃지 않게 막는다. 목록은 스크롤바 드래그를 막지 않도록 제외하고,
+  // 대신 아래 focusout 그물로 되돌린다.
+  card.addEventListener("mousedown", (e) => {
+    const t = e.target as HTMLElement;
+    if (t === input || list.contains(t)) return;
+    e.preventDefault();
+  });
+  // 그래도 포커스가 빠져나가면(스크롤바 드래그, 창 전환 후 복귀) 입력 칸으로 되돌린다.
+  overlay.addEventListener("focusout", () => {
+    setTimeout(() => {
+      if (openOverlay !== overlay) return; // 이미 닫혔으면 관여하지 않는다
+      if (card.contains(document.activeElement)) return;
+      input.focus();
+    }, 0);
+  });
   // 다른 창이 위에 떠 있으면 그쪽이 Esc 를 가져간다(모달 스택 규칙).
   document.addEventListener("keydown", function esc(e) {
     if (!openOverlay) {

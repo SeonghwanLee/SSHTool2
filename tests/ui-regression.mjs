@@ -2117,6 +2117,28 @@ try {
       );
       expect(rows.length >= 1 && rows[0].includes("운영1"), `검색 결과가 어긋난다: ${JSON.stringify(rows)}`);
 
+      // 마우스 클릭이 창에 닿는다 — #modal-root 가 pointer-events:none 이라 팔레트에서
+      // 되살리지 않으면 클릭이 아래 터미널로 새어 나가 창이 통째로 먹통이 됐다(0.76.4).
+      const hit = await page.evaluate(() => {
+        const row = document.querySelector(".palette-row");
+        if (!row) return "행 없음";
+        const r = row.getBoundingClientRect();
+        const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return el?.closest(".palette-overlay") ? "ok" : `${el?.tagName}#${el?.id ?? ""}`;
+      });
+      expect(hit === "ok", `팔레트 클릭이 아래로 새어 나간다: ${hit}`);
+
+      // 카드 안 빈 곳을 눌러도 입력 포커스를 잃지 않는다(눌러 놓고 타이핑이 죽던 자리).
+      const hintBox = await page.locator(".palette-hint").boundingBox();
+      if (hintBox) await page.mouse.click(hintBox.x + hintBox.width / 2, hintBox.y + hintBox.height / 2);
+      await page.waitForTimeout(150);
+      await page.keyboard.type("1");
+      await page.waitForTimeout(200);
+      const stillTyping = await page.evaluate(() => document.querySelector(".palette-input")?.value);
+      expect(stillTyping === "운영11", `빈 곳 클릭 뒤 키 입력이 죽는다: ${JSON.stringify(stillTyping)}`);
+      await page.fill(".palette-input", "운영1");
+      await page.waitForTimeout(200);
+
       // Esc 로 닫힌다.
       await page.keyboard.press("Escape");
       await page.waitForTimeout(250);

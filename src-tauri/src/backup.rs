@@ -258,7 +258,9 @@ pub fn import(app: &AppHandle, source: &str, password: &str) -> Result<usize, St
         if crate::filecrypt::MANAGED.contains(&name.as_str()) {
             crate::filecrypt::write_text(&target, content)?;
         } else {
-            fs::write(&target, content).map_err(|e| format!("{name} 복원 실패: {e}"))?;
+            // 볼트·known_hosts 도 절단 상태를 만들지 않는다(임시 파일 → 교체).
+            crate::paths::write_atomic(&target, content)
+                .map_err(|e| format!("{name} 복원 실패: {e}"))?;
         }
         restored += 1;
     }
