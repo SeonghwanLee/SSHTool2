@@ -1,6 +1,6 @@
 [package]
 name = "sshtool2"
-version = "0.76.4"
+version = "0.76.5"
 description = "SSHTool2"
 authors = ["Seonghwan Lee"]
 edition = "2021"

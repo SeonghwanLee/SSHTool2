@@ -1053,6 +1053,84 @@ try {
         `크기가 유지되지 않는다: ${JSON.stringify({ before, after })}`);
     });
 
+    await t.test("진행바 — 남은 시간이 뜨고, 창을 접었다 펴도 배경 전송을 이어 보여 준다", async () => {
+      // 끌어다 놓은 업로드는 전송 id 가 없어 진행 이벤트가 오지 않는다. 연결에 매인
+      // 상태(liveSftp)만으로 진행바가 살아야 한다 — 접었다 펴면 사라지던 자리(0.76.5).
+      const feed = async (done) =>
+        page.evaluate((d) => {
+          const { liveSftp, transferStateOf, notifyLive } = window.__live;
+          transferStateOf("t1").transferring = true;
+          const live = liveSftp.get("t1");
+          live.name = "큰파일.zip";
+          live.done = d;
+          live.total = 100 * 1024 * 1024;
+          notifyLive();
+        }, done);
+
+      // 이 검사는 '전송 중' 상태를 손으로 만든다 — 도중에 실패해도 반드시 되돌려야
+      // 뒤따르는 전송 검사들이 '이미 전송 중' 가드에 걸려 줄줄이 무너지지 않는다.
+      try {
+      // 표본을 여러 번 먹여 속도·남은 시간이 계산되게 한다(10MB 씩, 300ms 간격).
+      for (let i = 1; i <= 5; i++) {
+        await feed(i * 10 * 1024 * 1024);
+        await page.waitForTimeout(300);
+      }
+      const shown = await page.evaluate(() => ({
+        hidden: document.querySelector(".sftp-progress")?.classList.contains("hidden"),
+        info: document.querySelector(".prog-info")?.textContent ?? "",
+      }));
+      expect(shown.hidden === false, "전송 중인데 진행바가 숨어 있다");
+      expect(/남음|곧 완료/.test(shown.info), `남은 시간이 없다: ${shown.info}`);
+
+      // 접기(연결 유지) → 다시 열기. 예전에는 여기서 진행바가 영영 나오지 않았다.
+      await page.locator(".sftp-min").click();
+      await page.waitForTimeout(300);
+      await page.evaluate(() => window.__open());
+      await page.waitForTimeout(800);
+      for (let i = 6; i <= 8; i++) {
+        await feed(i * 10 * 1024 * 1024);
+        await page.waitForTimeout(300);
+      }
+      const again = await page.evaluate(() => ({
+        hidden: document.querySelector(".sftp-progress")?.classList.contains("hidden"),
+        pct: document.querySelector(".prog-pct")?.textContent ?? "",
+        info: document.querySelector(".prog-info")?.textContent ?? "",
+      }));
+      expect(again.hidden === false, "접었다 편 뒤 진행바가 사라졌다");
+      expect(again.pct === "80%", `진행률이 이어지지 않는다: ${again.pct}`);
+      expect(/남음|곧 완료/.test(again.info), `접었다 편 뒤 남은 시간이 없다: ${again.info}`);
+
+      // 전송이 끝나면 사라진다.
+      await page.evaluate(() => {
+        const { transferStateOf, notifyLive } = window.__live;
+        transferStateOf("t1").transferring = false;
+        notifyLive();
+      });
+      await page.waitForTimeout(200);
+      expect(
+        await page.evaluate(() => document.querySelector(".sftp-progress")?.classList.contains("hidden")),
+        "전송이 끝났는데 진행바가 남아 있다",
+      );
+      } finally {
+        // 상태를 원래대로 — 창이 접힌 채 끝났으면 다시 열어 둔다.
+        await page.evaluate(() => {
+          const { liveSftp, transferStateOf, notifyLive } = window.__live;
+          transferStateOf("t1").transferring = false;
+          const live = liveSftp.get("t1");
+          if (live) {
+            live.done = 0;
+            live.total = 0;
+            live.name = "";
+          }
+          notifyLive();
+        });
+        if (!(await page.locator(".sftp-panel").count())) {
+          await page.evaluate(() => window.__open());
+          await page.waitForTimeout(800);
+        }
+      }
+    });
+
     await t.test("전송 총량 측정이 폴더 목록을 재사용한다 (이중 조회 회귀)", async () => {
       // 폴더 하나를 내려받고, 그 폴더에 대한 sftp_list 호출 횟수를 센다.
       await page.evaluate(() => (window.__ipc.length = 0));

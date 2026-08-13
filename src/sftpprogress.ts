@@ -22,6 +22,20 @@ const RATE_CHOICES: { label: string; kbps: number }[] = [
   { label: "10 MB/s", kbps: 10 * 1024 },
 ];
 
+/** 남은 시간 표기. 초 단위로 떨리지 않게 굵게 반올림한다. */
+function fmtEta(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "";
+  if (sec > 24 * 3600) return "남은 시간 계산 중";
+  if (sec < 10) return "곧 완료";
+  if (sec < 60) return `약 ${Math.round(sec / 5) * 5}초 남음`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) {
+    const s = Math.round((sec % 60) / 10) * 10;
+    return s > 0 && s < 60 ? `약 ${m}분 ${s}초 남음` : `약 ${m + (s >= 60 ? 1 : 0)}분 남음`;
+  }
+  return `약 ${Math.floor(m / 60)}시간 ${m % 60}분 남음`;
+}
+
 export function createProgressStrip(
   xfer: TransferState,
   defaultKbps = 0,
@@ -79,11 +93,18 @@ export function createProgressStrip(
 
   strip.append(pName, bar, pInfo, rateSel, cancelBtn);
 
-  // 전송 속도 계산용(이전 진행 시점).
-  let speedName = "";
+  // 전송 속도·남은 시간 계산용.
+  //
+  // 순간 속도(직전 두 표본의 차이)를 그대로 쓰면 조각 하나가 늦게 도착할 때마다 값이
+  // 요동친다. 속도만 보여 줄 때는 눈에 거슬리는 정도였지만, 남은 시간까지 그 값으로
+  // 내면 "3초 → 2분 → 8초"처럼 튀어 쓸모가 없다. 그래서 지수이동평균으로 고른다.
   let lastDone = 0;
   let lastAt = 0;
+  let lastTotal = 0;
+  let bpsAvg = 0; // 지수이동평균 속도(B/s)
+  let samples = 0;
   let overall = ""; // "3/10" 같은 전체 진행
+  const SMOOTH = 0.3; // 새 표본 반영 비율 — 낮을수록 안정적이고 반응이 느리다
 
   const showProgress = (name: string, done: number, total: number) => {
     strip.classList.remove("hidden");
@@ -92,18 +113,34 @@ export function createProgressStrip(
     fill.style.width = `${ratio}%`;
     pct.textContent = `${ratio}%`;
 
-    // 같은 파일이 진행 중일 때만 속도(MB/s)를 낸다.
-    let speed = "";
+    // 진행량이 뒤로 가거나 총량이 바뀌면 새 전송이다 — 평균을 이어 쓰면 안 된다.
+    // 파일 이름이 아니라 진행량으로 판단해야 묶음 전송(여러 파일)에서 파일이 바뀔
+    // 때마다 남은 시간이 사라지지 않는다.
     const now = performance.now();
-    if (name === speedName && now > lastAt) {
-      const bps = ((done - lastDone) / (now - lastAt)) * 1000;
-      if (bps > 0) speed = ` · ${fmtSize(bps)}/s`;
+    if (done < lastDone || total !== lastTotal) {
+      bpsAvg = 0;
+      samples = 0;
+      lastAt = 0;
     }
-    // 파일이 바뀌면 현재 진행량을 기준점으로 삼는다(0 으로 두면 첫 샘플 속도가 부풀려짐).
-    speedName = name;
+    // 같은 진행량이 두 번 들어오는 경우가 있다(진행 이벤트와 배경 상태가 같은 값을
+    // 알린다) — 속도를 0 으로 끌어내리므로 표시만 갱신하고 계산에서는 뺀다.
+    if (lastAt > 0 && now > lastAt && done !== lastDone) {
+      const bps = ((done - lastDone) / (now - lastAt)) * 1000;
+      if (bps >= 0) {
+        bpsAvg = samples === 0 ? bps : bpsAvg * (1 - SMOOTH) + bps * SMOOTH;
+        samples++;
+      }
+    }
     lastDone = done;
     lastAt = now;
-    pInfo.textContent = (total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done)) + speed;
+    lastTotal = total;
+
+    const speed = bpsAvg > 0 ? ` · ${fmtSize(bpsAvg)}/s` : "";
+    // 표본이 한둘일 때의 추정은 크게 빗나간다 — 몇 번 모인 뒤부터 내보인다.
+    const eta =
+      samples >= 3 && bpsAvg > 0 && total > done ? ` · ${fmtEta((total - done) / bpsAvg)}` : "";
+    pInfo.textContent =
+      (total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done)) + speed + eta;
   };
   const setOverall = (o: string) => {
     overall = o;

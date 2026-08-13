@@ -37,6 +37,7 @@ import {
   transferStates,
   transferStateOf,
   notifyLive,
+  onLiveSftpChanged,
   hookProgressOnce
 } from "./sftpcommon";
 // 기존 소비자(main.ts·sidebar.ts)가 "./sftpui" 에서 가져가던 공개 API 는 그대로 통한다.
@@ -226,12 +227,37 @@ export async function openSftpBrowser(
     if (disposed || e.transferId !== xfer.current) return;
     // 파일 하나가 아니라 묶음 전체 기준으로 보여 준다 — 열 개를 보내는데 파일마다
     // 0%→100% 를 반복하면 얼마나 남았는지 알 수 없다.
-    if (bundle.total > 0) showProgress(e.name, Math.min(bundle.total, bundle.done + e.done), bundle.total);
+    if (bundle.total > 0) {
+      showProgress(e.name, Math.min(bundle.total, bundle.done + e.done), bundle.total);
+      return;
+    }
+    // 이 창이 시작한 전송이 아니면(닫았다 다시 연 경우) 묶음 정보가 이쪽에 없다 —
+    // 연결에 매인 상태에서 가져와야 파일 단위 0~100% 를 되풀이하지 않는다.
+    const live = liveSftp.get(session.id);
+    if (live && live.grandTotal > 0)
+      showProgress(e.name, Math.min(live.grandTotal, live.baseDone + e.done), live.grandTotal);
     else showProgress(e.name, e.done, e.total);
   }).then((fn) => {
     // listen() 이 해결되기 전에 창이 닫혔으면 즉시 해제(리스너 누수 방지).
     if (disposed) fn();
     else unlisten = fn;
+  });
+
+  // 배경 전송을 따라간다 — 창을 접었다 펴면 진행바가 사라지던 자리다(0.76.5).
+  //
+  // 끌어다 놓은 업로드는 조각마다 끝나 **전송 id 가 없다**. 그래서 위의 진행 이벤트가
+  // 한 번도 오지 않고, 진행 표시는 전송을 시작한 그 창의 함수로만 갱신됐다. 창을 닫으면
+  // 그 함수는 사라진 화면을 갱신하고, 새로 연 창은 아무것도 받지 못한다.
+  // 연결(세션)에 매인 상태를 구독해 어느 창에서 보든 같은 진행을 보여 준다.
+  const stopLiveWatch = onLiveSftpChanged(() => {
+    if (disposed) return;
+    if (!xfer.transferring) {
+      hideProgress();
+      return;
+    }
+    const live = liveSftp.get(session.id);
+    // 파일과 파일 사이에는 총량이 잠깐 0 이 된다 — 그때는 직전 표시를 그대로 둔다.
+    if (live && live.total > 0) showProgress(live.name, live.done, live.total);
   });
 
 
@@ -302,6 +328,7 @@ export async function openSftpBrowser(
     rememberSize();
     rememberState();
     unlisten?.(); // 모달 진행바 구독만 해제 — 배경 진행률은 모듈 구독이 계속 받는다
+    stopLiveWatch();
     if (watchTimer) window.clearInterval(watchTimer); // 편집 감시 종료
     window.removeEventListener("resize", onWinResize);
     overlay.remove();
@@ -316,6 +343,7 @@ export async function openSftpBrowser(
     if (watchTimer) window.clearInterval(watchTimer); // 편집 감시 종료
     if (xfer.current) void sftpCancel(xfer.current);
     unlisten?.();
+    stopLiveWatch();
     window.removeEventListener("resize", onWinResize);
     liveSftp.delete(session.id);
     transferStates.delete(session.id);
@@ -607,7 +635,8 @@ export async function openSftpBrowser(
       await remote.go(existing.remoteDir || ".");
       setStatus(xfer.current ? "연결됨 · 전송 중" : "연결됨");
       // 닫혀 있는 동안 진행된 전송이 있으면 진행바를 이어서 보여 준다.
-      if (xfer.current && existing.total > 0) {
+      // 끌어다 놓은 업로드는 전송 id 가 없다 — 전송 중 여부로 판단해야 놓치지 않는다.
+      if (xfer.transferring && existing.total > 0) {
         showProgress(existing.name, existing.done, existing.total);
       }
     } else {

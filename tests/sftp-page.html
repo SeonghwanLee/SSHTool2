@@ -11,6 +11,9 @@
     <div id="modal-root"></div>
     <script type="module">
       import { openSftpBrowser } from "/src/sftpui.ts";
+      // 배경 전송(창을 닫아도 이어지는 전송) 상태를 시험에서 직접 만들기 위한 통로.
+      import { liveSftp, transferStateOf, notifyLive } from "/src/sftpcommon.ts";
+      window.__live = { liveSftp, transferStateOf, notifyLive };
       window.__open = () =>
         openSftpBrowser(
           { id: "t1", name: "테스트", kind: "ssh", host: "h", port: 22, user: "u", enableSftp: true },

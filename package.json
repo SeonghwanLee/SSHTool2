@@ -1,7 +1,7 @@
 {
   "name": "sshtool2",
   "private": true,
-  "version": "0.76.4",
+  "version": "0.76.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
