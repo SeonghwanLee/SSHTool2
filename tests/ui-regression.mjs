@@ -2205,6 +2205,48 @@ try {
       expect(await wsWidth() < bodyW - 100, "다시 고정했는데 작업영역이 전폭 그대로다");
     });
 
+    await t.test("세션영역 폭 — 최소 폭 아래로 줄지 않고, 머리말 버튼이 밖으로 나가지 않는다", async () => {
+      await dismissModals(page);
+      const r = await page.evaluate(async () => {
+        const { SIDEBAR_MIN_W } = await import("/src/settings.ts");
+        const app = document.getElementById("app") ?? document.documentElement;
+        const sb = document.getElementById("sidebar");
+        const escapedAt = (w) => {
+          sb.style.width = `${w}px`;
+          app.style.setProperty("--sidebar-w", `${w}px`);
+          const right = sb.getBoundingClientRect().right;
+          return Math.max(
+            ...[...document.querySelectorAll("#sidebar-head button")].map(
+              (b) => b.getBoundingClientRect().right,
+            ),
+          ) - right;
+        };
+        const atMin = escapedAt(SIDEBAR_MIN_W);
+        // 최소 폭에서는 머리말이 **한 줄**로 유지돼야 한다(두 줄이 되면 디자인이 무너진다).
+        const headH = Math.round(document.getElementById("sidebar-head").getBoundingClientRect().height);
+        // 끌기 제한 자체도 확인한다 — 손잡이를 왼쪽 끝까지 끌어도 최소 폭에서 멈춘다.
+        const grip = document.getElementById("sidebar-resizer");
+        const box = grip.getBoundingClientRect();
+        grip.dispatchEvent(
+          new MouseEvent("mousedown", { bubbles: true, clientX: box.left + 2, clientY: box.top + 20 }),
+        );
+        window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, buttons: 1, clientX: 5, clientY: box.top + 20 }));
+        window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        await new Promise((res) => setTimeout(res, 100));
+        const after = parseInt(
+          getComputedStyle(app).getPropertyValue("--sidebar-w") || "0",
+          10,
+        );
+        return { min: SIDEBAR_MIN_W, atMin: Math.round(atMin), after, headH };
+      });
+      expect(r.atMin <= 0, `최소 폭에서 버튼이 ${r.atMin}px 밖으로 나간다`);
+      expect(r.headH <= 50, `최소 폭에서 머리말이 ${r.headH}px(두 줄)로 늘어났다`);
+      expect(
+        r.after >= r.min,
+        `왼쪽 끝까지 끌었더니 ${r.after}px 로 최소 폭(${r.min}) 아래가 됐다`,
+      );
+    });
+
     await t.test("세션영역 경계선 — 보이는 선은 1px(두꺼운 버튼 트랙 제거)", async () => {
       const r = await page.evaluate(() => {
         const rz = document.getElementById("sidebar-resizer");

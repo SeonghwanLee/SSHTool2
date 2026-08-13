@@ -319,6 +319,15 @@ button {
   min-height: 0;
 }
 
+/* 어떤 폭에서도 머리말이 세션영역 밖으로 나가지 않게 한다 — 최소 폭(끌기 제한)이
+   1차 방어이고, 이 둘은 글꼴이 커지거나 버튼이 늘어도 깨지지 않게 하는 2차 방어다. */
+#sidebar {
+  overflow: hidden;
+}
+#sidebar-head {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
 #sidebar-head {
   display: flex;
   align-items: center;

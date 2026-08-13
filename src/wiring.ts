@@ -6,6 +6,7 @@ import type { Sidebar } from "./sidebar";
 import { settings, setSettings, applyDisplayOptions, redraw, tabManager, sessions } from "./appstate";
 import { saveSettings, type Settings, type ViewModeSetting } from "./settings";
 import { settingsDialog } from "./settingsdialog";
+import { SIDEBAR_MIN_W, SIDEBAR_MAX_W } from "./settings";
 import { setImePinning } from "./imeoverlay";
 import { aboutDialog } from "./about";
 import { applyAppTheme, themeById } from "./themes";
@@ -197,7 +198,8 @@ export function wireSidebarResize(): void {
     const startW = settings.sidebarWidth;
     const onMove = (m: MouseEvent) => {
       if (m.buttons === 0) return onUp();
-      const w = Math.max(160, Math.min(560, startW + (m.clientX - startX)));
+      // 최소 폭 아래로는 줄이지 않는다 — 머리말 버튼이 영역 밖으로 나간다.
+      const w = Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, startW + (m.clientX - startX)));
       app.style.setProperty("--sidebar-w", `${w}px`);
       settings.sidebarWidth = w;
     };

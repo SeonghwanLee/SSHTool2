@@ -5,6 +5,17 @@ import { saveFailureAlert } from "./dialogs";
 import { DEFAULT_THEME_ID, THEMES } from "./themes";
 import { SAVER_NAMES, type SaverName } from "./screensaver";
 
+/**
+ * 세션영역 최소 폭(px).
+ *
+ * 실측(0.76.2, 실기 보고): 250px 아래로 줄이면 머리말 버튼이 영역 **밖으로** 나가
+ * 터미널 위에 겹쳐 보였다. 줄바꿈 허용을 넣은 뒤로는 밖으로 나가지는 않지만 265px
+ * 미만에서 머리말이 두 줄이 된다 — 원래 한 줄 디자인이 유지되는 값으로 잡는다.
+ * 예전 기본(240)은 이미 깨지는 폭이었으므로 기본값도 여기에 맞춘다.
+ */
+export const SIDEBAR_MIN_W = 280;
+export const SIDEBAR_MAX_W = 560;
+
 export type CursorStyle = "block" | "underline" | "bar";
 /** 세션 화면 배치(tabs.ts ViewMode 와 동일 — 순환 import 를 피하려 여기서 정의). */
 export type ViewModeSetting = "tabs" | "vertical" | "horizontal";
@@ -107,7 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sortByRecent: false,
   showSessionDetail: true,
   recentLimit: 10,
-  sidebarWidth: 240,
+  sidebarWidth: SIDEBAR_MIN_W,
   sidebarCollapsed: false,
   sidebarDocked: true,
   pasteConfirmLines: 2,
@@ -165,6 +176,10 @@ export async function loadSettings(): Promise<Settings> {
     if (!Number.isFinite(merged.recentLimit))
       merged.recentLimit = DEFAULT_SETTINGS.recentLimit;
     merged.recentLimit = Math.max(0, Math.min(50, Math.round(merged.recentLimit)));
+    // 예전 기본(240)이나 사용자가 더 좁혀 둔 값은 머리말 버튼이 삐져나가는 폭이다.
+    // 읽는 김에 최소 폭으로 끌어올려 깨진 상태가 저절로 낫게 한다.
+    if (!Number.isFinite(merged.sidebarWidth)) merged.sidebarWidth = SIDEBAR_MIN_W;
+    merged.sidebarWidth = Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, merged.sidebarWidth));
     // 구버전 파일이나 손상된 값이 경로 자리에 오면 SFTP 가 열리다 만다 — 문자열만 받는다.
     if (typeof merged.sftpLocalDir !== "string") merged.sftpLocalDir = "";
     // 구버전 파일에는 없던 항목 — 형식이 깨져 있으면 트리 정렬이 통째로 멈춘다.
