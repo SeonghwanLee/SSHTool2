@@ -3,37 +3,13 @@
 // 설정(테마·폰트·크기·커서·스크롤백) 적용, 선택→자동복사+토스트, 우클릭 복사/붙여넣기,
 // 검색(Ctrl+Shift+F), Ctrl+휠 zoom, Ctrl+Enter=LF, 탭 상태색, 탭 단축키, 상태바 연동.
 
-import { Terminal } from "@xterm/xterm";
 import { applyIcon, iconSpan } from "./icons";
-import { showContextMenu, type MenuItem } from "./contextmenu";
-import { logBytes, logLine } from "./debuglog";
+import { showContextMenu } from "./contextmenu";
 import { confirmDialog, alertDialog } from "./dialogs";
-import { FitAddon } from "@xterm/addon-fit";
-import { SearchAddon, type ISearchDecorationOptions } from "@xterm/addon-search";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
-import "@xterm/xterm/css/xterm.css";
 import type { SessionInfo } from "./types";
 import { sessionColorCss } from "./types";
 import type { Settings } from "./settings";
-import { fontStack } from "./settings";
-import { themeById } from "./themes";
-import { Utf8Gate } from "./utf8stream";
-import {
-  sshConnect,
-  sshWrite,
-  sshPause,
-  b64ToBytes,
-  sshResize,
-  sshClose,
-  localOpen,
-  localWrite,
-  localResize,
-  localClose,
-  onSshData,
-  onSshClosed,
-  imeSetEnglish,
-} from "./ipc";
+import { sshConnect, b64ToBytes, localOpen, onSshData, onSshClosed } from "./ipc";
 
 import {
   TerminalTab,
@@ -51,6 +27,12 @@ import {
 } from "./termtab";
 import { beginTabDrag } from "./tabdrag";
 import { tabMenu } from "./tabmenu";
+import { broadcastTargets, broadcastTo, pruneKeys } from "./tabbroadcast";
+import {
+  scheduleAutoReconnect,
+  cancelAutoReconnect,
+  type AutoState,
+} from "./tabreconnect";
 // 기존 소비자(main.ts 등)가 "./tabs" 에서 가져가던 공개 타입·상수는 그대로 통한다.
 export type { CredentialProvider, ResolvedCreds, CredResolution, StatusInfo, TabActions, ViewMode } from "./termtab";
 
@@ -94,9 +76,8 @@ export class TabManager {
   private dragMoved = false;
   /** 동시 명령이 겨눈 탭 키(null = 표시 안 함). 탭바 강조에만 쓴다. */
   private bcastKeys: ReadonlySet<string> | null = null;
-  /** 자동 재접속 예약(탭 → 타이머 id)과 지금까지의 시도 횟수. 탭이 닫히면 함께 정리된다. */
-  private readonly autoTimers = new Map<TerminalTab, number>();
-  private readonly autoTries = new Map<TerminalTab, number>();
+  /** 자동 재접속 예약 상태(타이머·시도 횟수). 규칙은 tabreconnect.ts. */
+  private readonly autoState: AutoState = { timers: new Map(), tries: new Map() };
   /** 수신 이벤트발 상태바 갱신의 마지막 시각 — 폭주 출력에서 DOM 갱신을 초당 4회로 제한. */
   private lastRxStatusAt = 0;
   /** 탭 구성·접속 상태가 바뀔 때 알림받을 구독자(동시 명령 창 세션 수 등). */
@@ -359,45 +340,18 @@ export class TabManager {
    * (숨기면 "왜 저 세션엔 안 갔지"를 알 길이 없다).
    */
   broadcastTargets(): { key: string; label: string; locked: boolean }[] {
-    return this.tabs
-      .filter((t) => t.liveId)
-      .map((t) => ({
-        key: t.key,
-        label: t.session.name || `${t.session.user}@${t.session.host}`,
-        locked: t.locked,
-      }));
+    return broadcastTargets(this.tabs);
   }
 
   /**
    * 여러 세션에 같은 입력을 보낸다. `keys` 를 주면 그 탭들만, 없으면 접속된 전부.
-   *
-   * 잠긴 탭은 건너뛴다. 잠금은 '실수로 명령이 들어가는 것'을 막는 장치인데, 동시 명령은
-   * 그 사고가 가장 크게 번지는 경로다(운영 서버 10개에 한 줄). 몇 개를 건너뛰었는지
-   * 돌려줘 호출부가 조용히 넘기지 않게 한다.
+   * 규칙(잠긴 탭 건너뛰기·실패 집계)은 tabbroadcast.ts 에 있다.
    */
-  async broadcast(
+  broadcast(
     data: Uint8Array,
     keys?: ReadonlySet<string>,
   ): Promise<{ sent: number; locked: number; failed: string[] }> {
-    let locked = 0;
-    const writes: { label: string; p: Promise<void> }[] = [];
-    for (const t of this.tabs) {
-      if (!t.liveId) continue;
-      if (keys && !keys.has(t.key)) continue;
-      if (t.locked) {
-        locked++;
-        continue;
-      }
-      writes.push({
-        label: t.session.name || `${t.session.user}@${t.session.host}`,
-        p: writeTo(t.session, t.liveId, data),
-      });
-    }
-    // 쓰기 실패를 버리면 '전송됨'이 거짓말이 된다(진단 0.62.0) — 백엔드가 세션을
-    // 못 찾는 경합 창(방금 죽었는데 closed 이벤트가 아직 안 닿음)에서 실제로 난다.
-    const results = await Promise.allSettled(writes.map((w) => w.p));
-    const failed = writes.filter((_, i) => results[i].status === "rejected").map((w) => w.label);
-    return { sent: writes.length - failed.length, locked, failed };
+    return broadcastTo(this.tabs, data, keys);
   }
 
   sendActive(data: Uint8Array): "sent" | "none" | "locked" {
@@ -421,9 +375,9 @@ export class TabManager {
 
   /** 닫힌 탭의 키를 걸러낸다 — 대상 집합이 유령 키를 들고 있지 않게. */
   pruneKeys(keys: ReadonlySet<string>): Set<string> {
-    const live = new Set<string>(this.tabs.filter((t) => t.liveId).map((t) => t.key));
-    return new Set([...keys].filter((k) => live.has(k)));
+    return pruneKeys(this.tabs, keys);
   }
+
   /** 활성 탭의 찾기 창을 연다(타이틀바 버튼용). 열린 탭이 없으면 아무 일도 하지 않는다. */
   openSearch(): void {
     this.active?.openSearch();
@@ -470,31 +424,11 @@ export class TabManager {
    * 계정을 만들거나 서버 로그를 채운다).
    */
   private scheduleAutoReconnect(tab: TerminalTab): void {
-    if (!tab.session.autoReconnect) return;
-    if (tab.locked) return; // 잠긴 세션은 오조작 방지가 우선
-    const max = Math.max(1, tab.session.autoReconnectMax ?? 3);
-    const tries = this.autoTries.get(tab) ?? 0;
-    if (tries >= max) {
-      tab.showRetryNote(`자동 재접속 ${max}회 실패 — 자동 시도를 멈췄습니다.`);
-      return;
-    }
-    const delay = Math.max(1, tab.session.autoReconnectDelaySec ?? 5);
-    this.autoTries.set(tab, tries + 1);
-    tab.showRetryNote(`${delay}초 후 자동 재접속… (${tries + 1}/${max})`);
-    const id = window.setTimeout(() => {
-      this.autoTimers.delete(tab);
-      if (!this.tabs.includes(tab) || tab.disposed) return;
-      if (tab.status === "connected" || tab.status === "connecting") return;
-      void this.reconnect(tab);
-    }, delay * 1000);
-    this.autoTimers.set(tab, id);
+    scheduleAutoReconnect(this.autoState, tab, () => void this.reconnect(tab));
   }
 
-  /** 예약된 자동 재접속을 취소한다(사용자가 직접 끊거나 탭을 닫을 때). */
   private cancelAutoReconnect(tab: TerminalTab): void {
-    const id = this.autoTimers.get(tab);
-    if (id !== undefined) window.clearTimeout(id);
-    this.autoTimers.delete(tab);
+    cancelAutoReconnect(this.autoState, tab);
   }
 
   private async reconnect(tab: TerminalTab): Promise<void> {
@@ -544,7 +478,7 @@ export class TabManager {
         return;
       }
       tab.setConnected(liveId);
-      this.autoTries.delete(tab); // 붙었으니 자동 재접속 시도 횟수를 초기화한다
+      this.autoState.tries.delete(tab); // 붙었으니 자동 재접속 시도 횟수를 초기화한다
       this.byLiveId.set(liveId, tab);
       // 접속 응답보다 먼저 도착했던 출력(포워딩 배너 등)을 이제 반영한다.
       const earlyData = this.pendingData.get(liveId);
@@ -735,7 +669,7 @@ export class TabManager {
     // 탭바 ×·가운데 클릭·Ctrl+F4·타일 헤더 × 가 모두 여기로 모이므로 잠금 검사는 여기 하나면 된다.
     if (await this.refuseIfLocked(tab)) return;
     this.cancelAutoReconnect(tab); // 닫는 탭에 예약이 남아 유령 접속이 생기지 않게
-    this.autoTries.delete(tab);
+    this.autoState.tries.delete(tab);
     if (tab.status === "connected") {
       const ok = await this.confirmClose(tab.session.name || tab.session.host);
       if (!ok) return;

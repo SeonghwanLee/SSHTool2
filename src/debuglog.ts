@@ -59,9 +59,6 @@ export async function setDebugLogging(on: boolean): Promise<void> {
   logLine("로깅 시작", `${navigator.userAgent}`);
 }
 
-export function isDebugLogging(): boolean {
-  return enabled;
-}
 
 /** 사건 한 줄. */
 export function logLine(tag: string, text = ""): void {

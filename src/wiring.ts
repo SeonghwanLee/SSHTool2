@@ -1,21 +1,20 @@
 // 화면 배선 — 설정창·분할보기·호스트키 프롬프트·사이드바 폭·자동잠금·화면보호기·
 // 창버튼·잠금 단축키·상태바. main.ts 에서 분리(0.67.0 정지작업). 로직 변경 없음.
 
-import type { TabManager, StatusInfo, ViewMode } from "./tabs";
+import type { TabManager, StatusInfo } from "./tabs";
 import type { Sidebar } from "./sidebar";
-import { settings, setSettings, applyDisplayOptions, redraw, tabManager, sessions } from "./appstate";
+import { settings, setSettings, applyDisplayOptions, tabManager, sessions } from "./appstate";
 import { saveSettings, type Settings, type ViewModeSetting } from "./settings";
 import { settingsDialog } from "./settingsdialog";
 import { SIDEBAR_MIN_W, SIDEBAR_MAX_W } from "./settings";
-import { aboutDialog } from "./about";
 import { applyAppTheme, themeById } from "./themes";
 import { setDebugLogging } from "./debuglog";
 import { onHostKeyPrompt, hostKeyAnswer, vaultLock } from "./ipc";
-import { hostKeyPrompt, confirmDialog, alertDialog } from "./dialogs";
+import { hostKeyPrompt, confirmDialog } from "./dialogs";
 import { applyIcon } from "./icons";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
-import { reflectLock, refreshLockIndicator, changeMasterFlow, toggleAutoUnlock } from "./vaultflow";
+import { reflectLock, changeMasterFlow, toggleAutoUnlock } from "./vaultflow";
 import { initPalette, togglePalette } from "./palette";
 import { hydrateSecrets } from "./sessionflow";
 import { keystoreHas } from "./ipc";

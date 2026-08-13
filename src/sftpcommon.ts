@@ -1,7 +1,7 @@
 // SFTP 공통부 — 항목 타입·경로/표기 헬퍼·살아있는 연결 레지스트리·전송 상태.
 // sftpui.ts(창 본체)에서 분리(0.63.0 정지작업). 로직 변경 없음.
 
-import { sftpDisconnect, sftpCancel, sftpList, localList, onSftpProgress, type SftpEntry } from "./ipc";
+import { sftpDisconnect, sftpCancel, onSftpProgress } from "./ipc";
 import { applyIcon } from "./icons";
 
 export interface Entry {

@@ -93,9 +93,7 @@ export function settingsDialog(
 
     const panels = new Map<string, HTMLElement>();
     const tabButtons = new Map<string, HTMLElement>();
-    let activeTab = "";
     const selectTab = (id: string) => {
-      activeTab = id;
       for (const [k, el] of panels) el.style.display = k === id ? "" : "none";
       for (const [k, el] of tabButtons) el.classList.toggle("active", k === id);
     };

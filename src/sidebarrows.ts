@@ -11,7 +11,6 @@ import {
   kindIcon,
   detailText,
   rowTooltip,
-  navDepth,
   type SidebarCallbacks,
 } from "./sidebar";
 

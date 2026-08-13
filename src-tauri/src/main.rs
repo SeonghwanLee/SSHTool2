@@ -14,6 +14,7 @@ mod browser;
 mod debuglog;
 mod rdp;
 mod sftp;
+mod sftpcmd;
 mod ssh;
 mod stage;
 mod store;
@@ -280,158 +281,6 @@ fn vault_delete_secret(app: AppHandle, key: String) -> Result<(), String> {
     vault::delete_secret(&app, &key)
 }
 
-#[tauri::command]
-async fn sftp_connect(
-    app: AppHandle,
-    host: String,
-    port: u16,
-    user: String,
-    password: String,
-    auth_type: String,
-    private_key_path: String,
-    allow_legacy_algorithms: bool,
-    charset: String,
-) -> Result<String, String> {
-    sftp::connect(
-        app,
-        host,
-        port,
-        user,
-        password,
-        auth_type,
-        private_key_path,
-        allow_legacy_algorithms,
-        charset,
-    )
-    .await
-}
-
-#[tauri::command]
-async fn sftp_list(
-    state: State<'_, SftpMap>,
-    id: String,
-    path: String,
-) -> Result<Vec<sftp::SftpEntry>, String> {
-    sftp::list(&state, &id, &path).await
-}
-
-#[tauri::command]
-async fn sftp_download(
-    app: AppHandle,
-    state: State<'_, SftpMap>,
-    cancels: State<'_, sftp::TransferCancel>,
-    id: String,
-    remote_path: String,
-    local_path: String,
-    transfer_id: String,
-    resume_from: u64,
-    rate: State<'_, sftp::RateLimit>,
-) -> Result<(), String> {
-    sftp::download(
-        app,
-        &state,
-        &cancels,
-        &id,
-        remote_path,
-        local_path,
-        transfer_id,
-        resume_from,
-        &rate,
-    )
-    .await
-}
-
-#[tauri::command]
-async fn sftp_upload(
-    app: AppHandle,
-    state: State<'_, SftpMap>,
-    cancels: State<'_, sftp::TransferCancel>,
-    id: String,
-    local_path: String,
-    remote_path: String,
-    transfer_id: String,
-    resume_from: u64,
-    rate: State<'_, sftp::RateLimit>,
-) -> Result<(), String> {
-    sftp::upload(
-        app,
-        &state,
-        &cancels,
-        &id,
-        local_path,
-        remote_path,
-        transfer_id,
-        resume_from,
-        &rate,
-    )
-    .await
-}
-
-/// 전송 속도 상한(KB/s, 0 = 무제한). 전송 도중에 바꿔도 다음 조각부터 듣는다.
-#[tauri::command]
-fn sftp_set_rate_limit(rate: State<'_, sftp::RateLimit>, kbps: u64) {
-    rate.store(kbps.saturating_mul(1024), std::sync::atomic::Ordering::Relaxed);
-}
-
-/// 드롭 업로드(스트리밍) — 조각을 원격 .part 에 이어 쓴다. 내용은 base64 로 받는다
-/// (숫자 배열로 넘기면 4MB 조각이 수십 MB JSON 이 된다).
-#[tauri::command]
-async fn sftp_upload_chunk(
-    state: State<'_, SftpMap>,
-    rate: State<'_, sftp::RateLimit>,
-    id: String,
-    remote_path: String,
-    offset: u64,
-    data_b64: String,
-) -> Result<(), String> {
-    use base64::Engine;
-    let data = base64::engine::general_purpose::STANDARD
-        .decode(data_b64.as_bytes())
-        .map_err(|e| format!("조각 해독 실패: {e}"))?;
-    sftp::upload_chunk(&state, &rate, &id, remote_path, offset, data).await
-}
-
-#[tauri::command]
-async fn sftp_upload_finish(
-    state: State<'_, SftpMap>,
-    id: String,
-    remote_path: String,
-) -> Result<(), String> {
-    sftp::upload_finish(&state, &id, remote_path).await
-}
-
-#[tauri::command]
-async fn sftp_upload_discard(
-    state: State<'_, SftpMap>,
-    id: String,
-    remote_path: String,
-) -> Result<(), String> {
-    sftp::upload_discard(&state, &id, remote_path).await
-}
-
-/// 원격 파일의 크기·수정시각 — 이어받기 판단(.part 크기)과 폴더 비교에 쓴다.
-#[tauri::command]
-async fn sftp_stat(
-    state: State<'_, SftpMap>,
-    id: String,
-    path: String,
-) -> Result<Option<(u64, u64)>, String> {
-    sftp::stat(&state, &id, path).await
-}
-
-#[tauri::command]
-fn sftp_cancel(cancels: State<'_, sftp::TransferCancel>, transfer_id: String) {
-    sftp::cancel(&cancels, &transfer_id);
-}
-
-#[tauri::command]
-async fn sftp_canonicalize(
-    state: State<'_, SftpMap>,
-    id: String,
-    path: String,
-) -> Result<String, String> {
-    sftp::canonicalize(&state, &id, path).await
-}
 
 /// 파일이 있는 폴더를 탐색기로 열고 **그 파일을 선택해** 보여 준다.
 /// 경로를 클립보드에 넣어 주는 것보다 한 단계 적다 — 사용자는 파일을 찾는 게 목적이다.
@@ -655,22 +504,6 @@ fn local_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
 }
 
-/// 탐색기에서 드롭된 파일 내용 조각을 임시 폴더에 기록한다(stage.rs 참고).
-/// 파일 내용은 JSON 을 거치지 않도록 raw 본문으로 받고, 경로는 헤더로 받는다
-/// (헤더는 ASCII 만 안전해서 encodeURIComponent 로 온다).
-#[tauri::command]
-fn stage_write(request: tauri::ipc::Request<'_>) -> Result<(), String> {
-    let headers = request.headers();
-    let path_enc = headers
-        .get("x-path")
-        .and_then(|v| v.to_str().ok())
-        .ok_or("경로 헤더가 없습니다")?;
-    let append = headers.get("x-append").and_then(|v| v.to_str().ok()) == Some("1");
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("본문이 바이너리가 아닙니다".into());
-    };
-    stage::write(path_enc, append, bytes)
-}
 
 /// 하루 지난 스테이징 잔재 제거(드롭 시작 시 fire-and-forget 로 호출).
 #[tauri::command]
@@ -736,35 +569,6 @@ fn ime_set_english() {
 #[tauri::command]
 fn ime_set_english() {}
 
-#[tauri::command]
-async fn sftp_mkdir(state: State<'_, SftpMap>, id: String, path: String) -> Result<(), String> {
-    sftp::mkdir(&state, &id, path).await
-}
-
-#[tauri::command]
-async fn sftp_remove(
-    state: State<'_, SftpMap>,
-    id: String,
-    path: String,
-    is_dir: bool,
-) -> Result<(), String> {
-    sftp::remove(&state, &id, path, is_dir).await
-}
-
-#[tauri::command]
-async fn sftp_rename(
-    state: State<'_, SftpMap>,
-    id: String,
-    from: String,
-    to: String,
-) -> Result<(), String> {
-    sftp::rename(&state, &id, from, to).await
-}
-
-#[tauri::command]
-fn sftp_disconnect(state: State<'_, SftpMap>, id: String) {
-    sftp::disconnect(state, &id);
-}
 
 fn main() {
     tauri::Builder::default()
@@ -825,21 +629,21 @@ fn main() {
             vault_set_secret,
             vault_get_secret,
             vault_delete_secret,
-            sftp_connect,
-            sftp_list,
-            sftp_download,
-            sftp_upload,
-            sftp_mkdir,
-            sftp_remove,
-            sftp_rename,
-            sftp_disconnect,
-            sftp_cancel,
-            sftp_canonicalize,
-            sftp_stat,
-            sftp_upload_chunk,
-            sftp_upload_finish,
-            sftp_upload_discard,
-            sftp_set_rate_limit,
+            sftpcmd::sftp_connect,
+            sftpcmd::sftp_list,
+            sftpcmd::sftp_download,
+            sftpcmd::sftp_upload,
+            sftpcmd::sftp_mkdir,
+            sftpcmd::sftp_remove,
+            sftpcmd::sftp_rename,
+            sftpcmd::sftp_disconnect,
+            sftpcmd::sftp_cancel,
+            sftpcmd::sftp_canonicalize,
+            sftpcmd::sftp_stat,
+            sftpcmd::sftp_upload_chunk,
+            sftpcmd::sftp_upload_finish,
+            sftpcmd::sftp_upload_discard,
+            sftpcmd::sftp_set_rate_limit,
             open_config_dir,
             reveal_path,
             keystore_store,
@@ -865,7 +669,6 @@ fn main() {
             open_path,
             local_temp_dir,
             local_stat,
-            stage_write,
             stage_sweep,
             ime_set_english
         ])

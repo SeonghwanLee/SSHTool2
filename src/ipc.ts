@@ -305,15 +305,6 @@ export const localTempDir = (): Promise<string> => invoke<string>("local_temp_di
 /** 파일 크기·수정시각(unix 초). 없으면 null — 원격 파일 편집 감시(0.67.0). */
 export const localStat = (path: string): Promise<[number, number] | null> =>
   invoke<[number, number] | null>("local_stat", { path });
-/**
- * 탐색기 드롭 스테이징 조각 쓰기. 파일 내용이 JSON 을 거치면 느려서 raw 본문으로 보내고,
- * 경로는 헤더로 보낸다 — 헤더는 ASCII 만 안전해서 encodeURIComponent 로 감싼다.
- * 백엔드가 임시 폴더(sshtool2-drop-*) 밖 경로를 거부한다.
- */
-export const stageWrite = (path: string, bytes: Uint8Array, append: boolean): Promise<void> =>
-  invoke("stage_write", bytes, {
-    headers: { "x-path": encodeURIComponent(path), "x-append": append ? "1" : "0" },
-  });
 /** 하루 지난 스테이징 잔재 청소(드롭 시작 시 fire-and-forget). */
 export const stageSweep = (): Promise<void> => invoke("stage_sweep");
 /** 세션 시작 시 IME 를 영문 모드로(Windows best-effort, 그 외 플랫폼은 무동작). */

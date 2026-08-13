@@ -5,12 +5,11 @@
 // 검색(Ctrl+Shift+F), Ctrl+휠 zoom, Ctrl+Enter=LF, 탭 상태색, 탭 단축키, 상태바 연동.
 
 import { Terminal } from "@xterm/xterm";
-import { applyIcon, iconSpan } from "./icons";
-import { showContextMenu, type MenuItem } from "./contextmenu";
+import { iconSpan } from "./icons";
 import { logBytes, logLine } from "./debuglog";
-import { confirmDialog, alertDialog, pasteConfirmDialog } from "./dialogs";
+import { pasteConfirmDialog } from "./dialogs";
 import { FitAddon } from "@xterm/addon-fit";
-import { SearchAddon, type ISearchDecorationOptions } from "@xterm/addon-search";
+import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { loadUnicode } from "./unicodewidth";
 import "@xterm/xterm/css/xterm.css";
@@ -29,15 +28,7 @@ import {
   TRIGGER_WINDOW_MS,
   stripAnsi,
   formatUptime,
-  mixHex,
   RESET_INPUT_MODES,
-  LOCAL_CREDS,
-  type ResolvedCreds,
-  type CredResolution,
-  type CredentialProvider,
-  type TabActions,
-  type StatusInfo,
-  type ViewMode,
 } from "./termtypes";
 // 기존 소비자(tabs.ts → main.ts)가 termtab 에서 가져가던 이름들을 그대로 통하게 한다.
 export {
@@ -55,21 +46,7 @@ export type {
   StatusInfo,
   ViewMode,
 } from "./termtypes";
-import {
-  sshConnect,
-  sshWrite,
-  sshPause,
-  b64ToBytes,
-  sshResize,
-  sshClose,
-  localOpen,
-  localWrite,
-  localResize,
-  localClose,
-  onSshData,
-  onSshClosed,
-  imeSetEnglish,
-} from "./ipc";
+import { sshWrite, sshPause, sshResize, sshClose, localWrite, localResize, localClose, imeSetEnglish } from "./ipc";
 
 /** 세션 종류에 따라 전송 경로를 고른다(로컬 셸도 이벤트는 SSH 와 동일). */
 export const isLocal = (s: SessionInfo): boolean => s.kind === "local";

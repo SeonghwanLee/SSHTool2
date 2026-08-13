@@ -2,7 +2,7 @@
 // 주입되지 않은 동작(TabActions)은 항목 자체를 넣지 않는다 — 눌러도 아무 일 없는
 // 항목을 두지 않기 위해서다.
 
-import { showContextMenu, type MenuItem } from "./contextmenu";
+import { type MenuItem } from "./contextmenu";
 import type { TerminalTab } from "./termtab";
 import type { TabActions } from "./termtypes";
 

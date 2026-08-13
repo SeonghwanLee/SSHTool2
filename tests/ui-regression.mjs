@@ -1955,17 +1955,17 @@ try {
         tab.session.autoReconnectMax = 2;
         // 실제 끊김 경로를 태워 오버레이(재접속 버튼)를 만든 뒤 예약을 검사한다.
         tab.setDisconnected("테스트 종료", () => {});
-        tm.autoTries.delete(tab);
+        tm.autoState.tries.delete(tab);
         tm.scheduleAutoReconnect(tab);
-        const scheduled = tm.autoTimers.has(tab);
+        const scheduled = tm.autoState.timers.has(tab);
         const note = document.querySelector(".overlay-retry")?.textContent ?? "";
         tm.cancelAutoReconnect(tab);
-        const cleared = !tm.autoTimers.has(tab);
+        const cleared = !tm.autoState.timers.has(tab);
         // 시도 상한: 이미 max 만큼 시도했으면 더 예약하지 않는다.
-        tm.autoTries.set(tab, 2);
+        tm.autoState.tries.set(tab, 2);
         tm.scheduleAutoReconnect(tab);
-        const stopped = !tm.autoTimers.has(tab);
-        tm.autoTries.delete(tab);
+        const stopped = !tm.autoState.timers.has(tab);
+        tm.autoState.tries.delete(tab);
         return { scheduled, cleared, stopped, note };
       });
       expect(typeof r === "object", `테스트 훅 문제: ${r}`);

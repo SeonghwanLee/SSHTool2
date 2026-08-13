@@ -49,24 +49,6 @@ fn checked(path: &str, temp: &Path) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-/// 조각 하나를 스테이징 파일에 기록한다(append=false 면 새로 만든다).
-pub fn write(path_enc: &str, append: bool, bytes: &[u8]) -> Result<(), String> {
-    let target = checked(&percent_decode(path_enc)?, &std::env::temp_dir())?;
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("폴더 생성 실패: {e}"))?;
-    }
-    let mut f = if append {
-        fs::OpenOptions::new().append(true).open(&target)
-    } else {
-        fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&target)
-    }
-    .map_err(|e| format!("임시 파일 열기 실패: {e}"))?;
-    f.write_all(bytes).map_err(|e| format!("임시 파일 쓰기 실패: {e}"))
-}
 
 /// 하루 지난 스테이징 잔재 제거 — 전송 중 강제 종료되면 임시 폴더가 남는다.
 /// 정상 흐름은 전송 직후 프론트가 지우므로, 여기는 사고 뒷정리 전용이다.

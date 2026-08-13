@@ -5,40 +5,16 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { blankSession, normalizeSession, type SessionInfo } from "./types";
 import {
   sessionsLoad,
-  sshProbe,
   rdpLaunch,
   browserOpen,
-  sessionsSave,
   vaultStatus,
-  vaultInit,
-  vaultUnlock,
-  vaultUnlockRecovery,
-  vaultChangeMaster,
   vaultLock,
-  vaultSetPassword,
-  vaultGetPassword,
-  vaultDeletePassword,
-  vaultSetSecret,
-  vaultGetSecret,
-  vaultDeleteSecret,
-  keystoreStore,
-  keystoreGet,
-  keystoreHas,
-  keystoreClear,
-  onHostKeyPrompt,
-  hostKeyAnswer,
+  vaultDeletePassword
 } from "./ipc";
-import { TabManager, type CredentialProvider, type ResolvedCreds, type StatusInfo } from "./tabs";
+import { TabManager } from "./tabs";
 import { wireCommandBar } from "./cmdbar";
 import { updateErrorText } from "./updateerror";
-import {
-  ensureVaultUnlocked,
-  toggleAutoUnlock,
-  tryAutoUnlock,
-  changeMasterFlow,
-  reflectLock,
-  refreshLockIndicator,
-} from "./vaultflow";
+import { ensureVaultUnlocked, tryAutoUnlock, reflectLock, refreshLockIndicator } from "./vaultflow";
 import {
   moveFolder,
   extractSecrets,
@@ -47,7 +23,7 @@ import {
   editSessionFlow,
   renameSessionFlow,
   openSftpFor,
-  isSavedSession,
+  isSavedSession
 } from "./sessionflow";
 import { credentials } from "./credentials";
 import {
@@ -60,16 +36,13 @@ import {
   wireWindowControls,
   wireLockKeys,
   updateStatusBar,
-  wirePalette,
-  restartAutoLock,
-  restartScreensaver,
+  wirePalette
 } from "./wiring";
 import {
   sessions,
   setSessions,
   settings,
   setSettings,
-  sessionsLoaded,
   setSessionsLoaded,
   tabManager,
   setTabManager,
@@ -78,45 +51,23 @@ import {
   runImport,
   newFolderFlow,
   injectActions,
-  persist,
+  persist
 } from "./appstate";
 import { applyStaticIcons, wireNavigationGuard, wireBrowserKeyGuard } from "./bootguards";
 import { reorderSession, applyDrop } from "./sessionorder";
-import { Sidebar, type DropTarget } from "./sidebar";
-import {
-  passwordPrompt,
-  loginPrompt,
-  masterPrompt,
-  confirmDialog,
-  textPrompt,
-  alertDialog,
-  choiceDialog,
-  hostKeyPrompt,
-  saveFailureAlert,
-} from "./dialogs";
+import { Sidebar } from "./sidebar";
+import { confirmDialog, textPrompt, alertDialog, choiceDialog } from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
-import { settingsDialog } from "./settingsdialog";
 import { bulkDeleteDialog } from "./bulkdelete";
 import { importDialog } from "./importdialog";
-import {
-  openSftpBrowser,
-  liveSftpOf,
-  onLiveSftpChanged,
-  disconnectLiveSftp,
-} from "./sftpui";
+import { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp } from "./sftpui";
 import { aboutDialog } from "./about";
-import {
-  loadSettings,
-  saveSettings,
-  type Settings,
-  type ViewModeSetting,
-} from "./settings";
+import { loadSettings, saveSettings, type Settings } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 import { logLine, setDebugLogging } from "./debuglog";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { stageSweep } from "./ipc";
 import { applyIcon } from "./icons";
-import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -169,6 +120,11 @@ async function main(): Promise<void> {
   // 프런트에서 터진 예외는 콘솔에만 남아 사용자 화면에서는 흔적이 없다. 로그로 끌어온다.
   window.addEventListener("error", (e) => logLine("오류", `${e.message} (${e.filename}:${e.lineno})`));
   window.addEventListener("unhandledrejection", (e) => logLine("미처리 거부", String(e.reason)));
+
+  // 0.75 이하가 드롭 업로드에 쓰던 임시 사본 폴더를 정리한다(하루 지난 것만).
+  // 0.76.0 부터는 임시 사본을 만들지 않으므로, 남아 있던 것들이 정리되면 이 호출과
+  // stage 모듈은 함께 걷어내면 된다.
+  void stageSweep().catch(() => undefined);
 
   // 중복 실행 시 백엔드(single-instance)가 기존 창을 앞으로 가져오고 이 이벤트를 보낸다.
   void listen("second-instance", () => appToast("이미 실행 중입니다 — 기존 창을 표시합니다"));

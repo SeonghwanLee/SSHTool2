@@ -676,9 +676,3 @@ function textInput(value: string, placeholder: string): HTMLInputElement {
   return el;
 }
 
-function section(text: string): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "settings-section";
-  el.textContent = text;
-  return el;
-}

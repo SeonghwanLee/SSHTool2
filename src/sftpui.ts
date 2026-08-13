@@ -5,34 +5,18 @@
 import type { SessionInfo } from "./types";
 import {
   sftpConnect,
-  sftpList,
-  sftpDownload,
   sftpUpload,
   sftpCancel,
   sftpSetRateLimit,
-  sftpMkdir,
-  sftpRemove,
-  sftpRename,
   sftpDisconnect,
   sftpCanonicalize,
   onSftpProgress,
   localDefaultDir,
   localRoots,
-  localList,
-  localParent,
-  localMkdir,
-  localRemove,
-  localRename,
   localExists,
-  openPath,
-  localTempDir,
-  localStat,
-  stageWrite,
-  stageSweep,
+  localStat
 } from "./ipc";
-import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { attachResizeHandles } from "./sftpwindow";
-import { DirTree } from "./sftptree";
 import { createProgressStrip } from "./sftpprogress";
 import { queuePanelFor, dropQueuePanel } from "./sftpqueue";
 import { Pane, type PaneCtx } from "./sftppane";
@@ -41,40 +25,19 @@ import {
   xDownloadToPicked,
   xOnOsFilesDropped,
   xTransferPlan,
-  type TransferCtx,
+  type TransferCtx
 } from "./sftptransfer";
 import { openSyncDialog } from "./sftpsync";
-import { confirmDialog, textPrompt, attentionPulse } from "./dialogs";
-import { applyIcon, fileIcon } from "./icons";
-import { showContextMenu, type MenuItem } from "./contextmenu";
-import {
-  conflictDialog,
-  uniqueName,
-  type ConflictChoice,
-  type ConflictResult,
-} from "./conflict";
+import { confirmDialog, attentionPulse } from "./dialogs";
+import { applyIcon } from "./icons";
 
 import {
   type Entry,
-  type Side,
-  type LiveSftp,
-  joinPath,
-  hasOsFiles,
-  baseName,
-  remoteParent,
-  pathUnder,
-  dirChain,
-  fmtSize,
-  fmtTime,
-  isExecutable,
-  entryType,
-  colWidths,
-  TYPEAHEAD_RESET_MS,
   liveSftp,
   transferStates,
   transferStateOf,
   notifyLive,
-  hookProgressOnce,
+  hookProgressOnce
 } from "./sftpcommon";
 // 기존 소비자(main.ts·sidebar.ts)가 "./sftpui" 에서 가져가던 공개 API 는 그대로 통한다.
 export { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp } from "./sftpcommon";
