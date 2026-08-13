@@ -7,17 +7,6 @@
 import type { Terminal } from "@xterm/xterm";
 import { logLine } from "./debuglog";
 
-/**
- * 고정을 끌 수 있는 스위치(설정 > 터미널). 끄면 xterm 기본 동작으로 돌아간다.
- *
- * 왜 스위치가 필요한가: 조합 글자가 밀려 보이는 증상은 앱마다 커서를 어디에 두느냐에
- * 달려 있어, 고정이 도움이 되는 경우와 오히려 밀어 놓는 경우가 갈린다. 사용자가 두
- * 상태를 바로 견줘 보면 원인을 한 번에 가릴 수 있다 — 짐작으로 고치는 것보다 빠르다.
- */
-let pinEnabled = true;
-export function setImePinning(on: boolean): void {
-  pinEnabled = on;
-}
 
 /**
  * 조합(IME) 오버레이를 조합이 시작된 셀에 고정한다.
@@ -65,7 +54,7 @@ export function pinCompositionOverlay(term: Terminal): void {
      * 한 프레임을 넘기지 못한다.
      */
     const place = (): void => {
-      if (pinned === null || !helper._isComposing || !pinEnabled) return;
+      if (pinned === null || !helper._isComposing) return;
       try {
         const buf = core._bufferService?.buffer;
         const cols = core._bufferService?.cols ?? 0;
