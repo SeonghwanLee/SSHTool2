@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.78.0",
+    date: "2026-08-14",
+    notes: [
+      "세션 목록에서 여러 개를 한 번에 고를 수 있습니다 — Ctrl+클릭으로 하나씩 더하고, Shift+클릭으로 사이를 한꺼번에 고릅니다(탐색기와 같은 규칙). 고른 것 위에서 우클릭하면 '선택한 3개 폴더 이동(M)', '선택한 3개 접속 차단(T)', '선택한 3개 삭제(D)' 가 뜹니다",
+      "고른 것은 빈 곳을 누르거나 Esc 로 놓습니다. 목록을 다시 그려도 선택은 유지됩니다",
+    ],
+  },
+  {
     version: "0.77.0",
     date: "2026-08-14",
     notes: [

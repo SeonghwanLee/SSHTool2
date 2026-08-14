@@ -2286,6 +2286,91 @@ try {
       expect(after2 === after, `열린 세션인데 탭이 또 생겼다: ${after} → ${after2}`);
     });
 
+    await t.test("여러 개 고르기 — Ctrl·Shift 로 고르고, 한 번에 옮기고 차단한다", async () => {
+      await dismissModals(page);
+      const ids = await page.evaluate(() =>
+        [...document.querySelectorAll(".tree-session[data-session-id]")].map((r) => r.dataset.sessionId),
+      );
+      expect(ids.length >= 2, `세션 행이 모자라다: ${ids.length}`);
+      const rowFor = (id) => page.locator(`.tree-session[data-session-id="${id}"]`);
+      const marked = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll(".tree-session.multi")].map((r) => r.dataset.sessionId),
+        );
+
+      try {
+        // Ctrl 클릭으로 둘을 고른다.
+        await rowFor(ids[0]).click();
+        await rowFor(ids[1]).click({ modifiers: ["Control"] });
+        await page.waitForTimeout(150);
+        let picked = await marked();
+        expect(picked.length === 2, `Ctrl 로 두 개가 안 골라진다: ${JSON.stringify(picked)}`);
+
+        // 고른 것 위에서 우클릭하면 묶음 메뉴가 뜬다(개수까지 적혀 있어야 한다).
+        await rowFor(ids[1]).click({ button: "right" });
+        await page.waitForTimeout(250);
+        const labels = await page.evaluate(() =>
+          [...document.querySelectorAll(".ctx-menu > .ctx-item")].map((b) => b.textContent),
+        );
+        expect(
+          labels.some((l) => l.includes("선택한 2개 폴더 이동")),
+          `묶음 메뉴가 아니다: ${JSON.stringify(labels)}`,
+        );
+
+        // 한 번에 차단 → 두 세션 모두 저장에 실린다.
+        await page.evaluate(() => (window.__ipc.length = 0));
+        await page.evaluate(() => {
+          [...document.querySelectorAll(".ctx-menu > .ctx-item")]
+            .find((b) => b.textContent?.includes("접속 차단"))
+            ?.click();
+        });
+        await page.waitForTimeout(400);
+        const saved = await page.evaluate(() => {
+          const last = window.__ipc.filter(([c]) => c === "sessions_save").pop();
+          return (last?.[1]?.sessions ?? []).filter((x) => x.disabled).map((x) => x.id);
+        });
+        expect(
+          saved.includes(ids[0]) && saved.includes(ids[1]),
+          `둘 다 차단되지 않았다: ${JSON.stringify(saved)}`,
+        );
+
+        // Esc 로 선택을 놓는다.
+        await rowFor(ids[0]).click();
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(150);
+        picked = await marked();
+        expect(picked.length === 0, `Esc 로 선택이 안 풀린다: ${JSON.stringify(picked)}`);
+
+        // Shift 로 범위 선택.
+        await rowFor(ids[0]).click();
+        await rowFor(ids[ids.length - 1]).click({ modifiers: ["Shift"] });
+        await page.waitForTimeout(150);
+        picked = await marked();
+        expect(picked.length === ids.length, `Shift 범위가 어긋난다: ${JSON.stringify(picked)}`);
+      } finally {
+        // 차단을 되돌린다 — 뒤 검사들이 이 세션에 접속한다. 묶음 선택 상태에 기대지 않고
+        // 막힌 행을 하나씩 되돌린다(어디서 실패했든 같은 자리로 돌아오도록).
+        await page.keyboard.press("Escape");
+        for (let guard = 0; guard < 10; guard++) {
+          const off = await page.evaluate(
+            () => document.querySelector(".tree-session.session-off")?.dataset.sessionId ?? null,
+          );
+          if (!off) break;
+          await rowFor(off).click();
+          await rowFor(off).click({ button: "right" });
+          await page.waitForTimeout(200);
+          await page.evaluate(() => {
+            [...document.querySelectorAll(".ctx-menu > .ctx-item")]
+              .find((b) => b.textContent === "접속 허용(T)")
+              ?.click();
+          });
+          await page.waitForTimeout(300);
+        }
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(150);
+      }
+    });
+
     await t.test("세션 비활성화 — 흐려지고, 접속 계열 메뉴가 사라지고, 저장까지 간다", async () => {
       await dismissModals(page);
       const rowOf = () => page.locator(".tree-session[data-session-id]").first();

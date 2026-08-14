@@ -170,6 +170,56 @@ async function main(): Promise<void> {
             : `'${s.name || s.host}' 을(를) 다시 쓸 수 있습니다`,
         );
       },
+      // ── 여러 개 한 번에(0.78.0) ──
+      onBulkMove: async (list) => {
+        const next = await textPrompt(
+          `선택한 ${list.length}개를 옮길 폴더 (빈 값 = 루트)`,
+          list[0].folder,
+          "이동",
+        );
+        if (next === null) return;
+        const folder = next.trim();
+        const ids = new Set(list.map((x) => x.id));
+        setSessions(sessions.map((x) => (ids.has(x.id) ? { ...x, folder } : x)));
+        await persist();
+        redraw();
+        appToast(`${list.length}개를 '${folder || "루트"}' 로 옮겼습니다`);
+      },
+      onBulkSetDisabled: async (list, disabled) => {
+        const ids = new Set(list.map((x) => x.id));
+        setSessions(sessions.map((x) => (ids.has(x.id) ? { ...x, disabled } : x)));
+        await persist();
+        redraw();
+        appToast(
+          disabled
+            ? `${list.length}개 세션의 접속을 막았습니다`
+            : `${list.length}개 세션을 다시 쓸 수 있습니다`,
+        );
+      },
+      onBulkDeleteSessions: async (list) => {
+        const names = list
+          .slice(0, 5)
+          .map((x) => x.name || x.host)
+          .join(", ");
+        const ok = await confirmDialog(
+          `선택한 ${list.length}개 세션을 삭제할까요?\n${names}${list.length > 5 ? " 외…" : ""}\n` +
+            "저장된 비밀번호도 함께 지워집니다.",
+        );
+        if (!ok) return;
+        const ids = new Set(list.map((x) => x.id));
+        setSessions(sessions.filter((x) => !ids.has(x.id)));
+        await persist();
+        for (const x of list) {
+          try {
+            await vaultDeletePassword(x.id);
+          } catch {
+            /* 무시 */
+          }
+        }
+        sidebar.clearMulti();
+        redraw();
+        appToast(`${list.length}개 세션을 삭제했습니다`);
+      },
       onEdit: async (s) => {
         // 편집 결과에는 볼트 값까지 채워져 있다 — 탭 우클릭 편집과 같은 상태가 되도록 넘긴다.
         const edited = await editSessionFlow(s);

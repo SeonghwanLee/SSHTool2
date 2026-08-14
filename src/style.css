@@ -3091,3 +3091,13 @@ button.busy {
 .palette-row.session-off {
   opacity: 0.45;
 }
+
+/* 여러 개 고르기(0.78.0) — 단일 선택(.selected)과 다른 표시다. 이쪽은 "이것들에
+   명령한다"는 뜻이라 왼쪽에 띠를 세워 개수가 눈에 들어오게 한다. */
+.tree-session.multi {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.tree-session.multi.selected {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}

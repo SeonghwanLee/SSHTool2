@@ -11,6 +11,10 @@ export interface SidebarCallbacks {
   onEdit: (s: SessionInfo) => void;
   /** 접속 차단 켜고 끄기 — 세션은 목록에 남고 흐리게 표시된다. */
   onToggleDisabled: (s: SessionInfo) => void;
+  /** 여러 개를 한 번에 — 목록에서 Ctrl/Shift 로 고른 것들. */
+  onBulkMove: (list: SessionInfo[]) => void;
+  onBulkSetDisabled: (list: SessionInfo[], disabled: boolean) => void;
+  onBulkDeleteSessions: (list: SessionInfo[]) => void;
   onDelete: (s: SessionInfo) => void;
   onSftp: (s: SessionInfo) => void;
   /** 폴더를 접거나 펼쳤을 때 — 설정에 저장해 재시작 후에도 유지한다. */
@@ -115,6 +119,14 @@ export function rowTooltip(s: SessionInfo): string {
 }
 
 export class Sidebar {
+  /**
+   * Ctrl/Shift 로 고른 세션들(0.78.0). 한 건씩 옮기고 지우는 일이 잦아 넣었다.
+   * 단일 선택(.selected)과 별개다 — 이쪽은 '무엇에 명령할지'를 정한다.
+   */
+  private multiIds = new Set<string>();
+  /** Shift 범위 선택의 기준점. */
+  private anchorId: string | null = null;
+
   /** 지금 화면에 있는 SFTP 칩들 — 진행률만 바뀔 때 여기만 다시 칠한다. */
   private liveChips: { chip: HTMLElement; s: SessionInfo }[] = [];
   private repainting = false;
@@ -174,6 +186,16 @@ export class Sidebar {
       }
       const src = e.dataTransfer?.getData(DRAG_FOLDER);
       if (src) this.cb.onMoveFolder(src, ""); // 폴더를 루트로 이동
+    });
+
+    // 빈 곳을 누르면 골라 둔 것을 놓는다 — 선택이 남아 있으면 다음 우클릭이 엉뚱한
+    // 묶음에 걸린다. Esc 도 같은 일을 한다.
+    this.tree.addEventListener("mousedown", (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest(".tree-session, .tree-folder, .recent-row")) this.clearMulti();
+    });
+    this.tree.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this.clearMulti();
     });
 
     // 빈 영역 우클릭 = 트리 전체 대상 메뉴.
@@ -247,11 +269,82 @@ export class Sidebar {
     return true;
   }
 
-  /** 세션 행·최근 접속 행 공용 선택 표시(트리 전체에서 하나만 선택된다). */
-  private select(row: HTMLElement): void {
+  /**
+   * 세션 행·최근 접속 행 공용 선택 표시.
+   *
+   * 수식키 없이 누르면 예전처럼 하나만 고른다. Ctrl 은 하나씩 더하거나 빼고, Shift 는
+   * 기준점부터 여기까지를 한 번에 고른다(탐색기·메일함과 같은 규칙).
+   */
+  private select(row: HTMLElement, ev?: MouseEvent): void {
+    this.highlight(row);
+
+    const id = row.dataset.sessionId;
+    if (!id || row.dataset.navKind !== "session") {
+      // 최근 접속 행 등 — 여러 개 고르는 대상이 아니다.
+      this.clearMulti();
+      return;
+    }
+    if (ev?.shiftKey && this.anchorId) {
+      const ids = this.sessionRowIds();
+      const from = ids.indexOf(this.anchorId);
+      const to = ids.indexOf(id);
+      if (from >= 0 && to >= 0) {
+        this.multiIds = new Set(ids.slice(Math.min(from, to), Math.max(from, to) + 1));
+      }
+    } else if (ev?.ctrlKey) {
+      if (this.multiIds.has(id)) this.multiIds.delete(id);
+      else this.multiIds.add(id);
+      this.anchorId = id;
+    } else {
+      // 수식키 없는 클릭은 '이것 하나' 다 — 다음 Ctrl 클릭이 여기에 더해진다.
+      this.multiIds = new Set([id]);
+      this.anchorId = id;
+    }
+    this.paintMulti();
+  }
+
+  /**
+   * 강조만 옮긴다(고른 묶음은 건드리지 않는다).
+   *
+   * 키보드로 옮겨 다닐 때 이 길로 온다 — 여기서 묶음까지 손대면 Ctrl 클릭이 헛돈다.
+   * 클릭은 포커스를 먼저 일으키므로, 포커스가 묶음을 하나로 되돌린 뒤 Ctrl 클릭이
+   * 그것을 다시 빼 버렸다(고른 것이 하나도 남지 않았다).
+   */
+  private highlight(row: HTMLElement): void {
     for (const el of this.tree.querySelectorAll(".tree-session.selected, .recent-row.selected"))
       el.classList.remove("selected");
     row.classList.add("selected");
+  }
+
+  /** 화면에 보이는 세션 행의 id 를 위에서 아래 순서로. Shift 범위의 기준이다. */
+  private sessionRowIds(): string[] {
+    return [...this.tree.querySelectorAll<HTMLElement>('.tree-session[data-session-id]')]
+      .map((r) => r.dataset.sessionId ?? "")
+      .filter(Boolean);
+  }
+
+  /** 둘 이상일 때만 띠를 세운다 — 하나뿐이면 기존 선택 표시와 겹쳐 시끄럽기만 하다. */
+  private paintMulti(): void {
+    const many = this.multiIds.size >= 2;
+    for (const r of this.tree.querySelectorAll<HTMLElement>(".tree-session[data-session-id]")) {
+      r.classList.toggle("multi", many && this.multiIds.has(r.dataset.sessionId ?? ""));
+    }
+  }
+
+  /** 고른 것을 모두 놓는다(빈 곳 클릭·Esc·목록이 바뀔 때). */
+  clearMulti(): void {
+    if (this.multiIds.size === 0) return;
+    this.multiIds.clear();
+    this.paintMulti();
+  }
+
+  /** 지금 여러 개로 고른 세션들(정의 순서). 하나 이하면 빈 배열이다. */
+  private multiSessions(): SessionInfo[] {
+    if (this.multiIds.size < 2) return [];
+    const ids = this.sessionRowIds().filter((id) => this.multiIds.has(id));
+    return ids
+      .map((id) => this.sessions.find((x) => x.id === id))
+      .filter((x): x is SessionInfo => !!x);
   }
 
   /**
@@ -527,7 +620,10 @@ export class Sidebar {
       sessions: this.sessions,
       recentLimit: this.recentLimit,
       showDetail: this.showDetail,
-      select: (row) => this.select(row),
+      select: (row, ev) => this.select(row, ev),
+      highlight: (row) => this.highlight(row),
+      multiSessions: () => this.multiSessions(),
+      bulkItems: (list) => this.bulkItems(list),
       serviceItems: (s) => this.serviceItems(s),
       registerNav: (row, key, activate) => this.registerNav(row, key, activate),
       paintSftpChip: (chip, s) => this.paintSftpChip(chip, s),
@@ -597,6 +693,11 @@ export class Sidebar {
       return;
     }
     this.renderNode(rootNode, this.tree, 0);
+    // 목록을 다시 그리면 표시가 사라진다 — 고른 것을 다시 칠한다. 사라진 세션은 턴다.
+    for (const id of [...this.multiIds]) {
+      if (!sessions.some((x) => x.id === id)) this.multiIds.delete(id);
+    }
+    this.paintMulti();
     this.restoreNavFocus(hadFocus);
   }
 
@@ -784,6 +885,33 @@ export class Sidebar {
           action: () => this.cb.onOpenService!(s, svc),
         })),
       },
+    ];
+  }
+
+  /**
+   * 여러 개를 고른 상태의 우클릭 메뉴. 한 건짜리 메뉴를 그대로 두고 갈아 끼우는 이유는,
+   * "지금 무엇에 명령하는지"가 분명해야 실수가 없어서다 — 항목마다 개수를 적는다.
+   */
+  private bulkItems(list: SessionInfo[]): MenuItem[] {
+    const n = list.length;
+    // 하나라도 열려 있으면 '차단', 모두 막혀 있으면 '허용' — 한 번에 같은 상태로 맞춘다.
+    const anyOn = list.some((x) => !x.disabled);
+    return [
+      { label: `선택한 ${n}개 폴더 이동`, accel: "m", action: () => this.cb.onBulkMove(list) },
+      {
+        label: anyOn ? `선택한 ${n}개 접속 차단` : `선택한 ${n}개 접속 허용`,
+        accel: "t",
+        action: () => this.cb.onBulkSetDisabled(list, anyOn),
+      },
+      { separator: true },
+      {
+        label: `선택한 ${n}개 삭제`,
+        accel: "d",
+        danger: true,
+        action: () => this.cb.onBulkDeleteSessions(list),
+      },
+      { separator: true },
+      { label: "선택 해제", accel: "c", hint: "Esc", action: () => this.clearMulti() },
     ];
   }
 

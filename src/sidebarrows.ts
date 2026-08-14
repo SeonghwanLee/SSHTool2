@@ -21,7 +21,13 @@ export interface RowCtx {
   sessions: SessionInfo[];
   recentLimit: number;
   showDetail: boolean;
-  select: (row: HTMLElement) => void;
+  select: (row: HTMLElement, ev?: MouseEvent) => void;
+  /** 강조만 옮긴다(키보드 이동) — 고른 묶음은 그대로 둔다. */
+  highlight: (row: HTMLElement) => void;
+  /** 지금 여러 개로 고른 세션들(2개 이상일 때만 채워진다). */
+  multiSessions: () => SessionInfo[];
+  /** 그 상태의 우클릭 메뉴. */
+  bulkItems: (list: SessionInfo[]) => MenuItem[];
   serviceItems: (s: SessionInfo) => MenuItem[];
   registerNav: (row: HTMLElement, key: string, activate: () => void) => void;
   paintSftpChip: (chip: HTMLElement, s: SessionInfo) => boolean;
@@ -243,12 +249,18 @@ export function sessionRow(ctx: RowCtx, s: SessionInfo, depth: number): HTMLElem
   row.dataset.navDepth = String(depth);
   ctx.registerNav(row, `s:${s.id}`, () => ctx.cb.onOpen(s));
   // 키보드로 옮겨 다닐 때도 마우스 클릭과 같은 선택 하이라이트를 남긴다.
-  row.addEventListener("focus", () => ctx.select(row));
+  row.addEventListener("focus", () => ctx.highlight(row));
   // 더블클릭 = 접속(단일 클릭 중복·오접속 방지). 선택 하이라이트만 단일 클릭.
   row.addEventListener("dblclick", () => ctx.cb.onOpen(s));
-  row.addEventListener("click", () => ctx.select(row));
+  row.addEventListener("click", (e) => ctx.select(row, e));
   row.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    // 여러 개를 고른 채로 그 안을 누르면 선택을 유지한다 — 다시 고르게 하면 헛수고다.
+    const picked = ctx.multiSessions();
+    if (picked.length >= 2 && picked.some((x) => x.id === s.id)) {
+      showContextMenu(e.clientX, e.clientY, ctx.bulkItems(picked));
+      return;
+    }
     ctx.select(row);
     // 비활성 세션에는 접속 계열(연결·서비스·SFTP)을 아예 내지 않는다 — 눌러도 막힐
     // 항목을 보여 주는 것보다, 없는 편이 상태를 분명히 말해 준다.
