@@ -22,18 +22,25 @@ const RATE_CHOICES: { label: string; kbps: number }[] = [
   { label: "10 MB/s", kbps: 10 * 1024 },
 ];
 
-/** 남은 시간 표기. 초 단위로 떨리지 않게 굵게 반올림한다. */
+/**
+ * 남은 시간 표기.
+ *
+ * 값이 클수록 굵게 끊는다 — 40분 넘게 남은 전송에서 "46분 10초"의 10초는 아무 뜻이
+ * 없고, 추정이 조금만 흔들려도 그 자리가 계속 바뀌어 눈만 어지럽다(0.76.5 실사용).
+ * 자릿수를 줄이면 같은 흔들림이 표시에 아예 나타나지 않는다.
+ */
 function fmtEta(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return "";
   if (sec > 24 * 3600) return "남은 시간 계산 중";
-  if (sec < 10) return "곧 완료";
-  if (sec < 60) return `약 ${Math.round(sec / 5) * 5}초 남음`;
-  const m = Math.floor(sec / 60);
-  if (m < 60) {
-    const s = Math.round((sec % 60) / 10) * 10;
-    return s > 0 && s < 60 ? `약 ${m}분 ${s}초 남음` : `약 ${m + (s >= 60 ? 1 : 0)}분 남음`;
-  }
-  return `약 ${Math.floor(m / 60)}시간 ${m % 60}분 남음`;
+  if (sec < 15) return "곧 완료";
+  if (sec < 60) return `약 ${Math.round(sec / 10) * 10}초 남음`;
+  const min = sec / 60;
+  if (min < 10) return `약 ${Math.max(1, Math.round(min))}분 남음`;
+  if (min < 60) return `약 ${Math.round(min / 5) * 5}분 남음`; // 5분 단위
+  const h = Math.floor(min / 60);
+  const m = Math.round((min % 60) / 10) * 10; // 10분 단위
+  if (m >= 60) return `약 ${h + 1}시간 남음`;
+  return m > 0 ? `약 ${h}시간 ${m}분 남음` : `약 ${h}시간 남음`;
 }
 
 export function createProgressStrip(
@@ -95,16 +102,28 @@ export function createProgressStrip(
 
   // 전송 속도·남은 시간 계산용.
   //
-  // 순간 속도(직전 두 표본의 차이)를 그대로 쓰면 조각 하나가 늦게 도착할 때마다 값이
-  // 요동친다. 속도만 보여 줄 때는 눈에 거슬리는 정도였지만, 남은 시간까지 그 값으로
-  // 내면 "3초 → 2분 → 8초"처럼 튀어 쓸모가 없다. 그래서 지수이동평균으로 고른다.
+  // 처음에는 표본 두 개의 차이를 지수이동평균으로 골랐는데, 실사용에서 여전히
+  // 어지러웠다 — 0.9초 사이에 "43분 → 46분 10초 → 45분 30초"까지 흔들렸다.
+  // 원인이 셋이었다: ① 조각 도착 간격이 들쭉날쭉해 순간 속도가 크게 튀고,
+  // ② 글자를 진행 이벤트마다(초당 여러 번) 다시 쓰고, ③ 40분짜리 추정에 10초
+  // 자리까지 보여 줬다. 셋을 각각 막는다 —
+  //   ① 최근 몇 초 구간으로 속도를 잰다(구간 평균)
+  //   ② 글자는 1초에 한 번만 고쳐 쓴다(막대·퍼센트는 그대로 매번)
+  //   ③ 남은 시간은 크기에 따라 굵게 끊는다(fmtEta)
+  // 속도와 남은 시간은 필요한 성질이 다르다. 속도는 "지금 얼마나 나오나"라서 최근
+  // 몇 초를 봐야 쓸모가 있고, 남은 시간은 조금만 흔들려도 눈에 거슬리니 훨씬 긴
+  // 구간으로 재야 한다. 그래서 표본은 한 벌만 쌓고 구간을 둘로 나눠 본다.
+  const SPEED_MS = 8000; // 속도 표시용 구간 — 상한을 바꿨을 때 반영이 늦지 않을 만큼만 길게
+  const ETA_MS = 60000; // 남은 시간용 구간 — 1분 평균이면 5분 단위 표시가 거의 안 흔들린다
+  const TEXT_MS = 1000; // 글자 갱신 주기
+  const STALE_MS = 15000; // 이만큼 소식이 없으면 이어 온 표본은 버린다
+  /** 최근 진행 표본(시각, 누적 바이트). */
+  let marks: { t: number; done: number }[] = [];
   let lastDone = 0;
-  let lastAt = 0;
   let lastTotal = 0;
-  let bpsAvg = 0; // 지수이동평균 속도(B/s)
-  let samples = 0;
+  let lastTextAt = 0;
+  let shownEta = 0; // 마지막으로 표시한 남은 시간(초) — 경계에서 오락가락하지 않게 붙잡는다
   let overall = ""; // "3/10" 같은 전체 진행
-  const SMOOTH = 0.3; // 새 표본 반영 비율 — 낮을수록 안정적이고 반응이 느리다
 
   const showProgress = (name: string, done: number, total: number) => {
     strip.classList.remove("hidden");
@@ -113,32 +132,57 @@ export function createProgressStrip(
     fill.style.width = `${ratio}%`;
     pct.textContent = `${ratio}%`;
 
-    // 진행량이 뒤로 가거나 총량이 바뀌면 새 전송이다 — 평균을 이어 쓰면 안 된다.
+    // 진행량이 뒤로 가거나 총량이 바뀌면 새 전송이다 — 표본을 이어 쓰면 안 된다.
     // 파일 이름이 아니라 진행량으로 판단해야 묶음 전송(여러 파일)에서 파일이 바뀔
     // 때마다 남은 시간이 사라지지 않는다.
     const now = performance.now();
-    if (done < lastDone || total !== lastTotal) {
-      bpsAvg = 0;
-      samples = 0;
-      lastAt = 0;
-    }
-    // 같은 진행량이 두 번 들어오는 경우가 있다(진행 이벤트와 배경 상태가 같은 값을
-    // 알린다) — 속도를 0 으로 끌어내리므로 표시만 갱신하고 계산에서는 뺀다.
-    if (lastAt > 0 && now > lastAt && done !== lastDone) {
-      const bps = ((done - lastDone) / (now - lastAt)) * 1000;
-      if (bps >= 0) {
-        bpsAvg = samples === 0 ? bps : bpsAvg * (1 - SMOOTH) + bps * SMOOTH;
-        samples++;
-      }
+    const last = marks[marks.length - 1];
+    if (done < lastDone || total !== lastTotal || (last && now - last.t > STALE_MS)) {
+      marks = [];
+      shownEta = 0;
+      lastTextAt = 0; // 새 전송의 첫 표시는 기다리지 않는다
     }
     lastDone = done;
-    lastAt = now;
     lastTotal = total;
 
-    const speed = bpsAvg > 0 ? ` · ${fmtSize(bpsAvg)}/s` : "";
-    // 표본이 한둘일 때의 추정은 크게 빗나간다 — 몇 번 모인 뒤부터 내보인다.
-    const eta =
-      samples >= 3 && bpsAvg > 0 && total > done ? ` · ${fmtEta((total - done) / bpsAvg)}` : "";
+    // 같은 진행량이 두 번 들어오는 경우가 있다(진행 이벤트와 배경 상태가 같은 값을
+    // 알린다) — 표본으로 쌓으면 구간만 늘어나고 속도가 낮게 잡힌다.
+    // 위에서 비웠을 수 있으므로 **다시 읽는다** — 옛 값으로 판단하면 첫 표본을 건너뛰어
+    // 표본이 하나도 없는 채로 아래 계산에 들어간다(전송을 통째로 죽였다).
+    const prev = marks[marks.length - 1];
+    if (!prev || done !== prev.done) marks.push({ t: now, done });
+    if (marks.length === 0) return; // 넣을 것이 없으면 계산할 것도 없다
+    // 구간 밖은 버리되, 구간을 재려면 앞쪽 표본 하나는 남겨 둔다.
+    while (marks.length > 2 && now - marks[1].t > ETA_MS) marks.shift();
+
+    if (now - lastTextAt < TEXT_MS) return; // 글자는 초당 한 번만 — 눈이 따라올 수 있게
+    lastTextAt = now;
+
+    /** from 밀리초 안의 표본으로 잰 속도(B/s)와 그 구간 길이. */
+    const rateOver = (windowMs: number): { bps: number; span: number } => {
+      const newest = marks[marks.length - 1];
+      if (!newest) return { bps: 0, span: 0 };
+      let i = 0;
+      while (i < marks.length - 2 && newest.t - marks[i + 1].t > windowMs) i++;
+      const span = newest.t - marks[i].t;
+      return { bps: span > 0 ? ((newest.done - marks[i].done) / span) * 1000 : 0, span };
+    };
+
+    const quick = rateOver(SPEED_MS);
+    const slow = rateOver(ETA_MS);
+    const speed = quick.bps > 0 ? ` · ${fmtSize(quick.bps)}/s` : "";
+    // 구간이 짧으면 추정이 크게 빗나간다 — 몇 초쯤 모인 뒤부터 내보인다.
+    let eta = "";
+    if (slow.span >= 3000 && slow.bps > 0 && total > done) {
+      const sec = (total - done) / slow.bps;
+      // 추정이 표시 구간의 경계에 걸쳐 있으면 1분 평균으로도 "35분↔40분"을 오간다.
+      // 눈에 띌 만큼 달라졌을 때만 바꿔 단다 — 전송이 진행되면 자연히 줄어드므로
+      // 붙잡혀 있는 일은 없다.
+      if (shownEta === 0 || Math.abs(sec - shownEta) > Math.max(20, shownEta * 0.15)) {
+        shownEta = sec;
+      }
+      eta = ` · ${fmtEta(shownEta)}`;
+    }
     pInfo.textContent =
       (total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done)) + speed + eta;
   };

@@ -1063,17 +1063,18 @@ try {
           const live = liveSftp.get("t1");
           live.name = "큰파일.zip";
           live.done = d;
-          live.total = 100 * 1024 * 1024;
+          live.total = 500 * 1024 * 1024;
           notifyLive();
         }, done);
 
       // 이 검사는 '전송 중' 상태를 손으로 만든다 — 도중에 실패해도 반드시 되돌려야
       // 뒤따르는 전송 검사들이 '이미 전송 중' 가드에 걸려 줄줄이 무너지지 않는다.
       try {
-      // 표본을 여러 번 먹여 속도·남은 시간이 계산되게 한다(10MB 씩, 300ms 간격).
-      for (let i = 1; i <= 5; i++) {
+      // 표본을 여러 번 먹여 속도·남은 시간이 계산되게 한다. 남은 시간은 표시가 튀지
+      // 않도록 몇 초쯤 모인 뒤부터 나오므로(0.76.6) 그만큼 먹인다.
+      for (let i = 1; i <= 12; i++) {
         await feed(i * 10 * 1024 * 1024);
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(400);
       }
       const shown = await page.evaluate(() => ({
         hidden: document.querySelector(".sftp-progress")?.classList.contains("hidden"),
@@ -1087,9 +1088,9 @@ try {
       await page.waitForTimeout(300);
       await page.evaluate(() => window.__open());
       await page.waitForTimeout(800);
-      for (let i = 6; i <= 8; i++) {
+      for (let i = 13; i <= 24; i++) {
         await feed(i * 10 * 1024 * 1024);
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(400);
       }
       const again = await page.evaluate(() => ({
         hidden: document.querySelector(".sftp-progress")?.classList.contains("hidden"),
@@ -1097,7 +1098,7 @@ try {
         info: document.querySelector(".prog-info")?.textContent ?? "",
       }));
       expect(again.hidden === false, "접었다 편 뒤 진행바가 사라졌다");
-      expect(again.pct === "80%", `진행률이 이어지지 않는다: ${again.pct}`);
+      expect(again.pct === "48%", `진행률이 이어지지 않는다: ${again.pct}`);
       expect(/남음|곧 완료/.test(again.info), `접었다 편 뒤 남은 시간이 없다: ${again.info}`);
 
       // 전송이 끝나면 사라진다.

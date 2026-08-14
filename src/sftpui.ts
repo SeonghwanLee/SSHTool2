@@ -534,6 +534,10 @@ export async function openSftpBrowser(
       .catch(() => undefined) // 앞 작업의 실패가 뒤 작업을 막지는 않는다
       .then(() => (gen === abortGen ? job() : undefined))
       .catch((e) => {
+        // 전송이 예외로 끝나면 '전송 중' 표시가 풀리지 않았다 — 그 뒤로는 무엇을 보내도
+        // "이미 전송 중입니다"로 거절돼, 연결을 끊었다 다시 붙어야만 풀렸다(0.76.6).
+        // 성공 경로는 제 자리에서 내리므로 여기서는 실패했을 때만 되돌린다.
+        xfer.transferring = false;
         console.error("전송 작업 실패", e);
         setStatus(`전송 실패: ${String(e)}`);
       });
@@ -557,9 +561,16 @@ export async function openSftpBrowser(
     const destDir = destDirOverride ?? dest.path;
     return enqueue(() => xTransferItems(xctx, dest, items, destDir));
   };
-  const downloadToPicked = (items: Entry[]): Promise<void> => xDownloadToPicked(xctx, items);
+  /** 줄서기를 거치지 않는 전송 진입점도 같은 그물을 씌운다(위 enqueue 의 catch 와 같은 이유). */
+  const unwedge = (p: Promise<void>): Promise<void> =>
+    p.catch((e) => {
+      xfer.transferring = false;
+      console.error("전송 작업 실패", e);
+      setStatus(`전송 실패: ${String(e)}`);
+    });
+  const downloadToPicked = (items: Entry[]): Promise<void> => unwedge(xDownloadToPicked(xctx, items));
   const onOsFilesDropped = (dt: DataTransfer, destDir?: string): Promise<void> =>
-    xOnOsFilesDropped(xctx, dt, destDir);
+    unwedge(xOnOsFilesDropped(xctx, dt, destDir));
 
   // 큐의 × 버튼(전송 중인 항목) — 그 파일만 끊고 다음으로 넘어간다.
   // xfer.cancelled 는 건드리지 않는다(그건 묶음 전체 취소다).
