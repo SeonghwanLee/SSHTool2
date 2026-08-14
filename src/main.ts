@@ -64,6 +64,7 @@ import { importDialog } from "./importdialog";
 import { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp, sftpTransferring } from "./sftpui";
 import { liveSftp, transferStateOf, notifyLive } from "./sftpcommon";
 import { aboutDialog } from "./about";
+import { setFocusHome } from "./focus";
 import { loadSettings, saveSettings, type Settings } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 import { logLine, setDebugLogging } from "./debuglog";
@@ -556,6 +557,8 @@ async function main(): Promise<void> {
   // 전송 중에는 진행 알림이 초당 여러 번 온다. 그때마다 목록을 새로 만들면 누르려던
   // 버튼이 손가락 밑에서 사라져 클릭이 먹지 않고(고정 해제 상태에서는 임시 노출까지
   // 닫힌다), 스크롤 자리도 튄다 — 살아있는 표시만 제자리에서 고쳐 칠한다(0.76.7).
+  // 화면을 덮는 창(SFTP 등)이 닫힐 때 돌아갈 기본 자리 — 활성 터미널(focus.ts).
+  setFocusHome(() => tabs.focusActive());
   onLiveSftpChanged(() => sidebar.paintLive());
   // 회귀 검사용 훅 — 배경 전송 상태는 실기 없이 만들 방법이 이것뿐이다(탭의 __tm 과 같은 방식).
   // 프로덕션 빌드에서는 이 가지째 제거된다.

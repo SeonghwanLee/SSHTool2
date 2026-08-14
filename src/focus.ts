@@ -48,3 +48,22 @@ export function holdFocus(container: HTMLElement): () => void {
   focusInto(container);
   return restore;
 }
+
+/**
+ * 앱의 '기본 자리' — 활성 터미널. 앱이 시작할 때 한 번 등록한다.
+ *
+ * 작은 확인창은 열기 전 자리로 돌려주는 것이 맞지만(사이드바에서 열었으면 사이드바로),
+ * SFTP 창처럼 화면을 덮는 창은 다르다. 그 창은 대개 목록의 버튼을 눌러 여는데, 닫을 때
+ * 그 버튼으로 돌려주면 키보드가 버튼에 머물러 터미널에 글자가 들어가지 않는다 —
+ * 한 번 더 눌러야 했다(사용자 보고 0.78.2). 이런 창은 기본 자리로 보낸다.
+ */
+let home: (() => void) | null = null;
+
+export function setFocusHome(fn: () => void): void {
+  home = fn;
+}
+
+/** 기본 자리로 포커스를 보낸다. 등록 전이거나 터미널이 없으면 아무 일도 하지 않는다. */
+export function focusHome(): void {
+  home?.();
+}

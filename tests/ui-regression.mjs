@@ -2315,6 +2315,42 @@ try {
       // 터미널이 있었다면 그 자리로 돌아와야 한다 — 안 그러면 닫은 뒤 타이핑이 사라진다.
       if (wasTerm) expect(back.term, "닫은 뒤 포커스가 터미널로 돌아오지 않았다");
 
+      // SFTP 창은 목록의 칩(버튼)을 눌러 연다. 닫을 때 그 버튼으로 돌려주면 키보드가
+      // 버튼에 머물러 터미널에 글자가 들어가지 않는다 — 한 번 더 눌러야 했던 자리.
+      // SFTP 를 쓰지 않는 세션의 칩은 숨어 있다(inline display:none) — 그런 경우는 건너뛴다.
+      const chipRow = await page.evaluate(() => {
+        const row = [...document.querySelectorAll(".tree-session[data-session-id]")].find(
+          (r) => r.querySelector(".sftp-chip")?.style.display !== "none",
+        );
+        return row?.dataset.sessionId ?? null;
+      });
+      const chip = page.locator(`.tree-session[data-session-id="${chipRow}"] .sftp-chip`);
+      if (chipRow) {
+        try {
+          await page.locator(`.tree-session[data-session-id="${chipRow}"]`).hover();
+          await chip.click();
+          await page.waitForTimeout(900);
+          await dismissModals(page);
+          await page.waitForTimeout(600);
+          if ((await page.locator(".sftp-min").count()) > 0) {
+            await page.locator(".sftp-min").click();
+            await page.waitForTimeout(500);
+            expect(
+              await page.evaluate(() =>
+                !!document.activeElement?.classList.contains("xterm-helper-textarea"),
+              ),
+              "SFTP 창을 접은 뒤 포커스가 터미널로 돌아오지 않았다",
+            );
+          }
+        } finally {
+          // 창이 남아 있으면 뒤 검사가 가려진다.
+          if ((await page.locator(".sftp-min").count()) > 0) {
+            await page.locator(".sftp-min").click();
+            await page.waitForTimeout(300);
+          }
+        }
+      }
+
       // 같은 규칙이 모달이 아닌 창에도 걸린다(빠른 찾기는 modal-card 가 아니다).
       await page.keyboard.press("Control+p");
       await page.waitForTimeout(300);

@@ -167,16 +167,31 @@ export class TabManager {
     // 패널 영역 크기가 바뀌면 항상 터미널을 다시 맞춘다 — 창 리사이즈뿐 아니라
     // 동시명령 창 토글·사이드바 폭 조절처럼 window resize 가 안 뜨는 경우까지 커버.
     // (안 하면 줄어들었던 영역이 터미널 배경(검은색)으로 남는다.) rAF 로 합쳐 과호출 방지.
-    const scheduleRefit = () => {
-      if (this.refitPending) return;
-      this.refitPending = true;
-      requestAnimationFrame(() => {
-        this.refitPending = false;
+    //
+    // 크기가 멎은 뒤 한 번 더 맞추는 이유(0.78.2):
+    // 전체화면으로 키우면 커서가 글자와 어긋나 밀려 보이는 일이 가끔 있었다. 창 크기를
+    // 줄였다 되돌리면 사라졌다 — 즉 **다시 재면 낫는다**. 전환이 진행되는 동안 잰 크기가
+    // 캐시(fittedAt)에 박히면 그 뒤로는 같은 크기로 보여 다시 재지 않기 때문이다.
+    // 변화가 멎고 나서 캐시를 버리고 한 번 더 맞춘다 — 사용자가 손으로 하던 일을 대신한다.
+    let settleTimer = 0;
+    const scheduleRefit = (remeasure = false) => {
+      // 배율이 바뀌면 CSS 크기는 그대로라 캐시에 걸려 다시 재지 못한다 — 캐시를 버린다.
+      if (remeasure) for (const t of this.tabs) t.invalidateFit();
+      if (!this.refitPending) {
+        this.refitPending = true;
+        requestAnimationFrame(() => {
+          this.refitPending = false;
+          this.fitActive();
+        });
+      }
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        for (const t of this.tabs) t.invalidateFit();
         this.fitActive();
-      });
+      }, 250);
     };
-    window.addEventListener("resize", scheduleRefit);
-    new ResizeObserver(scheduleRefit).observe(this.panes);
+    window.addEventListener("resize", () => scheduleRefit());
+    new ResizeObserver(() => scheduleRefit()).observe(this.panes);
 
     // 듀얼모니터에서 배율이 다른 화면으로 창을 옮기면 devicePixelRatio 가 바뀐다.
     // CSS 픽셀 크기가 그대로여도(→ ResizeObserver 안 뜸) 셀 계측이 어긋날 수 있으니
@@ -187,7 +202,7 @@ export class TabManager {
         .addEventListener(
           "change",
           () => {
-            scheduleRefit();
+            scheduleRefit(true); // 배율 변화 — 셀 계측부터 다시
             watchDpr();
           },
           { once: true },
@@ -224,6 +239,11 @@ export class TabManager {
   }
 
   /** 현재 뷰 모드에 맞춰 패널 배치를 갱신하고 모든 보이는 터미널을 다시 맞춘다. */
+  /** 활성 탭의 터미널로 포커스를 보낸다 — 화면을 덮는 창을 닫은 뒤 돌아갈 자리. */
+  focusActive(): void {
+    this.active?.focus();
+  }
+
   private layout(focusActive = true): void {
     const tiled = this.viewMode !== "tabs";
     this.panes.classList.toggle("tile", tiled);
