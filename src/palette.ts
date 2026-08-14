@@ -12,6 +12,7 @@ import { sessionColorCss } from "./types";
 import { applyIcon } from "./icons";
 import { pushModal, popModal, isTopModal } from "./dialogs";
 import { blockedByDisabled } from "./sessionflow";
+import { captureFocus } from "./focus";
 
 /** 목록에 함께 보여 줄 표기(사이드바와 같은 규칙). */
 const detailOf = (s: SessionInfo): string =>
@@ -39,6 +40,8 @@ export interface PaletteDeps {
 
 let deps: PaletteDeps | null = null;
 let openOverlay: HTMLElement | null = null;
+/** 창을 열기 전 포커스 자리로 되돌리는 함수(focus.ts). 닫을 때 부른다. */
+let releaseFocus: (() => void) | null = null;
 
 export function initPalette(d: PaletteDeps): void {
   deps = d;
@@ -58,6 +61,9 @@ export function closePalette(): void {
   popModal(openOverlay);
   openOverlay.remove();
   openOverlay = null;
+  // 닫으면 있던 자리(대개 터미널)로 — 돌려주지 않으면 이어서 친 글자가 사라진다.
+  releaseFocus?.();
+  releaseFocus = null;
 }
 
 function showPalette(): void {
@@ -223,6 +229,7 @@ function showPalette(): void {
     if (e.key === "Escape" && isTopModal(overlay)) closePalette();
   });
 
+  releaseFocus = captureFocus();
   const root = document.getElementById("modal-root") ?? document.body;
   root.appendChild(overlay);
   pushModal(overlay);

@@ -229,6 +229,8 @@ export function aboutDialog(
 
         drawLog();
         card.append(banner, info, oss, ossBox, logHead, logBox, status, actions, credit);
+        // 이 창에서 Enter 로 할 일은 '닫기' 뿐이다 — 눌러도 위험하지 않아 미리 잡아 둔다.
+        setTimeout(() => okBtn.focus(), 0);
         return card;
       },
       () => resolve(),

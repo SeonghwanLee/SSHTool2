@@ -2286,6 +2286,53 @@ try {
       expect(after2 === after, `열린 세션인데 탭이 또 생겼다: ${after} → ${after2}`);
     });
 
+    await t.test("창이 뜨면 포커스가 따라가고, 닫으면 있던 자리로 돌아온다", async () => {
+      await dismissModals(page);
+      // 포커스를 터미널에 둔 상태에서 F1 — 창은 떴는데 키 입력이 뒤 셸로 들어가던 자리.
+      await page.evaluate(() => {
+        document.querySelector(".xterm-helper-textarea")?.focus();
+      });
+      const wasTerm = await page.evaluate(
+        () => !!document.activeElement?.classList.contains("xterm-helper-textarea"),
+      );
+      await page.keyboard.press("F1");
+      await page.waitForTimeout(400);
+      const inside = await page.evaluate(() => ({
+        open: !!document.querySelector(".about-credit"),
+        inCard: !!document.activeElement?.closest(".modal-card"),
+        tag: document.activeElement?.tagName,
+      }));
+      expect(inside.open, "F1 로 버전 정보가 열리지 않았다");
+      expect(inside.inCard, `포커스가 창으로 넘어오지 않았다: ${JSON.stringify(inside)}`);
+
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      const back = await page.evaluate(() => ({
+        open: !!document.querySelector(".about-credit"),
+        term: !!document.activeElement?.classList.contains("xterm-helper-textarea"),
+      }));
+      expect(!back.open, "Esc 로 닫히지 않았다");
+      // 터미널이 있었다면 그 자리로 돌아와야 한다 — 안 그러면 닫은 뒤 타이핑이 사라진다.
+      if (wasTerm) expect(back.term, "닫은 뒤 포커스가 터미널로 돌아오지 않았다");
+
+      // 같은 규칙이 모달이 아닌 창에도 걸린다(빠른 찾기는 modal-card 가 아니다).
+      await page.keyboard.press("Control+p");
+      await page.waitForTimeout(300);
+      expect(
+        await page.evaluate(() => !!document.activeElement?.closest(".palette-card")),
+        "빠른 찾기로 포커스가 넘어오지 않았다",
+      );
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+      if (wasTerm)
+        expect(
+          await page.evaluate(() =>
+            !!document.activeElement?.classList.contains("xterm-helper-textarea"),
+          ),
+          "빠른 찾기를 닫은 뒤 포커스가 터미널로 돌아오지 않았다",
+        );
+    });
+
     await t.test("여러 개 고르기 — Ctrl·Shift 로 고르고, 한 번에 옮기고 차단한다", async () => {
       await dismissModals(page);
       const ids = await page.evaluate(() =>

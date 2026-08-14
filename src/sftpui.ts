@@ -30,6 +30,7 @@ import {
 import { openSyncDialog } from "./sftpsync";
 import { confirmDialog, attentionPulse } from "./dialogs";
 import { applyIcon } from "./icons";
+import { captureFocus } from "./focus";
 
 import {
   type Entry,
@@ -88,6 +89,9 @@ export async function openSftpBrowser(
 
   let sftpId: string | null = null;
   let unlisten: (() => void) | null = null;
+  // 창을 열기 전 포커스 자리(대개 터미널) — 접거나 끊을 때 돌려준다(focus.ts).
+  // 목록 쪽은 폴더를 읽고 나서 스스로 포커스를 잡으므로 여기서 옮기지는 않는다.
+  const releaseFocus = captureFocus();
   // 전송 상태(진행·취소·현재 전송 id)는 연결 소속 공유 객체 — 위 TransferState 참조.
   const xfer = transferStateOf(session.id);
   /** 이번 묶음의 측정 단계에서 읽어 둔 폴더 목록(경로 → 자식). 전송이 재사용한다. */
@@ -329,6 +333,7 @@ export async function openSftpBrowser(
     rememberState();
     unlisten?.(); // 모달 진행바 구독만 해제 — 배경 진행률은 모듈 구독이 계속 받는다
     stopLiveWatch();
+    releaseFocus();
     if (watchTimer) window.clearInterval(watchTimer); // 편집 감시 종료
     window.removeEventListener("resize", onWinResize);
     overlay.remove();
@@ -344,6 +349,7 @@ export async function openSftpBrowser(
     if (xfer.current) void sftpCancel(xfer.current);
     unlisten?.();
     stopLiveWatch();
+    releaseFocus();
     window.removeEventListener("resize", onWinResize);
     liveSftp.delete(session.id);
     transferStates.delete(session.id);

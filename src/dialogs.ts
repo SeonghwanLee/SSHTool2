@@ -1,5 +1,6 @@
 // 경량 모달 유틸 + 세션 편집/비밀번호 입력/확인 다이얼로그. 프레임워크 없이 DOM 으로.
 
+import { holdFocus } from "./focus";
 import type { SessionInfo } from "./types";
 
 /**
@@ -46,6 +47,8 @@ export function attentionPulse(card: HTMLElement): void {
 export function openModal(build: (close: () => void) => HTMLElement, onDismiss?: () => void): void {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
+  // 포커스 옮김·되돌림은 focus.ts 가 맡는다(창 종류마다 다르게 굴지 않도록).
+  let releaseFocus: (() => void) | null = null;
   const esc = (e: KeyboardEvent) => {
     if (e.key === "Escape" && isTopModal(overlay)) dismiss();
   };
@@ -53,6 +56,7 @@ export function openModal(build: (close: () => void) => HTMLElement, onDismiss?:
     popModal(overlay);
     overlay.remove();
     document.removeEventListener("keydown", esc);
+    releaseFocus?.();
   };
   const dismiss = () => {
     close();
@@ -67,6 +71,10 @@ export function openModal(build: (close: () => void) => HTMLElement, onDismiss?:
   document.addEventListener("keydown", esc);
   pushModal(overlay);
   root().appendChild(overlay);
+
+  // 특정 버튼에 두고 싶은 창은 지금처럼 스스로 focus() 를 부르면 그쪽이 이긴다
+  // (이 호출은 동기, 그쪽은 setTimeout 0 이라 나중에 실행된다).
+  releaseFocus = holdFocus(card);
 }
 
 export function field(label: string, input: HTMLElement): HTMLElement {
