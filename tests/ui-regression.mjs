@@ -2254,6 +2254,80 @@ try {
       expect(after2 === after, `열린 세션인데 탭이 또 생겼다: ${after} → ${after2}`);
     });
 
+    await t.test("SFTP 칩 — 끌어다 놓은 업로드도 진행률이 뜨고, 갱신돼도 버튼이 살아 있다", async () => {
+      await dismissModals(page);
+      // 끌어다 놓은 업로드에는 전송 id 가 없다 — 그때도 칩에 %가 떠야 한다(0.76.7).
+      // 앞선 검사들이 목록을 바꿨을 수 있어, 지금 화면에 있는 첫 SSH 세션을 쓴다.
+      const sid = await page.evaluate(() => {
+        // 어떤 세션이 남아 있는지는 앞선 검사에 달렸으므로 첫 행을 쓴다. 칩은 SFTP 를
+        // 쓰지 않는 세션에서도 만들어지고 표시만 숨으므로, 칠하기 검증에는 지장이 없다.
+        const row = document.querySelector(".tree-session[data-session-id]");
+        return row?.dataset.sessionId ?? null;
+      });
+      expect(!!sid, "SFTP 칩이 있는 세션 행을 찾지 못했다");
+      const set = (done) =>
+        page.evaluate(([d, id]) => {
+          const { liveSftp, transferStateOf, notifyLive } = window.__liveTest;
+          liveSftp.set(id, {
+            sftpId: "x", localDir: "", remoteDir: "", transferId: null,
+            name: "큰파일.zip", done: d, total: 100, baseDone: 0, grandTotal: 100,
+          });
+          transferStateOf(id).transferring = true;
+          notifyLive();
+        }, [done, sid]);
+
+      try {
+        await set(37);
+        await page.waitForTimeout(200);
+        const chipText = await page.evaluate(
+          (id) => document.querySelector(`.tree-session[data-session-id="${id}"] .sftp-chip`)?.textContent, sid,
+        );
+        expect(chipText === "37%", `칩에 진행률이 없다: ${JSON.stringify(chipText)}`);
+
+        // 진행률이 갱신돼도 버튼 노드가 바뀌면 안 된다 — 바뀌면 누르는 순간 사라져
+        // 클릭이 먹지 않고, 고정 해제 상태에서는 임시 노출까지 닫힌다.
+        await page.evaluate((id) => {
+          window.__chip = document.querySelector(`.tree-session[data-session-id="${id}"] .sftp-chip`);
+        }, sid);
+        for (let i = 40; i <= 60; i += 10) {
+          await set(i);
+          await page.waitForTimeout(80);
+        }
+        const same = await page.evaluate((id) => ({
+          same: window.__chip === document.querySelector(`.tree-session[data-session-id="${id}"] .sftp-chip`),
+          text: window.__chip?.textContent,
+          alive: window.__chip?.isConnected,
+        }), sid);
+        expect(same.same && same.alive, `진행률 갱신에 버튼이 새로 만들어졌다: ${JSON.stringify(same)}`);
+        expect(same.text === "60%", `제자리 갱신이 안 됐다: ${same.text}`);
+
+        // 고정 해제(임시 노출) 상태에서 진행률이 갱신돼도 목록이 닫히지 않아야 한다.
+        await page.click("#sidebar-dock");
+        await page.waitForTimeout(300);
+        const peeking = () =>
+          page.evaluate(() => (document.getElementById("app")?.className ?? "").includes("sidebar-peek"));
+        expect(await peeking(), "해제 직후 임시 노출이 아니다");
+        await set(70);
+        await page.waitForTimeout(250);
+        expect(await peeking(), "진행률이 갱신되자 임시 노출이 닫혔다");
+      } finally {
+        // 상태 되돌리기 — 고정 상태로, 전송 표시도 해제.
+        await page.evaluate(() => {
+          const { liveSftp, transferStateOf, notifyLive } = window.__liveTest;
+          liveSftp.forEach((_v, id) => transferStateOf(id).transferring = false);
+          liveSftp.clear();
+          notifyLive();
+        });
+        if ((await page.evaluate(() => (document.getElementById("app")?.className ?? ""))).includes("sidebar-undocked")) {
+          if (!(await page.evaluate(() => (document.getElementById("app")?.className ?? "").includes("sidebar-peek"))))
+            await page.click("#nav-toggle");
+          await page.waitForTimeout(200);
+          await page.click("#sidebar-dock");
+          await page.waitForTimeout(300);
+        }
+      }
+    });
+
     await t.test("세션영역 도킹/해제 — 해제 시 전폭·메뉴 버튼, 임시 노출·바깥클릭 닫힘", async () => {
       await dismissModals(page);
       const app = () => page.evaluate(() => document.getElementById("app").className);

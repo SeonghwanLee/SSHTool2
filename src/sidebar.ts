@@ -113,6 +113,9 @@ export function rowTooltip(s: SessionInfo): string {
 }
 
 export class Sidebar {
+  /** 지금 화면에 있는 SFTP 칩들 — 진행률만 바뀔 때 여기만 다시 칠한다. */
+  private liveChips: { chip: HTMLElement; s: SessionInfo }[] = [];
+  private repainting = false;
   private sessions: SessionInfo[] = [];
   private folders: string[] = [];
   private collapsed = new Set<string>();
@@ -211,6 +214,9 @@ export class Sidebar {
    * 계속 깜빡이면 시선만 뺏기고 정작 중요한 알림을 무시하게 된다.
    */
   private paintSftpChip(chip: HTMLElement, s: SessionInfo): boolean {
+    // 그리는 중에 만난 칩은 기억해 둔다 — 진행률만 바뀔 때 목록을 새로 만들지 않고
+    // 이 칩들만 다시 칠하기 위해서다(paintLive).
+    if (!this.repainting) this.liveChips.push({ chip, s });
     const live = this.cb.sftpLive?.(s) ?? null;
     chip.classList.toggle("live", live !== null);
     chip.classList.toggle("busy", live?.transferring === true);
@@ -526,8 +532,27 @@ export class Sidebar {
     };
   }
 
+  /**
+   * 살아있는 SFTP 표시(연결·전송 진행률)만 제자리에서 다시 칠한다.
+   *
+   * 전송 중에는 진행 알림이 초당 여러 번 온다. 그때마다 render() 로 목록을 새로 만들면
+   * 누르려던 버튼이 손가락 밑에서 사라져 클릭이 먹지 않고, 세션영역 고정을 해제한
+   * 상태에서는 바뀐 노드가 '바깥'으로 판정돼 임시 노출까지 닫혔다(사용자 보고 0.76.7).
+   */
+  paintLive(): void {
+    this.repainting = true;
+    try {
+      for (const { chip, s } of this.liveChips) {
+        if (chip.isConnected) this.paintSftpChip(chip, s);
+      }
+    } finally {
+      this.repainting = false;
+    }
+  }
+
   /** 세션 + 명시적으로 만든(비어 있을 수 있는) 폴더 목록으로 트리를 그린다. */
   render(sessions: SessionInfo[], folders: string[] = this.folders): void {
+    this.liveChips = [];
     // 폴더를 접었다 펴면 트리를 통째로 다시 만들므로, 그 전에 포커스가 트리 안에 있었는지 본다.
     const hadFocus = this.tree.contains(document.activeElement);
     this.sessions = sessions;

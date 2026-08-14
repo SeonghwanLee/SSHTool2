@@ -41,7 +41,7 @@ import {
   hookProgressOnce
 } from "./sftpcommon";
 // 기존 소비자(main.ts·sidebar.ts)가 "./sftpui" 에서 가져가던 공개 API 는 그대로 통한다.
-export { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp } from "./sftpcommon";
+export { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp, sftpTransferring } from "./sftpcommon";
 
 /** 창 크기·위치 기억(세션 간 공유) — 닫았다 다시 열 때 직전 자리·크기로.
  *  left/top 이 null 이면 가운데 정렬(기본) 상태다. */

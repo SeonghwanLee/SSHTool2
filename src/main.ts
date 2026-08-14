@@ -60,7 +60,8 @@ import { confirmDialog, textPrompt, alertDialog, choiceDialog } from "./dialogs"
 import { sessionDialog } from "./sessiondialog";
 import { bulkDeleteDialog } from "./bulkdelete";
 import { importDialog } from "./importdialog";
-import { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp } from "./sftpui";
+import { liveSftpOf, onLiveSftpChanged, disconnectLiveSftp, sftpTransferring } from "./sftpui";
+import { liveSftp, transferStateOf, notifyLive } from "./sftpcommon";
 import { aboutDialog } from "./about";
 import { loadSettings, saveSettings, type Settings } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
@@ -194,7 +195,8 @@ async function main(): Promise<void> {
       sftpLive: (s) => {
         const live = liveSftpOf(s.id);
         if (!live) return null;
-        const transferring = live.transferId !== null;
+        // 끌어다 놓은 업로드는 전송 id 가 없다 — 세션의 전송 상태로 판단해야 한다.
+        const transferring = live.transferId !== null || sftpTransferring(s.id);
         const percent = live.total > 0 ? Math.min(100, Math.round((live.done / live.total) * 100)) : 0;
         return { transferring, percent };
       },
@@ -499,7 +501,16 @@ async function main(): Promise<void> {
   // 단축키(Ctrl+Shift+F)를 모르면 찾기 기능을 못 쓴다 — 타이틀바 버튼으로도 연다.
   $("open-search").addEventListener("click", () => tabs.openSearch());
   // 살아있는 SFTP 상태·진행률이 바뀌면 사이드바 칩을 다시 그린다.
-  onLiveSftpChanged(() => redraw());
+  // 전송 중에는 진행 알림이 초당 여러 번 온다. 그때마다 목록을 새로 만들면 누르려던
+  // 버튼이 손가락 밑에서 사라져 클릭이 먹지 않고(고정 해제 상태에서는 임시 노출까지
+  // 닫힌다), 스크롤 자리도 튄다 — 살아있는 표시만 제자리에서 고쳐 칠한다(0.76.7).
+  onLiveSftpChanged(() => sidebar.paintLive());
+  // 회귀 검사용 훅 — 배경 전송 상태는 실기 없이 만들 방법이 이것뿐이다(탭의 __tm 과 같은 방식).
+  // 프로덕션 빌드에서는 이 가지째 제거된다.
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__liveTest = { liveSftp, transferStateOf, notifyLive, sidebar };
+  }
   // 잠금 버튼 = 토글: 열려 있으면 잠그고, 잠겨 있으면 마스터 비밀번호로 해제.
   $("vault-lock").addEventListener("click", async () => {
     const st = await vaultStatus();

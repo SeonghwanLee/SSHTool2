@@ -157,6 +157,16 @@ export const notifyLive = (): void => {
 /** 세션에 살아있는 SFTP 연결이 있는가(사이드바 표시용). */
 export const liveSftpOf = (sessionId: string): LiveSftp | undefined => liveSftp.get(sessionId);
 
+/**
+ * 지금 이 세션이 전송 중인가.
+ *
+ * 전송 id 로 판단하면 안 된다 — 끌어다 놓은 업로드는 조각마다 전송이 끝나 id 가 없다.
+ * 그래서 사이드바 칩이 진행률 대신 계속 "SFTP" 로만 보였다(0.76.7).
+ * 없는 세션에 상태를 만들지 않도록 get 으로만 본다.
+ */
+export const sftpTransferring = (sessionId: string): boolean =>
+  transferStates.get(sessionId)?.transferring === true;
+
 /** 살아있는 연결 목록이 바뀌거나 진행률이 갱신될 때 호출된다. */
 export function onLiveSftpChanged(fn: () => void): () => void {
   liveWatchers.add(fn);

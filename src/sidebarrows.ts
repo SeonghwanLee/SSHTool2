@@ -230,6 +230,7 @@ export function sessionRow(ctx: RowCtx, s: SessionInfo, depth: number): HTMLElem
   row.title = rowTooltip(s);
   row.append(icon, main, actions);
   row.classList.toggle("has-sftp", sftpAlive);
+  row.dataset.sessionId = s.id; // 어느 세션의 행인지 — 진행률 갱신·검사에서 행을 짚는다
   row.dataset.navKind = "session";
   row.dataset.navDepth = String(depth);
   ctx.registerNav(row, `s:${s.id}`, () => ctx.cb.onOpen(s));
