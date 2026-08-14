@@ -5,11 +5,12 @@
 
 import { applyIcon, iconSpan } from "./icons";
 import { showContextMenu } from "./contextmenu";
-import { confirmDialog, alertDialog } from "./dialogs";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { confirmDialog, alertDialog, appToast } from "./dialogs";
 import type { SessionInfo } from "./types";
 import { sessionColorCss } from "./types";
 import type { Settings } from "./settings";
-import { sshConnect, b64ToBytes, localOpen, onSshData, onSshClosed } from "./ipc";
+import { sshConnect, b64ToBytes, localOpen, onSshData, onSshClosed, localWriteText } from "./ipc";
 
 import {
   TerminalTab,
@@ -27,6 +28,7 @@ import {
 } from "./termtab";
 import { beginTabDrag } from "./tabdrag";
 import { tabMenu } from "./tabmenu";
+import { blockedByDisabled } from "./sessionflow";
 import { broadcastTargets, broadcastTo, pruneKeys } from "./tabbroadcast";
 import {
   scheduleAutoReconnect,
@@ -433,6 +435,8 @@ export class TabManager {
 
   private async reconnect(tab: TerminalTab): Promise<void> {
     this.cancelAutoReconnect(tab); // 손으로 눌렀으면 예약분은 버린다
+    // 접속을 막아 둔 세션이면 다시 붙지 않는다 — 자동 재접속도 여기를 지난다.
+    if (blockedByDisabled(tab.session)) return;
     this.activate(tab);
     tab.setConnecting(); // probe 동안 '접속 중…' — 재시도 반응이 즉시 보이게
     const creds = isLocal(tab.session) ? LOCAL_CREDS : await this.credentials.resolve(tab.session);
@@ -562,6 +566,37 @@ export class TabManager {
   private async runDisconnect(tab: TerminalTab): Promise<void> {
     if (await this.refuseIfLocked(tab)) return;
     this.disconnectTab(tab);
+  }
+
+  /**
+   * 스크롤백을 텍스트 파일로 내보낸다.
+   *
+   * 세션 로그(enableLog)와 다르다 — 그쪽은 미리 켜 둔 세션만, 접속하는 동안 계속
+   * 쌓는다. 이건 "지금 화면에 남아 있는 것"을 필요할 때 한 번 뽑는 것이라, 문제를
+   * 만난 뒤에도 늦지 않다.
+   */
+  private async exportScrollback(tab: TerminalTab): Promise<void> {
+    const text = tab.scrollbackText();
+    if (!text.trim()) {
+      appToast("저장할 내용이 없습니다.");
+      return;
+    }
+    const stamp = new Date();
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    const safe = (tabName(tab) || "session").replace(/[\\/:*?"<>|]/g, "_");
+    const target = await saveDialog({
+      defaultPath:
+        `${safe}-${stamp.getFullYear()}${p2(stamp.getMonth() + 1)}${p2(stamp.getDate())}` +
+        `-${p2(stamp.getHours())}${p2(stamp.getMinutes())}.txt`,
+      filters: [{ name: "텍스트 파일", extensions: ["txt", "log"] }],
+    });
+    if (!target) return;
+    try {
+      await localWriteText(target, text);
+      appToast(`스크롤백을 저장했습니다 — ${text.split("\r\n").length}줄`);
+    } catch (e) {
+      await alertDialog(`저장하지 못했습니다: ${String(e)}`);
+    }
   }
 
   /** 메뉴에서 고른 재접속 — 살아 있는 연결을 끊고 다시 붙으므로 한 번 확인받는다. */
@@ -823,6 +858,7 @@ export class TabManager {
               runRename: (t) => this.runRename(t),
               runEdit: (t) => this.runEdit(t),
               setTabLocked: (t, v) => this.setTabLocked(t, v),
+              exportScrollback: (t) => void this.exportScrollback(t),
             },
             tab,
           ));

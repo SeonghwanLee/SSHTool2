@@ -144,3 +144,9 @@ pub fn stat(path: &str) -> Option<(u64, u64)> {
 pub fn exists(path: &str) -> bool {
     Path::new(path).exists()
 }
+
+/// 사용자가 저장 대화상자로 고른 자리에 글자를 쓴다(스크롤백 내보내기).
+/// 경로는 OS 대화상자가 준 값만 온다 — 앱이 임의로 만들어 쓰지 않는다.
+pub fn write_text(path: &str, text: &str) -> Result<(), String> {
+    std::fs::write(path, text.as_bytes()).map_err(|e| format!("파일 저장 실패: {e}"))
+}

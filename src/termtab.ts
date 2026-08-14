@@ -518,6 +518,27 @@ export class TerminalTab {
     return `${b.cursorY + 1},${b.cursorX + 1}`;
   }
 
+  /**
+   * 지금 터미널에 남아 있는 모든 줄(스크롤백 포함)을 글자로 뽑는다.
+   *
+   * 화면에 접힌 줄(isWrapped)은 원래 한 줄이었으므로 다시 이어 붙인다 — 창 폭 때문에
+   * 끊긴 자리에 줄바꿈이 들어가면, 저장한 파일을 다른 곳에 붙여 넣을 때 명령이 깨진다.
+   * 끝의 빈 줄은 덜어낸다(대개 프롬프트 아래 여백이다).
+   */
+  scrollbackText(): string {
+    const buf = this.term.buffer.active;
+    const out: string[] = [];
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (!line) continue;
+      const text = line.translateToString(true);
+      if (line.isWrapped && out.length > 0) out[out.length - 1] += text;
+      else out.push(text);
+    }
+    while (out.length > 0 && out[out.length - 1].trim() === "") out.pop();
+    return out.join("\r\n");
+  }
+
   /** 마지막으로 맞춘 크기(px) — 같은 크기면 다시 재지 않는다. */
   private fittedAt: { w: number; h: number } | null = null;
 

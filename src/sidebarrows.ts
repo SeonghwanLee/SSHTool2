@@ -105,7 +105,9 @@ export function renderRecent(ctx: RowCtx): void {
     actions.append(sftp, del);
     // 연결이 살아 있으면 호버하지 않아도 칩이 보인다(세션 행과 동일).
     row.classList.toggle("has-sftp", sftpAlive);
+    row.classList.toggle("session-off", !!s.disabled);
     row.append(icon, main, actions);
+    row.dataset.sessionId = s.id;
     row.dataset.navKind = "recent";
     ctx.registerNav(row, `r:${s.id}`, () => ctx.cb.onOpen(s));
     // 세션 행과 같은 규칙 — 단일 클릭은 선택만, 접속은 더블클릭.
@@ -116,11 +118,15 @@ export function renderRecent(ctx: RowCtx): void {
       e.preventDefault();
       ctx.select(row);
       showContextMenu(e.clientX, e.clientY, [
-        { label: "연결", accel: "c", action: () => ctx.cb.onOpen(s) },
-        ...ctx.serviceItems(s),
-        ...(sftpAvailable
-          ? [{ label: "SFTP 파일 전송", accel: "f", action: () => ctx.cb.onSftp(s) } as const]
-          : []),
+        ...(s.disabled
+          ? []
+          : [
+              { label: "연결", accel: "c", action: () => ctx.cb.onOpen(s) } as const,
+              ...ctx.serviceItems(s),
+              ...(sftpAvailable
+                ? [{ label: "SFTP 파일 전송", accel: "s", action: () => ctx.cb.onSftp(s) } as const]
+                : []),
+            ]),
         { separator: true },
         {
           label: "최근 목록에서 삭제",
@@ -229,6 +235,8 @@ export function sessionRow(ctx: RowCtx, s: SessionInfo, depth: number): HTMLElem
 
   row.title = rowTooltip(s);
   row.append(icon, main, actions);
+  // 흐리게 — 목록에는 있으나 접속은 막혀 있다는 것을 색으로 먼저 알린다.
+  row.classList.toggle("session-off", !!s.disabled);
   row.classList.toggle("has-sftp", sftpAlive);
   row.dataset.sessionId = s.id; // 어느 세션의 행인지 — 진행률 갱신·검사에서 행을 짚는다
   row.dataset.navKind = "session";
@@ -242,15 +250,24 @@ export function sessionRow(ctx: RowCtx, s: SessionInfo, depth: number): HTMLElem
   row.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     ctx.select(row);
+    // 비활성 세션에는 접속 계열(연결·서비스·SFTP)을 아예 내지 않는다 — 눌러도 막힐
+    // 항목을 보여 주는 것보다, 없는 편이 상태를 분명히 말해 준다.
     showContextMenu(e.clientX, e.clientY, [
-      { label: "연결", accel: "c", action: () => ctx.cb.onOpen(s) },
-      ...ctx.serviceItems(s),
-      ...(s.kind !== "ssh" || !s.enableSftp
+      ...(s.disabled
         ? []
         : [
-            { label: "SFTP 파일 전송", accel: "f", action: () => ctx.cb.onSftp(s) } as const,
+            { label: "연결", accel: "c", action: () => ctx.cb.onOpen(s) } as const,
+            ...ctx.serviceItems(s),
+            ...(s.kind !== "ssh" || !s.enableSftp
+              ? []
+              : [{ label: "SFTP 파일 전송", accel: "s", action: () => ctx.cb.onSftp(s) } as const]),
+            { separator: true } as const,
           ]),
-      { separator: true },
+      {
+        label: s.disabled ? "접속 허용" : "접속 차단",
+        accel: "t",
+        action: () => ctx.cb.onToggleDisabled(s),
+      },
       { label: "편집", accel: "e", action: () => ctx.cb.onEdit(s) },
       { label: "복제", accel: "u", action: () => ctx.cb.onDuplicate(s) },
       { label: "폴더 이동", accel: "m", action: () => ctx.cb.onMove(s) },

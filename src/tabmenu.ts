@@ -20,6 +20,7 @@ export interface TabMenuCtx {
   runRename: (t: TerminalTab) => void;
   runEdit: (t: TerminalTab) => void;
   setTabLocked: (t: TerminalTab, locked: boolean) => void;
+  exportScrollback: (t: TerminalTab) => void;
 }
 
 /**
@@ -46,8 +47,12 @@ export function tabMenu(ctx: TabMenuCtx, tab: TerminalTab): MenuItem[] {
   items.push({ label: "세션 하나 더 열기", accel: "d", action: () => void ctx.openSession(s) });
   // 로컬 셸과 SFTP 를 끈 세션에는 전송 항목을 넣지 않는다(사이드바와 같은 기준).
   if (ctx.actions.sftp && s.kind === "ssh" && s.enableSftp) {
-    items.push({ label: "SFTP 파일 전송", accel: "f", action: () => ctx.actions.sftp?.(s) });
+    items.push({ label: "SFTP 파일 전송", accel: "s", action: () => ctx.actions.sftp?.(s) });
   }
+
+  // 화면에 남아 있는 것을 글자로 뽑아 둔다 — 장애 기록을 붙여 넣거나 나중에 훑어보려면
+  // 스크롤백을 눈으로 따라가는 것보다 파일이 낫다(세션 로그는 켜 둔 세션만 남는다).
+  items.push({ label: "스크롤백 저장", accel: "b", action: () => ctx.exportScrollback(tab) });
 
   items.push({ separator: true });
   items.push({ label: "재접속", accel: "r", action: () => void ctx.reconnectFromMenu(tab) });

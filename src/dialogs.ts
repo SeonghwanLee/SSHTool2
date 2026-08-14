@@ -556,3 +556,19 @@ export function clampNum(el: HTMLInputElement, min: number, max: number, fallbac
   el.value = String(v);
   return v;
 }
+
+/**
+ * 잠깐 떴다 사라지는 알림(모달이 아니다) — 사용자의 손을 멈추지 않아야 하는 통지에 쓴다.
+ * main.ts 에 있던 것을 여기로 옮겼다(0.77.0) — 접속을 막을 때처럼 다른 모듈도 쓴다.
+ */
+export function appToast(message: string): void {
+  const el = document.createElement("div");
+  el.className = "app-toast";
+  el.textContent = message;
+  document.body.appendChild(el);
+  window.setTimeout(() => el.classList.add("show"), 10);
+  window.setTimeout(() => {
+    el.classList.remove("show");
+    window.setTimeout(() => el.remove(), 250);
+  }, 2200);
+}

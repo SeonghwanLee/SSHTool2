@@ -2,7 +2,7 @@
 // main.ts 에서 분리(0.67.0 정지작업). 로직 변경 없음.
 
 import type { SessionInfo } from "./types";
-import { alertDialog } from "./dialogs";
+import { alertDialog, appToast } from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
 import { textPrompt } from "./dialogs";
 import { openSftpBrowser, liveSftpOf } from "./sftpui";
@@ -158,7 +158,20 @@ export async function renameSessionFlow(s: SessionInfo): Promise<string | null> 
 /** 저장 목록에 있는 세션인지 — 빠른 접속 등 임시 세션과 구분한다. */
 export const isSavedSession = (s: SessionInfo): boolean => sessions.some((x) => x.id === s.id);
 
+/**
+ * 비활성 세션이면 알리고 true — 접속으로 가는 길목마다 이 관문을 지난다.
+ *
+ * 막는 자리를 한 곳으로 몰지 않은 이유: 터미널·SFTP·원격 데스크톱이 서로 다른 경로로
+ * 나가고, 사용자에게는 "왜 안 되는지" 를 그 자리에서 알려야 한다.
+ */
+export function blockedByDisabled(s: SessionInfo): boolean {
+  if (!s.disabled) return false;
+  appToast(`'${s.name || s.host}' 은(는) 비활성 세션입니다 — 우클릭에서 활성화하세요`);
+  return true;
+}
+
 export async function openSftpFor(s: SessionInfo): Promise<void> {
+  if (blockedByDisabled(s)) return;
   // 살아있는 연결을 재사용할 때는 자격증명이 필요 없다 — 묻지도 않는다(0.62.0).
   // 묻고 나서 버리면, 오타 난 비밀번호가 검증 없이 저장될 입구만 열어 준다.
   if (liveSftpOf(s.id)) {

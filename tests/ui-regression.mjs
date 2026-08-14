@@ -2138,6 +2138,38 @@ try {
       expect(shown === newName, `탭 우클릭 편집이 옛 내용으로 열린다: ${shown} (기대: ${newName})`);
     });
 
+    await t.test("스크롤백 저장 — 접힌 줄을 이어 붙여 뽑고, 탭 메뉴에 항목이 있다", async () => {
+      await dismissModals(page);
+      const got = await page.evaluate(async () => {
+        const tab = window.__tm?.tabs?.[0];
+        if (!tab) return "탭 없음";
+        tab.term.reset();
+        const long = "x".repeat(tab.term.cols + 30); // 창 폭을 넘겨 강제로 접히는 줄
+        await new Promise((r) => tab.term.write(`첫줄\r\n${long}\r\n끝줄\r\n`, r));
+        const text = tab.scrollbackText();
+        return { text, lines: text.split("\r\n"), cols: tab.term.cols, longLen: long.length };
+      });
+      expect(typeof got !== "string", `${got}`);
+      expect(got.lines[0] === "첫줄", `첫 줄이 어긋난다: ${JSON.stringify(got.lines[0])}`);
+      // 창 폭 때문에 끊긴 줄이 그대로 저장되면, 붙여 넣었을 때 명령이 깨진다.
+      expect(
+        got.lines[1].length === got.longLen,
+        `접힌 줄이 이어 붙지 않았다: ${got.lines[1].length} != ${got.longLen}`,
+      );
+      expect(got.lines[got.lines.length - 1] === "끝줄", `끝 줄이 어긋난다: ${JSON.stringify(got.lines)}`);
+
+      // 탭 우클릭 메뉴에 항목이 있다(단축키 표기까지).
+      await page.locator(".tab").first().click({ button: "right" });
+      await page.waitForTimeout(250);
+      const labels = await page.evaluate(() =>
+        [...document.querySelectorAll(".ctx-menu > .ctx-item")].map((b) => b.textContent),
+      );
+      await page.keyboard.press("Escape");
+      expect(labels.includes("스크롤백 저장(B)"), `탭 메뉴에 없다: ${JSON.stringify(labels)}`);
+      expect(labels.includes("SFTP 파일 전송(S)") || !labels.some((l) => l.startsWith("SFTP")),
+        `SFTP 단축키 표기가 어긋난다: ${JSON.stringify(labels)}`);
+    });
+
     await t.test("여러 줄 붙여넣기 — 확인창이 뜨고, 취소하면 넣지 않는다", async () => {
       await dismissModals(page);
       const one = await page.evaluate(async () => {
@@ -2252,6 +2284,108 @@ try {
       const after2 = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
       expect(hasBadge, "열린 세션에 '열림' 배지가 없다");
       expect(after2 === after, `열린 세션인데 탭이 또 생겼다: ${after} → ${after2}`);
+    });
+
+    await t.test("세션 비활성화 — 흐려지고, 접속 계열 메뉴가 사라지고, 저장까지 간다", async () => {
+      await dismissModals(page);
+      const rowOf = () => page.locator(".tree-session[data-session-id]").first();
+      const sid = await rowOf().evaluate((r) => r.dataset.sessionId);
+
+      const menuLabels = async () => {
+        await rowOf().click({ button: "right" });
+        await page.waitForTimeout(200);
+        const labels = await page.evaluate(() =>
+          [...document.querySelectorAll(".ctx-menu > .ctx-item")].map((b) => b.textContent),
+        );
+        return labels;
+      };
+
+      try {
+      // 단축키가 라벨에 붙어 보인다 — 연결(C)·편집(E)·삭제(D).
+      const before = await menuLabels();
+      expect(before.includes("연결(C)"), `연결(C) 가 없다: ${JSON.stringify(before)}`);
+      expect(before.includes("편집(E)"), `편집(E) 가 없다: ${JSON.stringify(before)}`);
+      expect(before.includes("삭제(D)"), `삭제(D) 가 없다: ${JSON.stringify(before)}`);
+
+      // 차단 → 행이 흐려지고 저장 요청에 disabled 가 실린다.
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.evaluate(() => {
+        const item = [...document.querySelectorAll(".ctx-menu > .ctx-item")].find(
+          (b) => b.textContent === "접속 차단(T)",
+        );
+        item?.click();
+      });
+      await page.waitForTimeout(400);
+      await page.mouse.move(5, 5); // 행에서 마우스를 치운다 — 호버 중에는 덜 흐리다
+      await page.waitForTimeout(150);
+      const off = await page.evaluate((id) => {
+        const row = document.querySelector(`.tree-session[data-session-id="${id}"]`);
+        const saved = window.__ipc
+          .filter(([c]) => c === "sessions_save")
+          .flatMap(([, a]) => a?.sessions ?? []);
+        return {
+          dim: row?.classList.contains("session-off"),
+          opacity: row ? Number(getComputedStyle(row).opacity) : 1,
+          savedDisabled: saved.find((x) => x.id === id)?.disabled,
+        };
+      }, sid);
+      expect(off.dim, "차단했는데 행이 흐려지지 않는다");
+      expect(off.opacity < 0.6, `흐림이 눈에 띄지 않는다: ${off.opacity}`);
+      expect(off.savedDisabled === true, `저장에 disabled 가 실리지 않았다: ${off.savedDisabled}`);
+
+      // 접속 계열은 메뉴에서 사라지고, 되돌리는 항목이 대신 뜬다.
+      const after = await menuLabels();
+      expect(!after.some((l) => l.startsWith("연결")), `차단인데 연결이 남아 있다: ${JSON.stringify(after)}`);
+      expect(!after.some((l) => l.startsWith("SFTP")), `차단인데 SFTP 가 남아 있다: ${JSON.stringify(after)}`);
+      expect(after.includes("접속 허용(T)"), `되돌리는 항목이 없다: ${JSON.stringify(after)}`);
+      expect(after.includes("편집(E)"), "차단이어도 편집은 되어야 한다");
+
+      // 더블클릭해도 붙지 않는다.
+      const tabsBefore = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
+      await rowOf().dblclick();
+      await page.waitForTimeout(500);
+      await dismissModals(page);
+      const tabsAfter = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
+      expect(tabsAfter === tabsBefore, `차단된 세션에 접속됐다: ${tabsBefore} → ${tabsAfter}`);
+
+      // 되돌려 놓는다(뒤 검사들이 이 세션을 쓴다).
+      await rowOf().click({ button: "right" });
+      await page.waitForTimeout(200);
+      await page.evaluate(() => {
+        [...document.querySelectorAll(".ctx-menu > .ctx-item")]
+          .find((b) => b.textContent === "접속 허용(T)")
+          ?.click();
+      });
+      await page.waitForTimeout(400);
+      expect(
+        await page.evaluate(
+          (id) => !document.querySelector(`.tree-session[data-session-id="${id}"]`)?.classList.contains("session-off"),
+          sid,
+        ),
+        "다시 허용했는데 흐림이 남아 있다",
+      );
+      } finally {
+        // 어디서 실패했든 차단 상태로 남기지 않는다(뒤 검사들이 이 세션에 접속한다).
+        await page.evaluate((id) => {
+          const btn = [...document.querySelectorAll(".ctx-menu > .ctx-item")].find(
+            (b) => b.textContent === "접속 허용(T)",
+          );
+          btn?.click();
+          void id;
+        }, sid);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(200);
+        if (await page.evaluate((id) => !!document.querySelector(`.tree-session[data-session-id="${id}"].session-off`), sid)) {
+          await page.locator(`.tree-session[data-session-id="${sid}"]`).click({ button: "right" });
+          await page.waitForTimeout(200);
+          await page.evaluate(() => {
+            [...document.querySelectorAll(".ctx-menu > .ctx-item")]
+              .find((b) => b.textContent === "접속 허용(T)")
+              ?.click();
+          });
+          await page.waitForTimeout(300);
+        }
+      }
     });
 
     await t.test("SFTP 칩 — 끌어다 놓은 업로드도 진행률이 뜨고, 갱신돼도 버튼이 살아 있다", async () => {

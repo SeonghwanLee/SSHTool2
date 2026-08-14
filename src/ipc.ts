@@ -381,3 +381,7 @@ export const browserOpen = (browser: string, url: string): Promise<void> =>
 
 /** 창을 지금 화면 가운데로 되돌린다 — 화면 밖으로 나가 잡을 수 없을 때. */
 export const windowFitToScreen = (): Promise<void> => invoke("window_fit_to_screen");
+
+/** 텍스트 파일 저장 — 스크롤백 내보내기(경로는 OS 저장 대화상자에서 고른 값). */
+export const localWriteText = (path: string, text: string): Promise<void> =>
+  invoke("local_write_text", { path, text });

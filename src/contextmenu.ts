@@ -5,6 +5,11 @@ export interface MenuAction {
   label: string;
   /** 메뉴가 열린 동안 누르면 실행되는 한 글자(대소문자 무시). */
   accel?: string;
+  /**
+   * 같은 일을 하는 **앱 전역 단축키**(F5·F2·Del 등). 오른쪽 끝에 흐리게 붙는다.
+   * accel 과 다르다 — accel 은 메뉴가 열려 있을 때만 듣는 한 글자다.
+   */
+  hint?: string;
   action: () => void;
   danger?: boolean;
   separator?: false;
@@ -35,6 +40,19 @@ let openMenu: HTMLElement | null = null;
 export function closeContextMenu(): void {
   openMenu?.remove();
   openMenu = null;
+}
+
+/**
+ * 라벨에 단축키를 붙여 보여 준다 — "연결(C)".
+ *
+ * 예전에는 오른쪽 끝에 키 캡슐을 따로 뒀는데, 항목 이름과 떨어져 있어 어느 글자를
+ * 누르라는 것인지 한눈에 붙지 않았다(사용자 요청 0.77.0). 말줄임표로 끝나는 항목은
+ * 그 앞에 넣는다 — "세션 일괄 삭제(B)…".
+ */
+function labelWithAccel(label: string, accel?: string): string {
+  if (!accel) return label;
+  const key = `(${accel.toUpperCase()})`;
+  return label.endsWith("…") ? `${label.slice(0, -1)}${key}…` : `${label}${key}`;
 }
 
 export function showContextMenu(x: number, y: number, items: MenuItem[]): void {
@@ -73,7 +91,7 @@ export function showContextMenu(x: number, y: number, items: MenuItem[]): void {
       const r = document.createElement("button");
       r.className = "ctx-item" + (child.danger ? " danger" : "");
       const l = document.createElement("span");
-      l.textContent = child.label;
+      l.textContent = labelWithAccel(child.label, child.accel);
       r.appendChild(l);
       r.addEventListener("click", () => run(child));
       panel.appendChild(r);
@@ -99,7 +117,7 @@ export function showContextMenu(x: number, y: number, items: MenuItem[]): void {
     const row = document.createElement("button");
     row.className = "ctx-item" + (item.danger ? " danger" : "");
     const label = document.createElement("span");
-    label.textContent = item.label;
+    label.textContent = isSubmenu(item) ? item.label : labelWithAccel(item.label, item.accel);
     row.appendChild(label);
     if (isSubmenu(item)) {
       row.classList.add("has-sub");
@@ -112,10 +130,12 @@ export function showContextMenu(x: number, y: number, items: MenuItem[]): void {
       // 죽은 항목으로 보인다.
       row.addEventListener("click", () => openSubmenu(row, item));
     } else {
-      const accel = document.createElement("span");
-      accel.className = "ctx-accel";
-      accel.textContent = item.accel ? item.accel.toUpperCase() : "";
-      row.appendChild(accel);
+      if (item.hint) {
+        const hint = document.createElement("span");
+        hint.className = "ctx-accel";
+        hint.textContent = item.hint;
+        row.appendChild(hint);
+      }
       // 하위메뉴가 아닌 항목에 올라오면 열려 있던 하위메뉴를 닫는다.
       row.addEventListener("mouseenter", closeSub);
       row.addEventListener("click", () => run(item));

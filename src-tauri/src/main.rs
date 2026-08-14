@@ -512,6 +512,12 @@ fn stage_sweep() {
     stage::sweep();
 }
 
+/// 텍스트 파일 저장(스크롤백 내보내기) — 경로는 OS 저장 대화상자가 고른 것이다.
+#[tauri::command]
+fn local_write_text(path: String, text: String) -> Result<(), String> {
+    localfs::write_text(&path, &text)
+}
+
 /// 창을 지금 화면 가운데로 되돌린다 — 화면 밖으로 나가 잡을 수 없을 때의 탈출구.
 /// 실행 중 모니터를 빼거나 해상도를 바꾸면 시작 시 정렬만으로는 부족하다.
 #[tauri::command]
@@ -694,6 +700,7 @@ fn main() {
             local_temp_dir,
             local_stat,
             stage_sweep,
+            local_write_text,
             window_fit_to_screen,
             ime_set_english
         ])

@@ -23,7 +23,8 @@ import {
   editSessionFlow,
   renameSessionFlow,
   openSftpFor,
-  isSavedSession
+  isSavedSession,
+  blockedByDisabled
 } from "./sessionflow";
 import { credentials } from "./credentials";
 import {
@@ -56,7 +57,7 @@ import {
 import { applyStaticIcons, wireNavigationGuard, wireBrowserKeyGuard } from "./bootguards";
 import { reorderSession, applyDrop } from "./sessionorder";
 import { Sidebar } from "./sidebar";
-import { confirmDialog, textPrompt, alertDialog, choiceDialog } from "./dialogs";
+import { confirmDialog, textPrompt, alertDialog, choiceDialog, appToast } from "./dialogs";
 import { sessionDialog } from "./sessiondialog";
 import { bulkDeleteDialog } from "./bulkdelete";
 import { importDialog } from "./importdialog";
@@ -89,18 +90,6 @@ function onSessionFontSize(session: SessionInfo, size: number): void {
   setSessions(sessions.map((x) => (x.id === session.id ? { ...x, fontSize: size } : x)));
   window.clearTimeout(fontSaveTimer);
   fontSaveTimer = window.setTimeout(() => void persist(), 500);
-}
-
-function appToast(message: string): void {
-  const el = document.createElement("div");
-  el.className = "app-toast";
-  el.textContent = message;
-  document.body.appendChild(el);
-  window.setTimeout(() => el.classList.add("show"), 10);
-  window.setTimeout(() => {
-    el.classList.remove("show");
-    window.setTimeout(() => el.remove(), 250);
-  }, 2200);
 }
 
 // ── 세션의 '비밀 값'(트리거 send · 시작 명령) 볼트 분리 ──────────────────────
@@ -152,6 +141,7 @@ async function main(): Promise<void> {
     $("session-tree"),
     {
       onOpen: (s) => {
+        if (blockedByDisabled(s)) return;
         // 최근 접속순 정렬용으로 마지막 접속 시각을 기록한다(저장 세션만).
         if (sessions.some((x) => x.id === s.id)) {
           const now = Math.floor(Date.now() / 1000);
@@ -167,6 +157,18 @@ async function main(): Promise<void> {
         }
         // 볼트에 있는 비밀 값(트리거·시작 명령)을 메모리에서만 되채워 넘긴다.
         void hydrateSecrets(s).then((ready) => tabs.openSession(ready));
+      },
+      // 비활성화 — 세션은 남기고 접속만 막는다. 되돌리기 쉬워야 하므로 확인은 묻지 않는다.
+      onToggleDisabled: async (s) => {
+        const next = !s.disabled;
+        setSessions(sessions.map((x) => (x.id === s.id ? { ...x, disabled: next } : x)));
+        await persist();
+        redraw();
+        appToast(
+          next
+            ? `'${s.name || s.host}' 접속을 막았습니다 — 목록에는 흐리게 남습니다`
+            : `'${s.name || s.host}' 을(를) 다시 쓸 수 있습니다`,
+        );
       },
       onEdit: async (s) => {
         // 편집 결과에는 볼트 값까지 채워져 있다 — 탭 우클릭 편집과 같은 상태가 되도록 넘긴다.

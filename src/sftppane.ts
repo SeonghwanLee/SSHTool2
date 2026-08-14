@@ -157,15 +157,16 @@ export class Pane {
         { label: "새 폴더", accel: "n", action: () => void this.makeDir() },
         { separator: true },
         { label: "상위 폴더", accel: "u", action: () => void this.up() },
-        { label: "새로고침 (F5)", accel: "f", action: () => void this.reload() },
+        { label: "새로고침", accel: "f", hint: "F5", action: () => void this.reload() },
       ];
       // 빈 폴더에서는 고를 것이 없다.
       if (this.visible().length > 0) {
         items.push(
           { separator: true },
           {
-            label: "전체 선택 (Ctrl+A)",
+            label: "전체 선택",
             accel: "a",
+            hint: "Ctrl+A",
             action: () => {
               for (const v of this.visible()) this.selected.add(v.path);
               this.markSelection();
@@ -716,13 +717,14 @@ export class Pane {
       }
       items.push(
         { separator: true },
-        { label: "이름 변경 (F2)", accel: "r", action: () => void this.rename(entry) },
+        { label: "이름 변경", accel: "r", hint: "F2", action: () => void this.rename(entry) },
         { label: "새 폴더", accel: "n", action: () => void this.makeDir() },
-        { label: "새로고침 (F5)", accel: "f", action: () => void this.reload() },
+        { label: "새로고침", accel: "f", hint: "F5", action: () => void this.reload() },
         { separator: true },
         {
-          label: "삭제 (Del)" + (count > 1 ? ` (${count}개)` : ""),
+          label: "삭제" + (count > 1 ? ` (${count}개)` : ""),
           accel: "d",
+          hint: "Del",
           danger: true,
           action: () => void this.removeSelected(),
         },

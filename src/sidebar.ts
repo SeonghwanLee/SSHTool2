@@ -9,6 +9,8 @@ import { renderRecent, sessionRow, type RowCtx } from "./sidebarrows";
 export interface SidebarCallbacks {
   onOpen: (s: SessionInfo) => void;
   onEdit: (s: SessionInfo) => void;
+  /** 접속 차단 켜고 끄기 — 세션은 목록에 남고 흐리게 표시된다. */
+  onToggleDisabled: (s: SessionInfo) => void;
   onDelete: (s: SessionInfo) => void;
   onSftp: (s: SessionInfo) => void;
   /** 폴더를 접거나 펼쳤을 때 — 설정에 저장해 재시작 후에도 유지한다. */
@@ -775,8 +777,10 @@ export class Sidebar {
     return [
       {
         label: "서비스 연결",
-        children: services.map((svc) => ({
+        // 하위 항목은 이름이 사용자마다 달라 글자를 못 정한다 — 순서대로 1~9 를 준다.
+        children: services.map((svc, i) => ({
           label: `${svc.name}  ·  :${svc.port}`,
+          accel: i < 9 ? String(i + 1) : undefined,
           action: () => this.cb.onOpenService!(s, svc),
         })),
       },

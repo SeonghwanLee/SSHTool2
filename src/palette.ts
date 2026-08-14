@@ -11,6 +11,7 @@ import type { SessionInfo } from "./types";
 import { sessionColorCss } from "./types";
 import { applyIcon } from "./icons";
 import { pushModal, popModal, isTopModal } from "./dialogs";
+import { blockedByDisabled } from "./sessionflow";
 
 /** 목록에 함께 보여 줄 표기(사이드바와 같은 규칙). */
 const detailOf = (s: SessionInfo): string =>
@@ -112,7 +113,8 @@ function showPalette(): void {
     list.innerHTML = "";
     rows.forEach((s, i) => {
       const row = document.createElement("div");
-      row.className = "palette-row" + (i === cursor ? " active" : "");
+      row.className =
+        "palette-row" + (i === cursor ? " active" : "") + (s.disabled ? " session-off" : "");
       const css = sessionColorCss(s.color);
       if (css) row.style.setProperty("--session-color", css);
       row.classList.toggle("has-color", !!css);
@@ -163,6 +165,8 @@ function showPalette(): void {
     const s = rows[cursor];
     if (!s || !deps) return;
     closePalette();
+    // 접속이 막힌 세션 — 목록에는 두되(찾을 수는 있어야 한다) 접속으로 이어지지 않는다.
+    if (s.disabled && blockedByDisabled(s)) return;
     if (deps.focus(s.id)) return; // 이미 열려 있으면 그 탭으로
     deps.open(s);
   };
