@@ -378,3 +378,6 @@ export const debugLogPath = (): Promise<string> => invoke<string>("debug_log_pat
 /** 세션 호스트의 웹 서비스를 브라우저로 연다(http/https 만 — 백엔드가 검증). */
 export const browserOpen = (browser: string, url: string): Promise<void> =>
   invoke("browser_open", { browser, url });
+
+/** 창을 지금 화면 가운데로 되돌린다 — 화면 밖으로 나가 잡을 수 없을 때. */
+export const windowFitToScreen = (): Promise<void> => invoke("window_fit_to_screen");

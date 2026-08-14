@@ -19,6 +19,7 @@ mod ssh;
 mod stage;
 mod store;
 mod vault;
+mod windowfit;
 
 use localshell::LocalMap;
 use sftp::SftpMap;
@@ -511,6 +512,17 @@ fn stage_sweep() {
     stage::sweep();
 }
 
+/// 창을 지금 화면 가운데로 되돌린다 — 화면 밖으로 나가 잡을 수 없을 때의 탈출구.
+/// 실행 중 모니터를 빼거나 해상도를 바꾸면 시작 시 정렬만으로는 부족하다.
+#[tauri::command]
+fn window_fit_to_screen(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let win = app
+        .get_webview_window("main")
+        .ok_or_else(|| "창을 찾을 수 없습니다".to_string())?;
+    windowfit::fit(&win, true).map_err(|e| format!("창 위치 조정 실패: {e}"))
+}
+
 /// 세션(터미널) 시작 시 IME 를 영문(ALPHANUMERIC) 모드로 전환한다(Windows, best-effort).
 /// 포커스된 입력 창(WebView2 자식 HWND)의 IME 컨텍스트를 GetGUIThreadInfo 로 찾아 설정한다.
 #[cfg(windows)]
@@ -596,6 +608,18 @@ fn main() {
         .manage(sftp::RateLimit::new(0))
         .manage(LocalMap::default())
         .manage(hostkey::HostKeyPrompts::default())
+        // 창을 화면 안으로 — window-state 플러그인이 되살린 뒤에 손봐야 한다.
+        // 설정 파일의 창은 여기 setup 이 돌기 전에 만들어지고(복원도 그때 끝난다),
+        // 그래서 이 자리에서 보면 이미 복원된 크기·위치가 잡힌다.
+        .setup(|app| {
+            use tauri::Manager;
+            if let Some(win) = app.get_webview_window("main") {
+                if let Err(e) = windowfit::fit(&win, false) {
+                    eprintln!("창을 화면 안으로 들여놓지 못했습니다: {e}");
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_probe,
@@ -670,6 +694,7 @@ fn main() {
             local_temp_dir,
             local_stat,
             stage_sweep,
+            window_fit_to_screen,
             ime_set_english
         ])
         .run(tauri::generate_context!())

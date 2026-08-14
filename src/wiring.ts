@@ -9,7 +9,7 @@ import { settingsDialog } from "./settingsdialog";
 import { SIDEBAR_MIN_W, SIDEBAR_MAX_W } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 import { setDebugLogging } from "./debuglog";
-import { onHostKeyPrompt, hostKeyAnswer, vaultLock } from "./ipc";
+import { onHostKeyPrompt, hostKeyAnswer, vaultLock, windowFitToScreen } from "./ipc";
 import { hostKeyPrompt, confirmDialog } from "./dialogs";
 import { applyIcon } from "./icons";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -307,6 +307,16 @@ export function wireWindowControls(tabs: TabManager): void {
   $("win-close").addEventListener("click", () => void win.close());
 
   // 최대화 상태에 따라 최대화/복원 아이콘을 토글한다.
+  // 창을 화면 안으로 되돌리기 — 다른 해상도에서 쓰던 자리가 복원돼 제목줄이 화면
+  // 밖으로 나가면, OS 제목줄이 없는 이 창은 잡아 옮길 손잡이가 없다. 시작할 때
+  // 자동으로 들여놓지만(백엔드), 실행 중 모니터를 빼는 경우를 위해 길을 하나 둔다.
+  document.addEventListener("keydown", (e) => {
+    if (!e.ctrlKey || !e.shiftKey) return;
+    if (e.key !== "Home") return;
+    e.preventDefault();
+    void windowFitToScreen().catch(() => undefined);
+  });
+
   const syncMaxIcon = async () => {
     try {
       applyIcon($("win-max"), (await win.isMaximized()) ? "restore" : "maximize");

@@ -2328,6 +2328,19 @@ try {
       }
     });
 
+    await t.test("Ctrl+Shift+Home — 창을 화면 안으로 되돌리는 길이 있다", async () => {
+      await dismissModals(page);
+      // 다른 해상도에서 쓰던 자리가 복원돼 제목줄이 화면 밖으로 나가면, OS 제목줄이 없는
+      // 이 창은 잡아 옮길 수 없다. 시작 시 자동 정렬(백엔드)과 별개로 탈출구가 있어야 한다.
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.keyboard.press("Control+Shift+Home");
+      await page.waitForTimeout(200);
+      const called = await page.evaluate(() =>
+        window.__ipc.some(([c]) => c === "window_fit_to_screen"),
+      );
+      expect(called, "단축키가 창 정렬을 부르지 않는다");
+    });
+
     await t.test("세션영역 도킹/해제 — 해제 시 전폭·메뉴 버튼, 임시 노출·바깥클릭 닫힘", async () => {
       await dismissModals(page);
       const app = () => page.evaluate(() => document.getElementById("app").className);
