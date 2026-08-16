@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.79.1",
+    date: "2026-08-16",
+    notes: [
+      "단축키 자리를 바꿨습니다 — Ctrl+N 이 세션 빠른 찾기, Ctrl+P 가 '지금 보고 있는 세션의 SFTP 열기' 입니다(요청 반영)",
+      "Ctrl+P 를 눌렀는데 열 수 없는 상황이면 이유를 알려 줍니다 — 열린 세션이 없거나, 로컬 셸·원격 데스크톱이거나, 그 세션이 SFTP 를 쓰지 않도록 돼 있는 경우입니다",
+    ],
+  },
+  {
     version: "0.79.0",
     date: "2026-08-16",
     notes: [

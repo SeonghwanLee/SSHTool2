@@ -10,8 +10,9 @@ import { SIDEBAR_MIN_W, SIDEBAR_MAX_W } from "./settings";
 import { applyAppTheme, themeById } from "./themes";
 import { setDebugLogging } from "./debuglog";
 import { onHostKeyPrompt, hostKeyAnswer, vaultLock, windowFitToScreen } from "./ipc";
-import { hostKeyPrompt, confirmDialog } from "./dialogs";
+import { hostKeyPrompt, confirmDialog, appToast } from "./dialogs";
 import { applyIcon } from "./icons";
+import { openSftpFor } from "./sessionflow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
 import { reflectLock, changeMasterFlow, toggleAutoUnlock } from "./vaultflow";
@@ -213,8 +214,10 @@ export function wireSidebarResize(): void {
 }
 
 /**
- * 세션 빠른 찾기(Ctrl+P, 0.73.0) 배선. capture 단계에서 잡는다 —
- * 브라우저 전용 단축키 차단(bootguards)이 Ctrl+P 를 먼저 삼키기 때문이다.
+ * 세션 빠른 찾기(Ctrl+N)와 현재 세션 SFTP 열기(Ctrl+P) 배선.
+ *
+ * capture 단계에서 잡는다 — 브라우저 전용 단축키 차단(bootguards)이 먼저 삼키기 때문이다.
+ * 0.79.1 에서 자리를 바꿨다: 찾기는 Ctrl+P → Ctrl+N, SFTP 가 Ctrl+P 를 쓴다(사용자 요청).
  */
 export function wirePalette(): void {
   initPalette({
@@ -232,13 +235,38 @@ export function wirePalette(): void {
     "keydown",
     (e) => {
       if (!e.ctrlKey || e.altKey || e.shiftKey) return;
-      if (e.key !== "p" && e.key !== "P") return;
+      const k = e.key.toLowerCase();
+      if (k !== "n" && k !== "p") return;
       e.preventDefault();
       e.stopPropagation();
-      togglePalette();
+      if (k === "n") togglePalette();
+      else openSftpForActive();
     },
     { capture: true },
   );
+}
+
+/**
+ * 지금 보고 있는 세션의 SFTP 창을 연다(Ctrl+P).
+ *
+ * 열 수 없는 경우에는 조용히 넘어가지 않고 이유를 알린다 — 단축키를 눌렀는데 아무 일도
+ * 일어나지 않으면 키가 먹지 않는 것으로 오해한다.
+ */
+function openSftpForActive(): void {
+  const s = tabManager?.activeSession();
+  if (!s) {
+    appToast("열려 있는 세션이 없습니다 — 먼저 세션에 접속하세요");
+    return;
+  }
+  if (s.kind !== "ssh") {
+    appToast("SFTP 는 SSH 세션에서만 열 수 있습니다");
+    return;
+  }
+  if (!s.enableSftp) {
+    appToast(`'${s.name || s.host}' 세션은 SFTP 를 쓰지 않도록 설정돼 있습니다`);
+    return;
+  }
+  void openSftpFor(s); // 차단된 세션인지는 이 안에서 함께 본다
 }
 
 /** 잠금 상태를 사이드바 오버레이에 반영(잠김 시 세션명 숨김). */

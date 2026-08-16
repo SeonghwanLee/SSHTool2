@@ -417,6 +417,11 @@ export class TabManager {
   }
 
   /** 지금 열려 있는 탭들의 세션 id(중복 가능) — 빠른 찾기의 '열림' 배지에 쓴다. */
+  /** 지금 보고 있는 탭의 세션(없으면 null) — 단축키가 '현재 세션' 에 명령할 때 쓴다. */
+  activeSession(): SessionInfo | null {
+    return this.active?.session ?? null;
+  }
+
   openSessionIds(): string[] {
     return this.tabs.map((t) => t.session.id);
   }

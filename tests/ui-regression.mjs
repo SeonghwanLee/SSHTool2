@@ -2212,13 +2212,51 @@ try {
       expect(result === false, `취소했는데 붙여넣기가 진행된다: ${result}`);
     });
 
-    await t.test("빠른 찾기(Ctrl+P) — 검색·이동·Enter 접속, 열린 세션은 그 탭으로", async () => {
+    await t.test("Ctrl+P — 지금 보고 있는 세션의 SFTP 를 연다", async () => {
+      await dismissModals(page);
+      // 열린 세션이 없거나 SFTP 를 쓰지 않는 세션이면 조용히 넘어가지 않고 이유를 알린다.
+      const s = await page.evaluate(() => {
+        const cur = window.__tm?.activeSession?.() ?? null;
+        return cur ? { kind: cur.kind, sftp: !!cur.enableSftp, name: cur.name } : null;
+      });
+      await page.evaluate(() => (window.__ipc.length = 0));
+      await page.keyboard.press("Control+p");
+      await page.waitForTimeout(700);
+      const after = await page.evaluate(() => ({
+        panel: !!document.querySelector(".sftp-panel"),
+        modal: !!document.querySelector(".modal-card"),
+        toast: document.querySelector(".app-toast")?.textContent ?? "",
+        connect: window.__ipc.some(([c]) => c === "sftp_connect"),
+      }));
+      if (!s || s.kind !== "ssh" || !s.sftp) {
+        // 열 수 없는 상황 — 안내가 떠야 한다(아무 반응이 없으면 키가 먹지 않은 것으로 오해한다).
+        expect(after.toast.length > 0, `열 수 없는데 안내가 없다: ${JSON.stringify({ s, after })}`);
+      } else {
+        // 열 수 있는 상황 — SFTP 창이 뜨거나(자격증명이 있으면) 자격증명 창이 뜬다.
+        expect(
+          after.panel || after.modal || after.connect,
+          `SFTP 가 열리지 않았다: ${JSON.stringify(after)}`,
+        );
+      }
+      // 뒷정리 — 열렸으면 접고, 자격증명 창이 떴으면 닫는다.
+      if ((await page.locator(".sftp-min").count()) > 0) {
+        await page.locator(".sftp-min").click();
+        await page.waitForTimeout(300);
+      }
+      await dismissModals(page);
+      if ((await page.locator(".sftp-min").count()) > 0) {
+        await page.locator(".sftp-min").click();
+        await page.waitForTimeout(300);
+      }
+    });
+
+    await t.test("빠른 찾기(Ctrl+N) — 검색·이동·Enter 접속, 열린 세션은 그 탭으로", async () => {
       await dismissModals(page);
       // 열려 있는 탭이 없도록 먼저 상태를 확인한다(있으면 '열림' 배지 경로를 함께 본다).
-      await page.keyboard.press("Control+p");
+      await page.keyboard.press("Control+n");
       await page.waitForTimeout(300);
       const opened = await page.evaluate(() => !!document.querySelector(".palette-overlay"));
-      expect(opened, "Ctrl+P 로 빠른 찾기가 열리지 않는다");
+      expect(opened, "Ctrl+N 으로 빠른 찾기가 열리지 않는다");
 
       // 검색어로 걸러진다.
       await page.fill(".palette-input", "운영1");
@@ -2260,7 +2298,7 @@ try {
 
       // Enter 로 접속 → 탭이 하나 늘어난다.
       const before = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
-      await page.keyboard.press("Control+p");
+      await page.keyboard.press("Control+n");
       await page.waitForTimeout(250);
       await page.fill(".palette-input", "운영1");
       await page.waitForTimeout(250);
@@ -2272,7 +2310,7 @@ try {
       expect(after === before + 1, `Enter 로 접속되지 않았다: ${before} → ${after}`);
 
       // 이미 열린 세션은 새로 붙지 않고 그 탭으로 이동한다.
-      await page.keyboard.press("Control+p");
+      await page.keyboard.press("Control+n");
       await page.waitForTimeout(250);
       await page.fill(".palette-input", "운영1");
       await page.waitForTimeout(250);
@@ -2352,7 +2390,7 @@ try {
       }
 
       // 같은 규칙이 모달이 아닌 창에도 걸린다(빠른 찾기는 modal-card 가 아니다).
-      await page.keyboard.press("Control+p");
+      await page.keyboard.press("Control+n");
       await page.waitForTimeout(300);
       expect(
         await page.evaluate(() => !!document.activeElement?.closest(".palette-card")),

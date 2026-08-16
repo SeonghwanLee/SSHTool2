@@ -81,7 +81,7 @@ export function wireBrowserKeyGuard(): void {
   // 앱이 쓰지 않는 브라우저 전용 기능키.
   const blockedFn = new Set(["F1", "F3", "F6", "F7"]);
   // Ctrl 단독 조합 중 브라우저 전용(찾기·인쇄·저장·열기·소스·다운로드·히스토리).
-  const blockedCtrl = new Set(["f", "g", "p", "s", "o", "u", "j", "h", "d"]);
+  const blockedCtrl = new Set(["f", "g", "p", "s", "o", "u", "j", "h", "d", "n"]);
   window.addEventListener(
     "keydown",
     (e) => {
