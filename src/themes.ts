@@ -3,6 +3,7 @@
 // (Catppuccin·Tokyo Night·Rose Pine·Nord·Dracula·One Dark)를 추가했다.
 // 각 테마는 앱 크롬 색(CSS 변수)과 터미널 색(xterm ITheme)을 함께 정의한다.
 
+import { parseHex } from "./termtypes";
 import type { ITheme } from "@xterm/xterm";
 
 export interface AppPalette {
@@ -320,6 +321,13 @@ export function themeById(id: string): Theme {
 }
 
 /** 앱 크롬 색을 :root CSS 변수로 적용. */
+/** 테마색을 반투명으로 — 탭 상태 배경처럼 글자가 위에 얹히는 자리에 쓴다. */
+function softOf(hex: string, alpha: number): string {
+  const c = parseHex(hex);
+  if (!c) return "transparent";
+  return `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${alpha})`;
+}
+
 export function applyAppTheme(theme: Theme): void {
   const r = document.documentElement.style;
   const a = theme.app;
@@ -333,6 +341,10 @@ export function applyAppTheme(theme: Theme): void {
   r.setProperty("--accent-hover", a.accentHover);
   r.setProperty("--accent-ink", a.accentInk);
   r.setProperty("--error", a.error);
+  // 끊긴 탭 배경용 반투명 빨강(0.79.2). CSS 에서 rgba(var(--error), .18) 은 쓸 수 없고,
+  // color-mix 는 구버전 WebView2 에서 무시돼 표시가 통째로 사라질 수 있다 —
+  // 테마를 입힐 때 여기서 미리 만들어 둔다.
+  r.setProperty("--error-soft", softOf(a.error, 0.18));
   // 터미널 배경색 — 행 높이 잔여 영역(하단 띠)을 이 색으로 칠해 검게 비치지 않게 한다.
   r.setProperty("--term-bg", theme.term.background ?? a.bg);
   document.documentElement.dataset.theme = theme.dark ? "dark" : "light";

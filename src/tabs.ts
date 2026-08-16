@@ -73,6 +73,17 @@ export class TabManager {
   private active: TerminalTab | null = null;
   private settings: Settings;
   private viewMode: ViewMode = "tabs";
+  /**
+   * 분할 보기에 올린 탭들(0.80.0). 예전에는 열린 세션을 전부 나눠 보여 줬는데, 탭이
+   * 대여섯 개면 한 칸이 너무 좁아 읽을 수 없었다 — 볼 것만 골라 담는다.
+   * 탭 객체를 그대로 담는다: 같은 세션을 두 번 열 수 있어 세션 id 로는 구분되지 않는다.
+   */
+  private splitTabs = new Set<TerminalTab>();
+  /**
+   * 일반창으로 돌아갈 때 남겨 두는 직전 선택. 다시 분할 버튼을 누르면 이걸 되살린다 —
+   * 매번 처음부터 고르게 하면 잠깐 전체화면으로 보고 오는 일이 번거로워진다.
+   */
+  private savedSplit: TerminalTab[] = [];
   private refitPending = false;
   /** 탭을 끄는 중이었는지 — 놓은 직후의 click 을 걸러내기 위해 잠깐 남긴다. */
   private dragMoved = false;
@@ -230,10 +241,76 @@ export class TabManager {
     });
   }
 
-  /** 탭 / 세로 분할 / 가로 분할 전환. 세션·연결 상태는 그대로 유지된다. */
+  /**
+   * 탭 / 세로 분할 / 가로 분할 전환. 세션·연결 상태는 그대로 유지된다.
+   *
+   * 분할로 들어갈 때 대상이 정해져 있지 않으면 열린 탭 전부를 담는다 — 설정 복원처럼
+   * 사람이 고를 기회가 없는 경로가 그렇다. 사람이 고르는 길은 startSplit 이다.
+   */
   setViewMode(mode: ViewMode): void {
     this.viewMode = mode;
+    if (mode === "tabs") this.stashSplit();
+    else if (this.splitTabs.size === 0) this.splitTabs = new Set(this.tabs);
+    this.renderTabbar();
     this.layout();
+  }
+
+  /** 분할 보기에 올릴 탭 후보 — 지금 열려 있는 탭 전부(선택 창이 목록으로 쓴다). */
+  splitCandidates(): TerminalTab[] {
+    return [...this.tabs];
+  }
+
+  /** 지금 분할에 올라 있는 탭들. 분할 중이 아니면 직전 선택을 돌려준다. */
+  currentSplit(): TerminalTab[] {
+    if (this.viewMode !== "tabs" && this.splitTabs.size > 0) {
+      return this.tabs.filter((t) => this.splitTabs.has(t));
+    }
+    return this.savedSplit.filter((t) => this.tabs.includes(t));
+  }
+
+  /** 되살릴 분할 정보가 남아 있는가 — 분할 버튼 아이콘을 강조할지 판단한다. */
+  hasSavedSplit(): boolean {
+    return this.savedSplit.filter((t) => this.tabs.includes(t)).length > 0;
+  }
+
+  /** 고른 탭들로 분할을 시작한다. 빈 목록이면 아무 일도 하지 않는다. */
+  startSplit(mode: Exclude<ViewMode, "tabs">, picked: TerminalTab[]): boolean {
+    const keep = picked.filter((t) => this.tabs.includes(t));
+    if (keep.length === 0) return false;
+    this.splitTabs = new Set(keep);
+    this.viewMode = mode;
+    // 보고 있던 탭이 분할에서 빠졌으면 분할 안의 첫 탭으로 옮긴다 — 활성 탭이 화면에
+    // 없으면 키보드 입력이 보이지 않는 곳으로 들어간다.
+    if (!this.active || !this.splitTabs.has(this.active)) this.active = keep[0];
+    this.renderTabbar();
+    this.layout();
+    return true;
+  }
+
+  /** 직전 선택으로 분할을 되살린다. 남은 것이 없으면 false(고르는 창을 띄울 차례다). */
+  restoreSplit(mode: Exclude<ViewMode, "tabs">): boolean {
+    return this.startSplit(mode, this.savedSplit.filter((t) => this.tabs.includes(t)));
+  }
+
+  /** 일반창으로 — 지금 선택을 남겨 두고 분할을 푼다. */
+  exitSplit(): void {
+    this.viewMode = "tabs";
+    this.stashSplit();
+    this.renderTabbar();
+    this.layout();
+  }
+
+  /** 지금 분할 선택을 '직전 선택' 으로 옮긴다(일반창 전환 직전에 부른다). */
+  private stashSplit(): void {
+    if (this.splitTabs.size > 0) {
+      this.savedSplit = this.tabs.filter((t) => this.splitTabs.has(t));
+      this.splitTabs.clear();
+    }
+  }
+
+  /** 이 탭이 지금 분할 화면에 올라 있는가(탭바 흐림 표시·클릭 경고 판단). */
+  isInSplit(tab: TerminalTab): boolean {
+    return this.viewMode !== "tabs" && this.splitTabs.has(tab);
   }
 
   getViewMode(): ViewMode {
@@ -252,8 +329,10 @@ export class TabManager {
     this.panes.style.gridTemplateColumns = "";
     this.panes.style.gridTemplateRows = "";
 
+    // 분할에 올린 탭만 화면에 세운다(0.80.0) — 예전에는 열린 탭 전부였다.
+    const shown = tiled ? this.tabs.filter((t) => this.splitTabs.has(t)) : [];
     if (tiled) {
-      const n = Math.max(1, this.tabs.length);
+      const n = Math.max(1, shown.length);
       // 4개까지는 한 줄로 나열한다(세로 분할이면 ⅠⅠⅠⅠ, 가로 분할이면 4단) — 로그 넉 대를
       // 나란히 두고 보는 용도(사용자 요청). 5개부터는 접는다: 한 줄에 다섯을 세우면
       // 폭이 좁아져 어차피 읽을 수 없다. 세로는 정사각에 가깝게, 가로는 3단 기준.
@@ -282,15 +361,15 @@ export class TabManager {
     }
 
     for (const t of this.tabs) {
-      // 타일 모드에서는 전부 보이고, 탭 모드에서는 활성 탭만 보인다.
-      t.root.classList.toggle("visible", tiled || t === this.active);
+      // 타일 모드에서는 분할에 올린 것만, 탭 모드에서는 활성 탭만 보인다.
+      t.root.classList.toggle("visible", tiled ? this.splitTabs.has(t) : t === this.active);
       t.root.classList.toggle("focused", tiled && t === this.active);
     }
     this.emptyState.style.display = this.tabs.length ? "none" : "flex";
 
     requestAnimationFrame(() => {
       for (const t of this.tabs) {
-        if (!tiled && t !== this.active) continue;
+        if (tiled ? !this.splitTabs.has(t) : t !== this.active) continue;
         t.fitNow();
         if (t.liveId) void resizeTo(t.session, t.liveId, t.cols, t.rows);
       }
@@ -336,7 +415,14 @@ export class TabManager {
     });
     this.tabs.push(tab);
     this.panes.appendChild(tab.root);
-    this.activate(tab);
+    // 분할 중이면 새 탭을 분할에 넣지 않고, 화면도 넘기지 않는다(0.80.0) — 골라 둔 배치를
+    // 세션 하나 연다고 무너뜨리지 않기 위해서다. 탭바에 흐리게 서 있다가, 눌러서
+    // 옮겨 갈 때 분할을 닫을지 묻는다. 무엇이 일어났는지 모르지 않도록 알린다.
+    if (this.viewMode !== "tabs" && this.splitTabs.size > 0) {
+      appToast(`'${session.name || session.host}' 은(는) 분할 밖에 열렸습니다 — 탭을 누르면 옮겨 갑니다`);
+    } else {
+      this.activate(tab);
+    }
     tab.setConnecting(); // probe·비밀번호 입력 동안에도 탭 안에 상태가 보이게
     this.renderTabbar();
 
@@ -439,9 +525,16 @@ export class TabManager {
   }
 
   private cycle(dir: number): void {
-    if (this.tabs.length < 2 || !this.active) return;
-    const i = this.tabs.indexOf(this.active);
-    const next = this.tabs[(i + dir + this.tabs.length) % this.tabs.length];
+    // 분할 중에는 화면에 올라 있는 탭 사이에서만 돈다 — 안 보이는 탭으로 넘어가면
+    // 분할이 통째로 풀려 버려서, 탭을 훑어보는 동작으로는 지나치다.
+    const ring =
+      this.viewMode !== "tabs" && this.splitTabs.size > 0
+        ? this.tabs.filter((t) => this.splitTabs.has(t))
+        : this.tabs;
+    if (ring.length < 2 || !this.active) return;
+    const i = ring.indexOf(this.active);
+    if (i < 0) return;
+    const next = ring[(i + dir + ring.length) % ring.length];
     this.activate(next);
   }
 
@@ -541,7 +634,30 @@ export class TabManager {
     if (tab === this.active) this.emitStatus();
   }
 
+  /**
+   * 탭을 눌렀을 때. 분할 화면에 없는 탭이면 분할이 닫힌다는 것을 먼저 알린다 —
+   * 눌러 보고 나서야 배치가 무너진 것을 아는 일이 없도록.
+   */
+  private async pickTab(tab: TerminalTab): Promise<void> {
+    if (this.viewMode !== "tabs" && !this.splitTabs.has(tab)) {
+      const ok = await confirmDialog(
+        `'${tabName(tab)}' 은(는) 지금 분할 화면에 없습니다.\n` +
+          "분할 보기를 닫고 이 세션으로 전환할까요?\n" +
+          "(분할 구성은 남아 있어 분할 버튼으로 되살릴 수 있습니다)",
+      );
+      if (!ok) return;
+    }
+    this.activate(tab);
+  }
+
   private activate(tab: TerminalTab): void {
+    // 분할 화면에 없는 탭으로 옮기면 분할을 푼다 — 보이지 않는 터미널에 키보드가
+    // 들어가면 어디에 치고 있는지 알 수 없다. 마우스로 누른 경우에는 그 전에
+    // pickTab 이 한 번 묻는다(0.80.0).
+    if (this.viewMode !== "tabs" && !this.splitTabs.has(tab)) {
+      this.viewMode = "tabs";
+      this.stashSplit();
+    }
     this.active = tab;
     tab.activity = false;
     this.renderTabbar();
@@ -750,6 +866,10 @@ export class TabManager {
     }
     const idx = this.tabs.indexOf(tab);
     if (idx >= 0) this.tabs.splice(idx, 1);
+    this.splitTabs.delete(tab);
+    this.savedSplit = this.savedSplit.filter((t) => t !== tab);
+    // 분할에 올린 것이 하나도 남지 않으면 일반창으로 — 빈 격자만 남으면 갇힌다.
+    if (this.viewMode !== "tabs" && this.splitTabs.size === 0) this.viewMode = "tabs";
     tab.dispose();
 
     if (this.active === tab) {
@@ -807,7 +927,9 @@ export class TabManager {
         (tab === this.active ? " active" : "") +
         (tab.locked ? " locked" : "") +
         (tab.status === "disconnected" ? " dead" : tab.activity ? " activity" : "") +
-        (this.bcastKeys?.has(tab.key) ? " bcast" : "");
+        (this.bcastKeys?.has(tab.key) ? " bcast" : "") +
+        // 분할 중인데 화면에 올라 있지 않은 탭 — 흐리게 둔다(눌러 보기 전에 알 수 있게).
+        (this.viewMode !== "tabs" && !this.splitTabs.has(tab) ? " off-split" : "");
       const item = el("div", cls);
       // 세션 색 태그 — 목록과 같은 색을 탭에도 둔다(운영 탭을 한눈에).
       const tabColor = sessionColorCss(tab.session.color);
@@ -842,7 +964,7 @@ export class TabManager {
         // 방금 끌어서 옮긴 것이면 활성화하지 않는다 — 놓는 순간 탭이 바뀌면
         // 옮기려던 것인지 고르려던 것인지 알 수 없게 된다.
         if (this.dragMoved) return;
-        this.activate(tab);
+        void this.pickTab(tab);
       });
       item.addEventListener("mousedown", (ev) => {
         if (ev.button === 1) {

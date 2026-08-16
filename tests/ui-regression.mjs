@@ -35,6 +35,27 @@ async function dismissModals(page) {
   }
 }
 
+/**
+ * 분할 버튼을 누른다. 고르는 창이 뜨면 전부 고른 채 '분할' 을 누른다(0.80.0 이전 동작과 같게).
+ * 되살릴 구성이 있으면 창이 뜨지 않고 바로 분할되므로 그 경우도 그대로 통과한다.
+ */
+async function clickSplit(page, id) {
+  await page.click(`#${id}`);
+  await page.waitForTimeout(300);
+  if (await page.locator(".split-pop").count()) {
+    await page.evaluate(() => {
+      for (const b of document.querySelectorAll(".split-row input")) {
+        b.checked = true;
+        b.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      [...document.querySelectorAll(".split-buttons button")]
+        .find((x) => x.textContent === "분할")
+        ?.click();
+    });
+    await page.waitForTimeout(400);
+  }
+}
+
 async function openSession(page, index = 0) {
   await page.locator(".tree-session").nth(index).dblclick();
   await page.waitForTimeout(400);
@@ -828,19 +849,25 @@ try {
           const count = (v) => Number(/repeat\((\d+),/.exec(v)?.[1] ?? 0);
           return { cols: count(p.style.gridTemplateColumns), rows: count(p.style.gridTemplateRows) };
         });
-      await page.click("#view-vertical");
-      await page.waitForTimeout(250);
+      await clickSplit(page, "view-vertical");
       let g = await grid();
       expect(g.cols === 4 && g.rows === 1, `세로 4개: ${g.cols}x${g.rows} (4x1 기대)`);
-      await page.click("#view-horizontal");
-      await page.waitForTimeout(250);
+      await clickSplit(page, "view-horizontal");
       g = await grid();
       expect(g.cols === 1 && g.rows === 4, `가로 4개: ${g.cols}x${g.rows} (1x4 기대)`);
-      // 5개째 — 접힌다(세로 3x2).
-      await page.click("#view-vertical");
-      await page.waitForTimeout(200);
+      // 5개째 — 분할 중에 연 세션은 분할 밖에 선다(0.80.0). 배치는 그대로 4개여야 한다.
+      await clickSplit(page, "view-vertical");
       await openSession(page, 0);
-      await page.waitForTimeout(250);
+      await page.waitForTimeout(300);
+      g = await grid();
+      expect(g.cols === 4 && g.rows === 1, `분할 중 새 세션이 배치를 바꿨다: ${g.cols}x${g.rows}`);
+      expect(
+        (await page.locator(".tab.off-split").count()) === 1,
+        "분할 중에 연 세션이 흐리게 표시되지 않는다",
+      );
+      // 그 세션까지 넣어 다시 고르면 5개 — 접힌다(세로 3x2).
+      await clickSplit(page, "view-vertical");
+      await page.waitForTimeout(300);
       g = await grid();
       expect(g.cols === 3 && g.rows === 2, `세로 5개: ${g.cols}x${g.rows} (3x2 기대)`);
       await page.click("#view-tabs");
@@ -866,8 +893,7 @@ try {
       expect(afterKeys[0] === before[2], `탭 순서가 바뀌지 않았다: ${JSON.stringify(afterKeys)}`);
 
       // 세로 분할로 바꾸면 타일 순서(DOM)가 탭 순서와 같아야 한다.
-      await page.click("#view-vertical");
-      await page.waitForTimeout(400);
+      await clickSplit(page, "view-vertical");
       const domIdx = await page.evaluate(() => {
         const panes = [...document.getElementById("panes").children];
         return window.__tm.tabs.map((t) => panes.indexOf(t.root));
@@ -2681,6 +2707,90 @@ try {
       expect(called, "단축키가 창 정렬을 부르지 않는다");
     });
 
+    await t.test("분할 보기 — 볼 세션만 골라 나누고, 구성이 남아 되살아난다", async () => {
+      await dismissModals(page);
+      const tabCount = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
+      if (tabCount < 2) return; // 탭이 하나뿐이면 고를 것이 없다
+
+      try {
+        // 분할 버튼 → 고르는 창(예전에는 누르자마자 열린 세션 전부가 쪼개졌다).
+        await page.click("#view-vertical");
+        await page.waitForTimeout(400);
+        expect(
+          await page.evaluate(() => !!document.querySelector(".split-pop")),
+          "분할 버튼을 눌러도 고르는 창이 뜨지 않는다",
+        );
+
+        // 마지막 하나를 빼고 분할한다.
+        await page.evaluate(() => {
+          const boxes = [...document.querySelectorAll(".split-row input")];
+          const last = boxes[boxes.length - 1];
+          last.checked = false;
+          last.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        await page.evaluate(() =>
+          [...document.querySelectorAll(".split-buttons button")]
+            .find((b) => b.textContent === "분할")
+            ?.click(),
+        );
+        await page.waitForTimeout(700);
+        const split = await page.evaluate(() => ({
+          mode: window.__tm.getViewMode(),
+          off: document.querySelectorAll(".tab.off-split").length,
+          visible: document.querySelectorAll("#panes > .visible").length,
+        }));
+        expect(split.mode === "vertical", `분할되지 않았다: ${split.mode}`);
+        expect(split.off === 1, `고르지 않은 탭이 흐려지지 않았다: ${split.off}`);
+        expect(
+          split.visible === tabCount - 1,
+          `화면에 세운 수가 다르다: ${split.visible} (탭 ${tabCount})`,
+        );
+
+        // 일반창으로 — 구성이 남아 버튼에 표시가 붙는다.
+        await page.click("#view-tabs");
+        await page.waitForTimeout(400);
+        expect(
+          await page.evaluate(() =>
+            document.getElementById("view-vertical").classList.contains("has-split"),
+          ),
+          "분할 구성이 남았는데 버튼에 표시가 없다",
+        );
+
+        // 다시 누르면 고르는 창 없이 그대로 되살아난다.
+        await page.click("#view-vertical");
+        await page.waitForTimeout(600);
+        const back = await page.evaluate(() => ({
+          mode: window.__tm.getViewMode(),
+          pop: !!document.querySelector(".split-pop"),
+          off: document.querySelectorAll(".tab.off-split").length,
+        }));
+        expect(back.mode === "vertical" && !back.pop, `되살아나지 않았다: ${JSON.stringify(back)}`);
+        expect(back.off === 1, `되살린 구성이 다르다: ${back.off}`);
+
+        // 분할 밖 탭을 누르면 먼저 묻는다 — 눌러 보고 나서 배치가 무너지면 안 된다.
+        await page.locator(".tab.off-split").first().click();
+        await page.waitForTimeout(400);
+        expect(
+          await page.evaluate(() => !!document.querySelector(".modal-card")),
+          "분할 밖 탭을 눌렀는데 확인창이 없다",
+        );
+        await page.evaluate(() => {
+          const c = document.querySelector(".modal-card");
+          [...c.querySelectorAll("button")].find((b) => b.classList.contains("btn-accent"))?.click();
+        });
+        await page.waitForTimeout(500);
+        expect(
+          await page.evaluate(() => window.__tm.getViewMode()) === "tabs",
+          "확인했는데 일반창으로 돌아가지 않았다",
+        );
+      } finally {
+        await page.evaluate(() => document.querySelector(".split-pop") && document.querySelector(".split-layer")?.remove());
+        await dismissModals(page);
+        await page.click("#view-tabs");
+        await page.waitForTimeout(300);
+      }
+    });
+
     await t.test("세션영역 도킹/해제 — 해제 시 전폭·메뉴 버튼, 임시 노출·바깥클릭 닫힘", async () => {
       await dismissModals(page);
       const app = () => page.evaluate(() => document.getElementById("app").className);
@@ -2830,9 +2940,9 @@ try {
       expect(r.reBtn, "재접속 버튼이 없다");
     });
 
-    await t.test("탭 활동 표시 — 안 본 출력이 있는 탭은 멀리서도 구분된다", async () => {
-      // 탭바에 견본 두 개를 잠깐 붙여 계산된 스타일을 견준다 — 실제 탭의 접속 상태(dead 등)에
-      // 좌우되지 않게. 확인 대상은 '.tab.activity 가 눈에 띄는가' 라는 규칙 자체다.
+    await t.test("탭 상태 표시 — 안 본 출력은 테마색 밑줄, 끊김은 빨간 배경", async () => {
+      // 견본 탭을 잠깐 붙여 계산된 스타일을 견준다 — 실제 탭의 접속 상태에 좌우되지 않게.
+      // 상태마다 수단을 하나씩만 쓴다(0.79.2): 안 본 출력은 밑줄+글자색, 끊김은 배경.
       const shot = await page.evaluate(() => {
         const bar = document.getElementById("tabbar");
         if (!bar) return "탭바 없음";
@@ -2848,24 +2958,44 @@ try {
         };
         const plain = mk("tab");
         const busy = mk("tab activity");
-        const a = getComputedStyle(plain);
-        const b = getComputedStyle(busy);
+        const dead = mk("tab dead");
+        const root = getComputedStyle(document.documentElement);
         const out = {
-          bgSame: a.backgroundColor === b.backgroundColor,
-          shadow: b.boxShadow,
-          color: getComputedStyle(busy.querySelector(".tab-label")).color,
-          weight: getComputedStyle(busy.querySelector(".tab-label")).fontWeight,
+          accent: root.getPropertyValue("--accent").trim(),
+          errorSoft: root.getPropertyValue("--error-soft").trim(),
+          plainBg: getComputedStyle(plain).backgroundColor,
+          busyBg: getComputedStyle(busy).backgroundColor,
+          busyShadow: getComputedStyle(busy).boxShadow,
+          busyColor: getComputedStyle(busy.querySelector(".tab-label")).color,
+          deadBg: getComputedStyle(dead).backgroundColor,
+          deadColor: getComputedStyle(dead.querySelector(".tab-label")).color,
         };
         plain.remove();
         busy.remove();
+        dead.remove();
         return out;
       });
       expect(typeof shot !== "string", `${shot}`);
-      // 글자색만 바꾸면 탭이 여러 개일 때 눈에 안 들어온다 — 배경·왼쪽 띠까지 바뀌어야 한다.
-      expect(!shot.bgSame, "배경이 평소 탭과 같다");
-      expect(shot.shadow !== "none" && /224, 165, 79/.test(shot.shadow), `왼쪽 띠가 없다: ${shot.shadow}`);
-      expect(/224, 165, 79/.test(shot.color), `라벨이 호박색이 아니다: ${shot.color}`);
-      expect(Number(shot.weight) >= 600, `라벨이 굵지 않다: ${shot.weight}`);
+      const rgb = (hex) => {
+        const n = parseInt(hex.replace("#", ""), 16);
+        return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+      };
+      // 안 본 출력 — 배경은 건드리지 않는다(깔끔함). 밑줄·글자색은 테마 강조색을 따른다.
+      expect(shot.busyBg === shot.plainBg, `안 본 출력에 배경이 깔렸다: ${shot.busyBg}`);
+      expect(
+        shot.busyColor === rgb(shot.accent),
+        `글자색이 테마 강조색이 아니다: ${shot.busyColor} vs ${shot.accent}`,
+      );
+      expect(
+        shot.busyShadow.includes("inset") && shot.busyShadow.includes("-2px"),
+        `아래 띠가 없다: ${shot.busyShadow}`,
+      );
+      // 끊김 — 빨간 배경(사고라서 더 강한 수단).
+      expect(
+        shot.deadBg === shot.errorSoft && /rgba\(/.test(shot.deadBg),
+        `끊김 배경이 테마 오류색이 아니다: ${shot.deadBg} vs ${shot.errorSoft}`,
+      );
+      expect(shot.deadColor !== shot.busyColor, "끊김과 안 본 출력의 글자색이 같다");
     });
 
     await t.test("수신 쓰기 펌프 — 조각 폭주에도 순서·내용이 그대로 도달한다", async () => {

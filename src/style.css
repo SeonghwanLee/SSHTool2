@@ -1317,31 +1317,22 @@ body.dragging-tab * {
   pointer-events: none;
 }
 
-/* 아직 안 본 출력이 있는 탭(0.79.0).
-   예전에는 라벨 글자색만 호박색으로 바꿨는데, 탭이 여러 개일 때 그 정도로는 눈에
-   들어오지 않았다("어느 세션이 갱신됐는지 모르겠다" — 사용자 보고). 잠긴 탭과 같은
-   방식으로 배경 틴트 + 왼쪽 띠까지 물들여 멀리서도 바로 보이게 한다.
-   잠금(파랑)과 색이 겹치지 않으므로 두 상태가 함께 떠도 구분된다.
-   color-mix 대신 rgba 만 쓴다 — 구버전 WebView2 에서 표시가 통째로 사라지면 안 된다. */
-.tab.activity:not(.active) .tab-label {
-  color: #e0a54f; /* 호박색 — 아직 안 본 출력 있음 */
-  font-weight: 600;
-}
+/* 비활성 탭의 상태 표시(0.79.2).
+   깔끔함을 우선한다 — 상태마다 **수단을 하나씩만** 쓴다. 배경·띠·점·굵기를 한꺼번에
+   얹으면 탭이 서너 개만 돼도 지저분해진다(0.79.0 실사용).
+   - 안 본 출력: 아래쪽 2px 띠 + 글자색. 배경은 건드리지 않아 탭바가 조용하다.
+     색은 테마 강조색을 따른다 — 한 색으로 못 박으면 테마마다 튀거나 묻힌다.
+   - 끊긴 세션: 옅은 빨간 배경. 끊김은 사고라 더 강한 수단을 준다.
+   활성 탭은 예전 그대로다(위쪽 강조 띠 + 본문 배경). 띠를 아래쪽에 두는 것도 그래서다 —
+   위쪽 띠는 '지금 보고 있는 탭' 이라는 뜻으로 이미 쓰이고 있다. */
 .tab.activity:not(.active) {
-  background: rgba(224, 165, 79, 0.16);
-  box-shadow: inset 3px 0 0 0 #e0a54f;
+  box-shadow: inset 0 -2px 0 0 var(--accent);
 }
-.tab.activity:not(.active):hover {
-  background: rgba(224, 165, 79, 0.26);
+.tab.activity:not(.active) .tab-label {
+  color: var(--accent);
 }
-/* 잠긴 탭에는 잠금 띠가 이미 왼쪽에 있다 — 겹치지 않게 점으로 알린다. */
-.tab.activity.locked:not(.active)::after {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #e0a54f;
-  flex: 0 0 auto;
+.tab.dead:not(.active) {
+  background: var(--error-soft);
 }
 .tab.dead:not(.active) .tab-label {
   color: var(--error);
@@ -3122,4 +3113,110 @@ button.busy {
 }
 .tree-session.multi.selected {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* ── 분할 보기 세션 고르기(0.80.0) ─────────────────────────────────────────── */
+
+/* 되살릴 분할 구성이 남아 있는 버튼 — 한 번 누르면 그대로 돌아온다는 표시.
+   활성(accent)과 헷갈리지 않게 색은 빼고 아래쪽 점으로만 알린다. */
+#titlebar .view-btn.has-split:not(.active) {
+  color: var(--fg);
+}
+#titlebar .view-btn.has-split:not(.active)::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+#titlebar .view-btn {
+  position: relative; /* 위 점의 기준 */
+}
+
+/* 분할 중인데 화면에 올라 있지 않은 탭 — 눌러 보기 전에 알 수 있게 흐리게. */
+.tab.off-split:not(.active) {
+  opacity: 0.45;
+}
+.tab.off-split:not(.active):hover {
+  opacity: 0.75;
+}
+
+.split-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1300; /* 분할 버튼은 타이틀바(높은 층)에 있다 — 그보다 위에 떠야 한다 */
+}
+.split-pop {
+  position: fixed;
+  min-width: 240px;
+  max-width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 8px 0 6px;
+  font-size: 12px;
+}
+.split-head {
+  padding: 2px 12px 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.split-list {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.split-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.split-row:hover {
+  background: var(--panel-2);
+}
+.split-name {
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.split-detail {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.split-bulk {
+  display: flex;
+  gap: 10px;
+  padding: 6px 12px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.split-link {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+.split-link:hover {
+  color: var(--accent);
+}
+.split-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 12px 2px;
+}
+.split-buttons button {
+  padding: 4px 12px;
+  font-size: 12px;
 }

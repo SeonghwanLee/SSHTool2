@@ -12,6 +12,7 @@ import { setDebugLogging } from "./debuglog";
 import { onHostKeyPrompt, hostKeyAnswer, vaultLock, windowFitToScreen } from "./ipc";
 import { hostKeyPrompt, confirmDialog, appToast } from "./dialogs";
 import { applyIcon } from "./icons";
+import { pickSplitTargets } from "./splitpicker";
 import { openSftpFor } from "./sessionflow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
@@ -67,24 +68,75 @@ export function wireViewModes(tabs: TabManager): void {
     ["view-vertical", "vertical"],
     ["view-horizontal", "horizontal"],
   ];
-  const mark = (mode: ViewModeSetting) => {
+  /**
+   * 버튼 상태 갱신. 지금 보기 모드에 'active', 되살릴 분할 구성이 남아 있으면
+   * 분할 버튼에 'has-split' 을 얹어 색으로 알린다 — 한 번 누르면 그대로 돌아온다는 표시다.
+   */
+  const mark = () => {
+    const mode = tabs.getViewMode();
     for (const [id, m] of buttons) $(id).classList.toggle("active", m === mode);
+    const saved = mode === "tabs" && tabs.hasSavedSplit();
+    for (const id of ["view-vertical", "view-horizontal"]) {
+      $(id).classList.toggle("has-split", saved);
+      $(id).title = saved
+        ? "분할 보기 — 직전에 고른 세션으로 되살립니다(다시 누르면 세션을 고릅니다)"
+        : "분할 보기 — 나눠서 볼 세션을 고릅니다";
+    }
   };
-  for (const [id, mode] of buttons) {
+  const remember = async (mode: ViewModeSetting) => {
+    setSettings({ ...settings, viewMode: mode });
+    try {
+      await saveSettings(settings);
+    } catch (e) {
+      console.error("뷰 모드 저장 실패", e);
+    }
+  };
+
+  $("view-tabs").addEventListener("click", () => {
+    tabs.exitSplit();
+    mark();
+    void remember("tabs");
+  });
+
+  for (const id of ["view-vertical", "view-horizontal"] as const) {
+    const mode = id === "view-vertical" ? "vertical" : "horizontal";
     $(id).addEventListener("click", async () => {
-      tabs.setViewMode(mode);
-      mark(mode);
-      setSettings({ ...settings, viewMode: mode });
-      try {
-        await saveSettings(settings);
-      } catch (e) {
-        console.error("뷰 모드 저장 실패", e);
+      const already = tabs.getViewMode() === mode;
+      // 이미 그 분할 중이면 '고르기', 아니면 직전 선택으로 되살리기. 되살릴 것이
+      // 없을 때만 고르는 창을 띄운다 — 늘 물으면 빠르게 오가는 데 방해가 된다.
+      if (!already && tabs.restoreSplit(mode)) {
+        mark();
+        void remember(mode);
+        return;
       }
+      const open = tabs.splitCandidates();
+      if (open.length === 0) {
+        appToast("열려 있는 세션이 없습니다 — 먼저 세션에 접속하세요");
+        return;
+      }
+      const now = new Set(tabs.currentSplit());
+      const picked = await pickSplitTargets(
+        $(id),
+        open.map((t) => ({
+          item: t,
+          label: t.session.name || t.session.host,
+          detail: t.session.kind === "local" ? "로컬 셸" : `${t.session.user}@${t.session.host}`,
+          // 고른 적이 없으면 전부 켜 둔다 — 예전 동작(전부 분할)이 기본값이 된다.
+          checked: now.size === 0 ? true : now.has(t),
+        })),
+        mode === "vertical" ? "세로로 나눠 볼 세션" : "가로로 나눠 볼 세션",
+      );
+      if (!picked) return;
+      if (!tabs.startSplit(mode, picked)) return;
+      mark();
+      void remember(mode);
     });
   }
-  // 저장된 배치 복원.
+
+  // 저장된 배치 복원(설정에서 온 값 — 사람이 고를 기회가 없으므로 열린 탭 전부를 담는다).
   tabs.setViewMode(settings.viewMode);
-  mark(settings.viewMode);
+  mark();
+  tabs.onTabsChanged(mark); // 탭이 닫혀 분할이 풀리면 버튼 표시도 따라간다
 }
 
 /** '이 PC 자동 잠금 해제' 토글. 켜면 마스터를 확인해 OS 키체인에 저장, 끄면 삭제. 최종 상태 반환. */
