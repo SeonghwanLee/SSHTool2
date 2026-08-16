@@ -132,7 +132,9 @@ export class TabManager {
         return;
       }
       tab.writeBytes(bytes);
-      if (tab !== this.active && !tab.activity) {
+      // '아직 안 본 출력' 표시. 분할 보기에서는 모든 터미널이 눈앞에 있으므로 켜지 않는다
+      // — 보고 있는 화면에 "안 봤다" 표시가 뜨면 표시 자체를 못 믿게 된다.
+      if (tab !== this.active && this.viewMode === "tabs" && !tab.activity) {
         tab.activity = true;
         this.renderTabbar();
       }

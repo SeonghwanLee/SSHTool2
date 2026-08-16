@@ -2792,6 +2792,44 @@ try {
       expect(r.reBtn, "재접속 버튼이 없다");
     });
 
+    await t.test("탭 활동 표시 — 안 본 출력이 있는 탭은 멀리서도 구분된다", async () => {
+      // 탭바에 견본 두 개를 잠깐 붙여 계산된 스타일을 견준다 — 실제 탭의 접속 상태(dead 등)에
+      // 좌우되지 않게. 확인 대상은 '.tab.activity 가 눈에 띄는가' 라는 규칙 자체다.
+      const shot = await page.evaluate(() => {
+        const bar = document.getElementById("tabbar");
+        if (!bar) return "탭바 없음";
+        const mk = (cls) => {
+          const el = document.createElement("div");
+          el.className = cls;
+          const lab = document.createElement("span");
+          lab.className = "tab-label";
+          lab.textContent = "견본";
+          el.appendChild(lab);
+          bar.appendChild(el);
+          return el;
+        };
+        const plain = mk("tab");
+        const busy = mk("tab activity");
+        const a = getComputedStyle(plain);
+        const b = getComputedStyle(busy);
+        const out = {
+          bgSame: a.backgroundColor === b.backgroundColor,
+          shadow: b.boxShadow,
+          color: getComputedStyle(busy.querySelector(".tab-label")).color,
+          weight: getComputedStyle(busy.querySelector(".tab-label")).fontWeight,
+        };
+        plain.remove();
+        busy.remove();
+        return out;
+      });
+      expect(typeof shot !== "string", `${shot}`);
+      // 글자색만 바꾸면 탭이 여러 개일 때 눈에 안 들어온다 — 배경·왼쪽 띠까지 바뀌어야 한다.
+      expect(!shot.bgSame, "배경이 평소 탭과 같다");
+      expect(shot.shadow !== "none" && /224, 165, 79/.test(shot.shadow), `왼쪽 띠가 없다: ${shot.shadow}`);
+      expect(/224, 165, 79/.test(shot.color), `라벨이 호박색이 아니다: ${shot.color}`);
+      expect(Number(shot.weight) >= 600, `라벨이 굵지 않다: ${shot.weight}`);
+    });
+
     await t.test("수신 쓰기 펌프 — 조각 폭주에도 순서·내용이 그대로 도달한다", async () => {
       // 위 테스트가 만든 탭에 직접 조각을 폭주시킨다(DEV 훅 __tm).
       const out = await page.evaluate(async () => {
