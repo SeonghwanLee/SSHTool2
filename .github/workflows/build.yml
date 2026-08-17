@@ -42,11 +42,19 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Rust 의존성 캐시(선택) — 빌드 시간 단축.
+      # Rust 의존성 캐시 — **복원만 하고 저장하지 않는다**(save-if: false).
+      #
+      # 캐시는 ref 단위로 격리된다. 태그 빌드는 refs/tags/vX 스코프라, 저장하면 릴리스마다
+      # 별도 캐시가 하나씩 생긴다(약 558MB). 그런데 그 캐시는 **다음 태그에서 복원되지도
+      # 않는다** — 스코프가 다르기 때문이다. 저장만 되고 두 번 다시 쓰이지 않는 셈이라,
+      # 릴리스를 열 번 내면 5GB 가 쌓여 계정 Actions 스토리지를 통째로 먹는다
+      # (2026-08-17 실제로 한도 100% 도달).
+      # 복원은 기본 브랜치(master)의 캐시에서 되므로 그대로 두고, 저장만 끈다.
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          save-if: false
 
       # 태그 push 면 릴리스까지, 수동 실행이면 빌드만.
       # tauri-action 은 tagName 이 비어 있으면 릴리스를 만들지 않는다.
