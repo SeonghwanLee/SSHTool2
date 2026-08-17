@@ -9,6 +9,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.81.1",
+    date: "2026-08-16",
+    notes: [
+      "SFTP 창을 접어 두면 세션 목록의 SFTP 버튼이 보이지 않던 문제를 고쳤습니다 — 연결은 살아 있는데 그 행에 마우스를 올려야만 버튼이 나타났습니다. 0.79.0 에서 목록을 통째로 다시 그리지 않도록 바꾸면서 생긴 문제입니다",
+    ],
+  },
+  {
     version: "0.81.0",
     date: "2026-08-16",
     notes: [

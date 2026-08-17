@@ -642,7 +642,13 @@ export class Sidebar {
     this.repainting = true;
     try {
       for (const { chip, s } of this.liveChips) {
-        if (chip.isConnected) this.paintSftpChip(chip, s);
+        if (!chip.isConnected) continue;
+        const alive = this.paintSftpChip(chip, s);
+        // 행의 'has-sftp' 까지 같이 갱신한다. 이 클래스가 없으면 칩은 평소처럼 숨어 있다가
+        // 마우스를 올려야 보인다 — 연결이 살아 있는데도 SFTP 버튼이 안 보이던 자리다
+        // (0.81.1). 0.76.7 에서 목록을 다시 그리지 않게 바꾸면서, 행 클래스는 render 에만
+        // 남아 갱신되지 않았다.
+        chip.closest(".tree-session, .recent-row")?.classList.toggle("has-sftp", alive);
       }
     } finally {
       this.repainting = false;

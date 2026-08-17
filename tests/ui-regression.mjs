@@ -2655,6 +2655,21 @@ try {
         );
         expect(chipText === "37%", `칩에 진행률이 없다: ${JSON.stringify(chipText)}`);
 
+        // 연결이 살아 있으면 마우스를 올리지 않아도 칩이 보여야 한다 — 행의 has-sftp 가
+        // 그 스위치다. 목록을 다시 그리지 않고 칩만 칠하게 바꾼 뒤(0.76.7) 이 클래스가
+        // 갱신되지 않아, 접어 둔 SFTP 연결의 버튼이 사라져 있었다(0.81.1).
+        await page.mouse.move(5, 5);
+        await page.waitForTimeout(150);
+        const shown = await page.evaluate((id) => {
+          const row = document.querySelector(`.tree-session[data-session-id="${id}"]`);
+          return {
+            hasSftp: row?.classList.contains("has-sftp"),
+            actions: row ? getComputedStyle(row.querySelector(".tree-actions")).display : "",
+          };
+        }, sid);
+        expect(shown.hasSftp, "연결이 살아 있는데 행에 has-sftp 가 없다");
+        expect(shown.actions !== "none", `마우스를 올려야만 SFTP 버튼이 보인다: ${shown.actions}`);
+
         // 진행률이 갱신돼도 버튼 노드가 바뀌면 안 된다 — 바뀌면 누르는 순간 사라져
         // 클릭이 먹지 않고, 고정 해제 상태에서는 임시 노출까지 닫힌다.
         await page.evaluate((id) => {
