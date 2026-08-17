@@ -9,6 +9,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.80.2",
+    date: "2026-08-16",
+    notes: [
+      "세션 목록에서 여러 개를 고른 뒤 우클릭하면 '선택한 N개 세션 연결(C)' 로 한 번에 열 수 있습니다 — 하나씩 차례로 열어, 비밀번호나 호스트키를 물어야 할 때 어느 세션 것인지 헷갈리지 않습니다",
+      "고른 것 중 접속 차단된 세션은 건너뛰고 몇 개를 건너뛰었는지 알려 줍니다",
+    ],
+  },
+  {
     version: "0.80.1",
     date: "2026-08-16",
     notes: [

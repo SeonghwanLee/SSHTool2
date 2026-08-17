@@ -12,6 +12,7 @@ export interface SidebarCallbacks {
   /** 접속 차단 켜고 끄기 — 세션은 목록에 남고 흐리게 표시된다. */
   onToggleDisabled: (s: SessionInfo) => void;
   /** 여러 개를 한 번에 — 목록에서 Ctrl/Shift 로 고른 것들. */
+  onBulkOpen: (list: SessionInfo[]) => void;
   onBulkMove: (list: SessionInfo[]) => void;
   onBulkSetDisabled: (list: SessionInfo[], disabled: boolean) => void;
   onBulkDeleteSessions: (list: SessionInfo[]) => void;
@@ -896,7 +897,19 @@ export class Sidebar {
     const n = list.length;
     // 하나라도 열려 있으면 '차단', 모두 막혀 있으면 '허용' — 한 번에 같은 상태로 맞춘다.
     const anyOn = list.some((x) => !x.disabled);
+    // 연결이 맨 위 — 한 건짜리 메뉴와 같은 자리, 같은 글자(C)를 준다.
+    const anyUsable = list.some((x) => !x.disabled);
     return [
+      ...(anyUsable
+        ? [
+            {
+              label: `선택한 ${n}개 세션 연결`,
+              accel: "c",
+              action: () => this.cb.onBulkOpen(list),
+            } as const,
+            { separator: true } as const,
+          ]
+        : []),
       { label: `선택한 ${n}개 폴더 이동`, accel: "m", action: () => this.cb.onBulkMove(list) },
       {
         label: anyOn ? `선택한 ${n}개 접속 차단` : `선택한 ${n}개 접속 허용`,

@@ -138,26 +138,58 @@ async function main(): Promise<void> {
   );
   setTabManager(tabs);
 
+  /**
+   * 세션 하나를 실제로 연다. 한 개짜리(더블클릭·연결 메뉴)와 여러 개짜리(묶음 연결)가
+   * 같은 길을 쓰도록 떼어 놓았다 — 한쪽만 고치면 다른 쪽이 조용히 달라진다.
+   * 최근 접속 기록은 호출부가 한 번에 반영한다(여러 개면 저장을 한 번만 하도록).
+   */
+  const connectOne = async (s: SessionInfo): Promise<void> => {
+    // RDP 는 터미널 탭을 만들지 않는다 — mstsc 가 별도 창으로 화면을 맡는다.
+    if (s.kind === "rdp") {
+      await rdpLaunch(s.host, s.port, s.user).catch((e) =>
+        alertDialog(String(e), "원격 데스크톱 실행 실패"),
+      );
+      return;
+    }
+    // 볼트에 있는 비밀 값(트리거·시작 명령)을 메모리에서만 되채워 넘긴다.
+    const ready = await hydrateSecrets(s);
+    await tabs.openSession(ready);
+  };
+  /** 마지막 접속 시각 기록(최근 접속순 정렬용). 저장 세션만, 저장은 한 번. */
+  const markRecent = (list: SessionInfo[]): void => {
+    const ids = new Set(list.filter((s) => sessions.some((x) => x.id === s.id)).map((s) => s.id));
+    if (ids.size === 0) return;
+    const now = Math.floor(Date.now() / 1000);
+    setSessions(sessions.map((x) => (ids.has(x.id) ? { ...x, lastConnectedUtc: now } : x)));
+    void persist().then(redraw);
+  };
+
   const sidebar = new Sidebar(
     $("session-tree"),
     {
       onOpen: (s) => {
         if (blockedByDisabled(s)) return;
-        // 최근 접속순 정렬용으로 마지막 접속 시각을 기록한다(저장 세션만).
-        if (sessions.some((x) => x.id === s.id)) {
-          const now = Math.floor(Date.now() / 1000);
-          setSessions(sessions.map((x) => (x.id === s.id ? { ...x, lastConnectedUtc: now } : x)));
-          void persist().then(redraw);
-        }
-        // RDP 는 터미널 탭을 만들지 않는다 — mstsc 가 별도 창으로 화면을 맡는다.
-        if (s.kind === "rdp") {
-          void rdpLaunch(s.host, s.port, s.user).catch((e) =>
-            alertDialog(String(e), "원격 데스크톱 실행 실패"),
-          );
+        markRecent([s]);
+        void connectOne(s);
+      },
+      /**
+       * 고른 세션을 차례로 연다(0.80.2). 한꺼번에 던지지 않고 하나씩 기다리는 이유는,
+       * 자격증명·호스트키 확인 창이 여러 개 겹쳐 뜨면 어느 세션 것인지 알 수 없어서다.
+       */
+      onBulkOpen: async (list) => {
+        const usable = list.filter((s) => !s.disabled);
+        const blocked = list.length - usable.length;
+        if (usable.length === 0) {
+          appToast("고른 세션이 모두 접속 차단 상태입니다");
           return;
         }
-        // 볼트에 있는 비밀 값(트리거·시작 명령)을 메모리에서만 되채워 넘긴다.
-        void hydrateSecrets(s).then((ready) => tabs.openSession(ready));
+        markRecent(usable);
+        for (const s of usable) await connectOne(s);
+        appToast(
+          blocked > 0
+            ? `${usable.length}개 연결 — 차단된 ${blocked}개는 건너뛰었습니다`
+            : `${usable.length}개 세션을 열었습니다`,
+        );
       },
       // 비활성화 — 세션은 남기고 접속만 막는다. 되돌리기 쉬워야 하므로 확인은 묻지 않는다.
       onToggleDisabled: async (s) => {

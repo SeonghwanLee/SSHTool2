@@ -2463,6 +2463,11 @@ try {
           labels.some((l) => l.includes("선택한 2개 폴더 이동")),
           `묶음 메뉴가 아니다: ${JSON.stringify(labels)}`,
         );
+        // 고른 세션을 한 번에 여는 길(0.80.2) — 한 건짜리 메뉴와 같은 글자(C).
+        expect(
+          labels.includes("선택한 2개 세션 연결(C)"),
+          `묶음 연결 항목이 없다: ${JSON.stringify(labels)}`,
+        );
 
         // 한 번에 차단 → 두 세션 모두 저장에 실린다.
         await page.evaluate(() => (window.__ipc.length = 0));
