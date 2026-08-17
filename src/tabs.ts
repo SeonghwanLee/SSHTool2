@@ -526,6 +526,19 @@ export class TabManager {
   }
 
   /** 지금 열려 있는 탭들의 세션 id(중복 가능) — 빠른 찾기의 '열림' 배지에 쓴다. */
+  /**
+   * 세션 id 들에 해당하는 탭(주어진 순서대로). 같은 세션이 여러 번 열려 있으면 첫 탭.
+   * 분할 그룹이 세션 id 로 저장되므로 불러올 때 여기서 탭으로 옮긴다.
+   */
+  tabsForSessions(ids: string[]): TerminalTab[] {
+    const out: TerminalTab[] = [];
+    for (const id of ids) {
+      const t = this.tabs.find((x) => x.session.id === id && !out.includes(x));
+      if (t) out.push(t);
+    }
+    return out;
+  }
+
   /** 지금 보고 있는 탭의 세션(없으면 null) — 단축키가 '현재 세션' 에 명령할 때 쓴다. */
   activeSession(): SessionInfo | null {
     return this.active?.session ?? null;

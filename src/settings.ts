@@ -20,6 +20,14 @@ export type CursorStyle = "block" | "underline" | "bar";
 /** 세션 화면 배치(tabs.ts ViewMode 와 동일 — 순환 import 를 피하려 여기서 정의). */
 export type ViewModeSetting = "tabs" | "vertical" | "horizontal";
 
+/** 분할 그룹 하나 — 이름·방향·세션 목록. */
+export interface SplitGroup {
+  id: string;
+  name: string;
+  mode: "vertical" | "horizontal";
+  sessionIds: string[];
+}
+
 export interface Settings {
   theme: string;
   fontFamily: string;
@@ -36,6 +44,12 @@ export interface Settings {
   autoLockMinutes: number;
   /** 세션 화면 배치(탭/세로 분할/가로 분할). */
   viewMode: ViewModeSetting;
+  /**
+   * 분할 그룹(0.81.0) — 자주 함께 보는 세션 묶음에 이름을 붙여 둔 것.
+   * 탭이 아니라 **세션 id** 를 담는다: 앱을 껐다 켜도 남고, 불러올 때 안 열린 세션은
+   * 그때 연다. 방향(세로/가로)도 묶음마다 따로 기억한다.
+   */
+  splitGroups?: SplitGroup[];
   /** 시작 시 업데이트 확인. 내부망 전용 PC 에서는 꺼두면 외부 통신을 시도하지 않는다. */
   checkUpdateOnStartup: boolean;
   /** 세션 목록을 최근 접속순으로 정렬(끄면 수동 순서 + 이름순). */
@@ -108,6 +122,7 @@ export const DEFAULT_SETTINGS: Settings = {
   collapsedFolders: [],
   autoLockMinutes: 0,
   viewMode: "tabs",
+  splitGroups: [],
   checkUpdateOnStartup: true,
   sortByRecent: false,
   showSessionDetail: true,

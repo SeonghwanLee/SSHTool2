@@ -558,6 +558,7 @@ async function main(): Promise<void> {
     applyDisplayOptions: applyDisplayOptionsImpl,
     runImport: runImportImpl,
     newFolderFlow: newFolderFlowImpl,
+    connectSession: connectOne,
   });
   applyDisplayOptions(settings);
   // 저장돼 있던 폴더 접힘 상태 복원(설정 로드 후 첫 렌더에 반영).

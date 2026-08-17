@@ -3,7 +3,7 @@
 
 import type { TabManager, StatusInfo } from "./tabs";
 import type { Sidebar } from "./sidebar";
-import { settings, setSettings, applyDisplayOptions, tabManager, sessions } from "./appstate";
+import { settings, setSettings, applyDisplayOptions, tabManager, sessions, connectSession } from "./appstate";
 import { saveSettings, type Settings, type ViewModeSetting } from "./settings";
 import { settingsDialog } from "./settingsdialog";
 import { SIDEBAR_MIN_W, SIDEBAR_MAX_W } from "./settings";
@@ -13,6 +13,7 @@ import { onHostKeyPrompt, hostKeyAnswer, vaultLock, windowFitToScreen } from "./
 import { hostKeyPrompt, confirmDialog, appToast } from "./dialogs";
 import { applyIcon } from "./icons";
 import { pickSplitTargets } from "./splitpicker";
+import { openGroupMenu } from "./splitgroups";
 import { openSftpFor } from "./sessionflow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { showScreensaver, hideScreensaver, isScreensaverOn } from "./screensaver";
@@ -135,10 +136,59 @@ export function wireViewModes(tabs: TabManager): void {
     });
   }
 
+  // ── 분할 그룹(0.81.0) ──
+  $("split-groups").addEventListener("click", () => {
+    openGroupMenu($("split-groups"), {
+      groups: () => settings.splitGroups ?? [],
+      sessions: () => sessions,
+      save: (next) => {
+        setSettings({ ...settings, splitGroups: next });
+        void saveSettings(settings).catch((e) => console.error("분할 그룹 저장 실패", e));
+        mark();
+      },
+      currentSplit: () => {
+        const mode = tabs.getViewMode();
+        if (mode === "tabs") return null;
+        const ids = tabs.splitOf(mode).map((t) => t.session.id);
+        return ids.length ? { mode, sessionIds: ids } : null;
+      },
+      apply: (g) => void applyGroup(tabs, g),
+    });
+  });
+
   // 저장된 배치 복원(설정에서 온 값 — 사람이 고를 기회가 없으므로 열린 탭 전부를 담는다).
   tabs.setViewMode(settings.viewMode);
   mark();
   tabs.onTabsChanged(mark); // 탭이 닫혀 분할이 풀리면 버튼 표시도 따라간다
+}
+
+/**
+ * 그룹을 화면에 올린다 — 아직 열리지 않은 세션은 여기서 접속하고, 다 열리면 분할한다.
+ *
+ * 하나씩 기다려 여는 이유는 묶음 연결(0.80.2)과 같다: 자격증명·호스트키 창이 여러 개
+ * 겹쳐 뜨면 어느 세션 것인지 알 수 없다. 지우거나 이름이 바뀐 세션은 조용히 건너뛴다 —
+ * 그룹은 오래 남는 물건이라 목록과 어긋나는 일이 생긴다.
+ */
+async function applyGroup(tabs: TabManager, g: { name: string; mode: "vertical" | "horizontal"; sessionIds: string[] }): Promise<void> {
+  const known = g.sessionIds
+    .map((id) => sessions.find((s) => s.id === id))
+    .filter((s): s is (typeof sessions)[number] => !!s);
+  const usable = known.filter((s) => !s.disabled);
+  if (usable.length === 0) {
+    appToast(`'${g.name}' 그룹에 열 수 있는 세션이 없습니다`);
+    return;
+  }
+  const missing = usable.filter((s) => tabs.tabsForSessions([s.id]).length === 0);
+  for (const s of missing) await connectSession(s);
+  const picked = tabs.tabsForSessions(usable.map((s) => s.id));
+  if (picked.length === 0) return;
+  tabs.startSplit(g.mode, picked);
+  const skipped = g.sessionIds.length - usable.length;
+  appToast(
+    skipped > 0
+      ? `'${g.name}' — ${picked.length}개 분할(건너뜀 ${skipped}개)`
+      : `'${g.name}' — ${picked.length}개 분할`,
+  );
 }
 
 /** '이 PC 자동 잠금 해제' 토글. 켜면 마스터를 확인해 OS 키체인에 저장, 끄면 삭제. 최종 상태 반환. */

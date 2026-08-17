@@ -52,17 +52,21 @@ export let applyDisplayOptions: (s: Settings) => void = () => {};
 export let runImport: () => Promise<void> = async () => {};
 /** 새 폴더 만들기. */
 export let newFolderFlow: (parent: string) => Promise<void> = async () => {};
+/** 세션 하나 접속(볼트 값 채우기·RDP 분기 포함). 분할 그룹이 안 열린 세션을 열 때 쓴다. */
+export let connectSession: (s: SessionInfo) => Promise<void> = async () => {};
 
 export function injectActions(a: {
   redraw: () => void;
   applyDisplayOptions: (s: Settings) => void;
   runImport: () => Promise<void>;
   newFolderFlow: (parent: string) => Promise<void>;
+  connectSession: (s: SessionInfo) => Promise<void>;
 }): void {
   redraw = a.redraw;
   applyDisplayOptions = a.applyDisplayOptions;
   runImport = a.runImport;
   newFolderFlow = a.newFolderFlow;
+  connectSession = a.connectSession;
 }
 
 export async function persist(): Promise<void> {

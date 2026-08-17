@@ -2712,6 +2712,88 @@ try {
       expect(called, "단축키가 창 정렬을 부르지 않는다");
     });
 
+    await t.test("분할 그룹 — 이름을 붙여 저장하고, 눌러서 그 배치로 간다", async () => {
+      await dismissModals(page);
+      const openIds = await page.evaluate(() =>
+        [...new Set((window.__tm?.tabs ?? []).map((t) => t.session.id))],
+      );
+      if (openIds.length < 2) return; // 열린 세션이 모자라면 볼 것이 없다
+
+      try {
+        await page.click("#split-groups");
+        await page.waitForTimeout(400);
+        expect(
+          await page.evaluate(() => !!document.querySelector(".group-pop")),
+          "그룹 버튼을 눌러도 목록이 뜨지 않는다",
+        );
+
+        // 새 그룹 — 이름을 비우면 '그룹N' 이 붙는다.
+        await page.evaluate(() =>
+          [...document.querySelectorAll(".split-link")].find((b) => b.textContent === "새 그룹")?.click(),
+        );
+        await page.waitForTimeout(500);
+        const ph = await page.evaluate(
+          () => document.querySelector(".group-card input[type=text]")?.placeholder ?? "",
+        );
+        expect(/그룹\d+/.test(ph), `기본 이름 안내가 없다: ${ph}`);
+
+        // 이미 열려 있는 세션만 담는다(검사가 새 접속을 만들지 않도록).
+        await page.evaluate((ids) => {
+          const rows = [...document.querySelectorAll(".group-row")];
+          const names = new Set(
+            (window.__tm.tabs ?? [])
+              .filter((t) => ids.includes(t.session.id))
+              .map((t) => t.session.name || t.session.host),
+          );
+          for (const r of rows) {
+            const nm = r.querySelector(".group-name")?.textContent ?? "";
+            const box = r.querySelector("input");
+            box.checked = names.has(nm);
+            box.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          document.querySelector('.group-dir input[value=horizontal]').checked = true;
+        }, openIds);
+        await page.evaluate(() => (window.__ipc.length = 0));
+        await page.evaluate(() =>
+          [...document.querySelectorAll(".group-card .modal-buttons button")]
+            .find((b) => b.textContent === "저장")
+            ?.click(),
+        );
+        await page.waitForTimeout(500);
+        const saved = await page.evaluate(() => {
+          const last = window.__ipc.filter(([c]) => c === "settings_save").pop();
+          return last?.[1]?.value?.splitGroups ?? null;
+        });
+        expect(Array.isArray(saved) && saved.length > 0, `그룹이 저장되지 않았다: ${JSON.stringify(saved)}`);
+        const g = saved[saved.length - 1];
+        expect(/그룹\d+/.test(g.name), `기본 이름이 붙지 않았다: ${g.name}`);
+        expect(g.mode === "horizontal", `방향이 저장되지 않았다: ${g.mode}`);
+        expect(g.sessionIds.length >= 2, `세션이 담기지 않았다: ${JSON.stringify(g.sessionIds)}`);
+
+        // 목록에서 그룹을 누르면 그 배치로 간다.
+        await page.click("#split-groups");
+        await page.waitForTimeout(400);
+        await page.evaluate(() => document.querySelector(".group-apply")?.click());
+        await page.waitForTimeout(1200);
+        await dismissModals(page);
+        await page.waitForTimeout(600);
+        const applied = await page.evaluate(() => ({
+          mode: window.__tm.getViewMode(),
+          visible: document.querySelectorAll("#panes > .visible").length,
+        }));
+        expect(applied.mode === "horizontal", `그룹의 방향으로 가지 않았다: ${applied.mode}`);
+        expect(
+          applied.visible === g.sessionIds.length,
+          `그룹의 세션 수만큼 세우지 않았다: ${applied.visible} vs ${g.sessionIds.length}`,
+        );
+      } finally {
+        await page.evaluate(() => document.querySelector(".split-layer")?.remove());
+        await dismissModals(page);
+        await page.click("#view-tabs");
+        await page.waitForTimeout(300);
+      }
+    });
+
     await t.test("분할 보기 — 볼 세션만 골라 나누고, 구성이 남아 되살아난다", async () => {
       await dismissModals(page);
       const tabCount = await page.evaluate(() => window.__tm?.tabs?.length ?? 0);
@@ -2778,18 +2860,21 @@ try {
         await page.waitForTimeout(300);
         await page.click("#view-horizontal");
         await page.waitForTimeout(350);
-        if (await page.locator(".split-pop").count()) {
-          // 가로는 처음이라 고르는 창이 뜬다 — 하나만 골라 둔다.
-          await page.evaluate(() => {
-            const boxes = [...document.querySelectorAll(".split-row input")];
-            boxes.forEach((b, i) => {
-              b.checked = i === 0;
-              b.dispatchEvent(new Event("change", { bubbles: true }));
-            });
-            [...document.querySelectorAll(".split-buttons button")][1].click();
-          });
-          await page.waitForTimeout(600);
+        // 앞선 검사가 가로 구성을 남겼으면 곧바로 되살아난다 — 그때는 한 번 더 눌러
+        // 고르는 창을 연다(검사가 앞 상태에 기대지 않게).
+        if (!(await page.locator(".split-pop").count())) {
+          await page.click("#view-horizontal");
+          await page.waitForTimeout(350);
         }
+        await page.evaluate(() => {
+          const boxes = [...document.querySelectorAll(".split-row input")];
+          boxes.forEach((b, i) => {
+            b.checked = i === 0;
+            b.dispatchEvent(new Event("change", { bubbles: true }));
+          });
+          [...document.querySelectorAll(".split-buttons button")][1].click();
+        });
+        await page.waitForTimeout(600);
         const hOff = await page.locator(".tab.off-split").count();
         expect(hOff === tabCount - 1, `가로 구성이 따로 잡히지 않았다: ${hOff}`);
         // 세로로 돌아가면 세로에 고른 구성이 그대로여야 한다.
