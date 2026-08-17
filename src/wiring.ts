@@ -75,12 +75,14 @@ export function wireViewModes(tabs: TabManager): void {
   const mark = () => {
     const mode = tabs.getViewMode();
     for (const [id, m] of buttons) $(id).classList.toggle("active", m === mode);
-    const saved = mode === "tabs" && tabs.hasSavedSplit();
-    for (const id of ["view-vertical", "view-horizontal"]) {
+    // 표시는 방향별로 — 세로와 가로가 각자 구성을 기억한다(0.80.1).
+    for (const id of ["view-vertical", "view-horizontal"] as const) {
+      const dir = id === "view-vertical" ? "vertical" : "horizontal";
+      const saved = mode !== dir && tabs.hasSavedSplit(dir);
       $(id).classList.toggle("has-split", saved);
       $(id).title = saved
-        ? "분할 보기 — 직전에 고른 세션으로 되살립니다(다시 누르면 세션을 고릅니다)"
-        : "분할 보기 — 나눠서 볼 세션을 고릅니다";
+        ? `${dir === "vertical" ? "세로" : "가로"} 분할 — 직전에 고른 세션으로 되살립니다(다시 누르면 세션을 고릅니다)`
+        : `${dir === "vertical" ? "세로" : "가로"} 분할 — 나눠서 볼 세션을 고릅니다`;
     }
   };
   const remember = async (mode: ViewModeSetting) => {
@@ -114,7 +116,7 @@ export function wireViewModes(tabs: TabManager): void {
         appToast("열려 있는 세션이 없습니다 — 먼저 세션에 접속하세요");
         return;
       }
-      const now = new Set(tabs.currentSplit());
+      const now = new Set(tabs.splitOf(mode));
       const picked = await pickSplitTargets(
         $(id),
         open.map((t) => ({
@@ -127,9 +129,9 @@ export function wireViewModes(tabs: TabManager): void {
         mode === "vertical" ? "세로로 나눠 볼 세션" : "가로로 나눠 볼 세션",
       );
       if (!picked) return;
-      if (!tabs.startSplit(mode, picked)) return;
+      tabs.startSplit(mode, picked); // 빈 목록이면 분할이 풀린다(그 방향 구성도 비운다)
       mark();
-      void remember(mode);
+      void remember(picked.length > 0 ? mode : "tabs");
     });
   }
 

@@ -2767,6 +2767,32 @@ try {
         expect(back.mode === "vertical" && !back.pop, `되살아나지 않았다: ${JSON.stringify(back)}`);
         expect(back.off === 1, `되살린 구성이 다르다: ${back.off}`);
 
+        // 세로와 가로는 각자 구성을 기억한다(0.80.1) — 넉 대씩 보는 묶음과 여섯 대를
+        // 층으로 보는 묶음이 서로 다르다.
+        await page.click("#view-tabs");
+        await page.waitForTimeout(300);
+        await page.click("#view-horizontal");
+        await page.waitForTimeout(350);
+        if (await page.locator(".split-pop").count()) {
+          // 가로는 처음이라 고르는 창이 뜬다 — 하나만 골라 둔다.
+          await page.evaluate(() => {
+            const boxes = [...document.querySelectorAll(".split-row input")];
+            boxes.forEach((b, i) => {
+              b.checked = i === 0;
+              b.dispatchEvent(new Event("change", { bubbles: true }));
+            });
+            [...document.querySelectorAll(".split-buttons button")][1].click();
+          });
+          await page.waitForTimeout(600);
+        }
+        const hOff = await page.locator(".tab.off-split").count();
+        expect(hOff === tabCount - 1, `가로 구성이 따로 잡히지 않았다: ${hOff}`);
+        // 세로로 돌아가면 세로에 고른 구성이 그대로여야 한다.
+        await page.click("#view-vertical");
+        await page.waitForTimeout(600);
+        const vOff = await page.locator(".tab.off-split").count();
+        expect(vOff === 1, `세로 구성이 가로에 덮였다: ${vOff}`);
+
         // 분할 밖 탭을 누르면 먼저 묻는다 — 눌러 보고 나서 배치가 무너지면 안 된다.
         await page.locator(".tab.off-split").first().click();
         await page.waitForTimeout(400);
@@ -2782,6 +2808,32 @@ try {
         expect(
           await page.evaluate(() => window.__tm.getViewMode()) === "tabs",
           "확인했는데 일반창으로 돌아가지 않았다",
+        );
+        // 고르는 창에서 모두 해제하면 분할 자체가 풀린다(사용자 요청 0.80.1).
+        await page.click("#view-vertical");
+        await page.waitForTimeout(600);
+        if (!(await page.locator(".split-pop").count())) {
+          // 되살아났으면 한 번 더 눌러 고르는 창을 연다.
+          await page.click("#view-vertical");
+          await page.waitForTimeout(400);
+        }
+        await page.evaluate(() => {
+          for (const b of document.querySelectorAll(".split-row input")) {
+            b.checked = false;
+            b.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        });
+        const label = await page.evaluate(
+          () => [...document.querySelectorAll(".split-buttons button")][1].textContent,
+        );
+        expect(label === "분할 해제", `모두 해제했는데 버튼이 '${label}' 이다`);
+        await page.evaluate(() =>
+          [...document.querySelectorAll(".split-buttons button")][1].click(),
+        );
+        await page.waitForTimeout(500);
+        expect(
+          (await page.evaluate(() => window.__tm.getViewMode())) === "tabs",
+          "모두 해제했는데 분할이 풀리지 않았다",
         );
       } finally {
         await page.evaluate(() => document.querySelector(".split-pop") && document.querySelector(".split-layer")?.remove());

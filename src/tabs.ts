@@ -80,10 +80,14 @@ export class TabManager {
    */
   private splitTabs = new Set<TerminalTab>();
   /**
-   * 일반창으로 돌아갈 때 남겨 두는 직전 선택. 다시 분할 버튼을 누르면 이걸 되살린다 —
-   * 매번 처음부터 고르게 하면 잠깐 전체화면으로 보고 오는 일이 번거로워진다.
+   * 일반창으로 돌아갈 때 남겨 두는 직전 선택 — **세로·가로가 따로** 기억한다(0.80.1).
+   * 넉 대씩 나란히 보는 묶음과 여섯 대를 층으로 보는 묶음이 서로 다르기 때문이다
+   * (사용자 보고). 하나로 합쳐 두면 방향을 바꿀 때마다 다시 골라야 했다.
    */
-  private savedSplit: TerminalTab[] = [];
+  private savedSplit: Record<"vertical" | "horizontal", TerminalTab[]> = {
+    vertical: [],
+    horizontal: [],
+  };
   private refitPending = false;
   /** 탭을 끄는 중이었는지 — 놓은 직후의 click 을 걸러내기 위해 잠깐 남긴다. */
   private dragMoved = false;
@@ -260,23 +264,38 @@ export class TabManager {
     return [...this.tabs];
   }
 
-  /** 지금 분할에 올라 있는 탭들. 분할 중이 아니면 직전 선택을 돌려준다. */
-  currentSplit(): TerminalTab[] {
-    if (this.viewMode !== "tabs" && this.splitTabs.size > 0) {
+  /**
+   * 그 방향의 분할 구성. 지금 그 방향으로 분할 중이면 화면에 올라 있는 것, 아니면
+   * 저장해 둔 것 — 고르는 창이 무엇을 미리 체크할지 여기서 정한다.
+   */
+  splitOf(mode: Exclude<ViewMode, "tabs">): TerminalTab[] {
+    if (this.viewMode === mode && this.splitTabs.size > 0) {
       return this.tabs.filter((t) => this.splitTabs.has(t));
     }
-    return this.savedSplit.filter((t) => this.tabs.includes(t));
+    return this.savedSplit[mode].filter((t) => this.tabs.includes(t));
   }
 
-  /** 되살릴 분할 정보가 남아 있는가 — 분할 버튼 아이콘을 강조할지 판단한다. */
-  hasSavedSplit(): boolean {
-    return this.savedSplit.filter((t) => this.tabs.includes(t)).length > 0;
+  /** 그 방향에 되살릴 구성이 남아 있는가 — 분할 버튼 표시를 방향별로 켠다. */
+  hasSavedSplit(mode: Exclude<ViewMode, "tabs">): boolean {
+    return this.savedSplit[mode].filter((t) => this.tabs.includes(t)).length > 0;
   }
 
-  /** 고른 탭들로 분할을 시작한다. 빈 목록이면 아무 일도 하지 않는다. */
+  /**
+   * 고른 탭들로 분할을 시작한다.
+   * 하나도 고르지 않았으면 분할을 푼다 — 고르는 창에서 전부 해제하는 것이 곧
+   * "이 방향은 이제 안 쓴다"는 뜻이라, 그 방향의 구성도 함께 비운다(사용자 요청).
+   */
   startSplit(mode: Exclude<ViewMode, "tabs">, picked: TerminalTab[]): boolean {
     const keep = picked.filter((t) => this.tabs.includes(t));
-    if (keep.length === 0) return false;
+    if (keep.length === 0) {
+      this.savedSplit[mode] = [];
+      this.splitTabs.clear();
+      this.viewMode = "tabs";
+      this.renderTabbar();
+      this.layout();
+      return true;
+    }
+    this.savedSplit[mode] = keep;
     this.splitTabs = new Set(keep);
     this.viewMode = mode;
     // 보고 있던 탭이 분할에서 빠졌으면 분할 안의 첫 탭으로 옮긴다 — 활성 탭이 화면에
@@ -287,9 +306,11 @@ export class TabManager {
     return true;
   }
 
-  /** 직전 선택으로 분할을 되살린다. 남은 것이 없으면 false(고르는 창을 띄울 차례다). */
+  /** 그 방향의 직전 구성으로 되살린다. 남은 것이 없으면 false(고르는 창을 띄울 차례다). */
   restoreSplit(mode: Exclude<ViewMode, "tabs">): boolean {
-    return this.startSplit(mode, this.savedSplit.filter((t) => this.tabs.includes(t)));
+    const keep = this.savedSplit[mode].filter((t) => this.tabs.includes(t));
+    if (keep.length === 0) return false;
+    return this.startSplit(mode, keep);
   }
 
   /** 일반창으로 — 지금 선택을 남겨 두고 분할을 푼다. */
@@ -300,12 +321,14 @@ export class TabManager {
     this.layout();
   }
 
-  /** 지금 분할 선택을 '직전 선택' 으로 옮긴다(일반창 전환 직전에 부른다). */
+  /** 지금 분할 선택을 그 방향의 '직전 구성' 으로 옮긴다(일반창 전환 직전에 부른다). */
   private stashSplit(): void {
-    if (this.splitTabs.size > 0) {
-      this.savedSplit = this.tabs.filter((t) => this.splitTabs.has(t));
-      this.splitTabs.clear();
+    if (this.splitTabs.size === 0) return;
+    const mode = this.viewMode;
+    if (mode === "vertical" || mode === "horizontal") {
+      this.savedSplit[mode] = this.tabs.filter((t) => this.splitTabs.has(t));
     }
+    this.splitTabs.clear();
   }
 
   /** 이 탭이 지금 분할 화면에 올라 있는가(탭바 흐림 표시·클릭 경고 판단). */
@@ -867,7 +890,8 @@ export class TabManager {
     const idx = this.tabs.indexOf(tab);
     if (idx >= 0) this.tabs.splice(idx, 1);
     this.splitTabs.delete(tab);
-    this.savedSplit = this.savedSplit.filter((t) => t !== tab);
+    this.savedSplit.vertical = this.savedSplit.vertical.filter((t) => t !== tab);
+    this.savedSplit.horizontal = this.savedSplit.horizontal.filter((t) => t !== tab);
     // 분할에 올린 것이 하나도 남지 않으면 일반창으로 — 빈 격자만 남으면 갇힌다.
     if (this.viewMode !== "tabs" && this.splitTabs.size === 0) this.viewMode = "tabs";
     tab.dispose();

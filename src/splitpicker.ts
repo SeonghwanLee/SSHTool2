@@ -17,7 +17,7 @@ export interface SplitChoice<T> {
 
 /**
  * 버튼 아래에 목록을 띄우고 고른 것을 돌려준다. 취소·바깥 클릭·Esc 는 null.
- * 하나도 고르지 않으면 '분할' 은 눌리지 않는다 — 빈 격자를 만들 이유가 없다.
+ * 하나도 고르지 않고 확인하면 빈 배열 — 호출부는 그것을 '분할 해제' 로 받는다.
  */
 export function pickSplitTargets<T>(
   anchor: HTMLElement,
@@ -82,9 +82,14 @@ export function pickSplitTargets<T>(
     ok.textContent = "분할";
     buttons.append(cancel, ok);
 
-    /** 하나도 고르지 않으면 분할할 것이 없다. */
+    /**
+     * 하나도 고르지 않으면 '분할 해제' — 전부 해제하는 것이 곧 "이 방향은 이제 안 쓴다"는
+     * 뜻이다(사용자 요청 0.80.1). 버튼을 죽여 두면 창을 닫는 것 말고는 길이 없었다.
+     */
     const sync = () => {
-      ok.disabled = !boxes.some((b) => b.checked);
+      const none = !boxes.some((b) => b.checked);
+      ok.textContent = none ? "분할 해제" : "분할";
+      ok.classList.toggle("btn-accent", !none);
     };
     for (const b of boxes) b.addEventListener("change", sync);
     sync();
