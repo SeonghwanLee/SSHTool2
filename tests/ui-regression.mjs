@@ -2767,7 +2767,18 @@ try {
             box.dispatchEvent(new Event("change", { bubbles: true }));
           }
           document.querySelector('.group-dir input[value=horizontal]').checked = true;
+          // 같은 세션을 두 칸에 세운다(0.82.0) — 한 서버의 로그를 여럿 띄우는 쓰임.
+          const first = rows.find((r) => r.querySelector("input").checked);
+          const num = first?.querySelector(".group-count-input");
+          if (num) {
+            num.value = "2";
+            num.dispatchEvent(new Event("input", { bubbles: true }));
+          }
         }, openIds);
+        expect(
+          /칸/.test(await page.evaluate(() => document.querySelector(".group-count")?.textContent ?? "")),
+          "칸 수 합계가 표시되지 않는다",
+        );
         await page.evaluate(() => (window.__ipc.length = 0));
         await page.evaluate(() =>
           [...document.querySelectorAll(".group-card .modal-buttons button")]
@@ -2784,6 +2795,10 @@ try {
         expect(/그룹\d+/.test(g.name), `기본 이름이 붙지 않았다: ${g.name}`);
         expect(g.mode === "horizontal", `방향이 저장되지 않았다: ${g.mode}`);
         expect(g.sessionIds.length >= 2, `세션이 담기지 않았다: ${JSON.stringify(g.sessionIds)}`);
+        // 개수를 2로 준 세션은 목록에 두 번 들어간다 — 그룹은 '세션 집합' 이 아니라
+        // '칸 목록' 이다.
+        const dup = g.sessionIds.find((id, i) => g.sessionIds.indexOf(id) !== i);
+        expect(!!dup, `같은 세션이 두 번 담기지 않았다: ${JSON.stringify(g.sessionIds)}`);
 
         // 목록에서 그룹을 누르면 그 배치로 간다.
         await page.click("#split-groups");

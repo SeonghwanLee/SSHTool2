@@ -3325,3 +3325,20 @@ button.busy {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* 그룹 편집 — 같은 세션을 몇 칸에 세울지(0.82.0). 평소에는 1이라 조용히 서 있고,
+   고른 줄에서만 쓸 수 있다. */
+.group-times {
+  color: var(--muted);
+  font-size: 11px;
+  margin-left: 6px;
+}
+.group-count-input {
+  width: 44px;
+  padding: 2px 4px;
+  font-size: 11px;
+  text-align: center;
+}
+.group-count-input:disabled {
+  opacity: 0.35;
+}

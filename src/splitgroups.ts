@@ -77,35 +77,75 @@ export function editGroupDialog(
           dirs.push(radio);
         }
 
+        // 같은 세션을 여러 칸에 세울 수 있다(0.82.0) — 한 서버의 로그를 여러 개 띄워
+        // 나란히 보는 쓰임이 있다(사용자 요청). 개수는 세션마다 따로 센다.
+        const already = new Map<string, number>();
+        for (const id of base?.sessionIds ?? []) already.set(id, (already.get(id) ?? 0) + 1);
+
         const list = document.createElement("div");
         list.className = "group-list";
         const boxes = new Map<string, HTMLInputElement>();
+        const counts = new Map<string, HTMLInputElement>();
         for (const s of sessions) {
           if (s.kind === "rdp") continue; // 원격 데스크톱은 별도 창이라 분할에 세울 수 없다
           const row = document.createElement("label");
           row.className = "group-row";
           const box = document.createElement("input");
           box.type = "checkbox";
-          box.checked = base?.sessionIds.includes(s.id) ?? false;
+          box.checked = (already.get(s.id) ?? 0) > 0;
           const name = document.createElement("span");
           name.className = "group-name";
           name.textContent = s.name || s.host;
           const detail = document.createElement("span");
           detail.className = "group-detail";
           detail.textContent = s.kind === "local" ? "로컬 셸" : `${s.user}@${s.host}`;
-          row.append(box, name, detail);
+          // 개수 — 1이 기본이라 평소에는 눈에 띄지 않게 두고, 고른 줄에서만 쓸 수 있다.
+          const times = document.createElement("span");
+          times.className = "group-times";
+          times.textContent = "×";
+          const num = document.createElement("input");
+          num.type = "number";
+          num.className = "group-count-input";
+          num.min = "1";
+          num.max = "8";
+          num.value = String(Math.max(1, already.get(s.id) ?? 1));
+          num.disabled = !box.checked;
+          // 숫자 칸을 누르는 것이 라벨을 통해 체크박스를 뒤집지 않게 한다.
+          num.addEventListener("click", (e) => e.preventDefault());
+          row.append(box, name, detail, times, num);
           list.appendChild(row);
           boxes.set(s.id, box);
+          counts.set(s.id, num);
         }
 
         const count = document.createElement("div");
         count.className = "group-count";
+        /** 고른 줄의 개수를 합쳐 화면에 세울 칸 수를 센다(같은 세션을 여러 번 셀 수 있다). */
+        const totalPanes = (): number => {
+          let total = 0;
+          for (const [id, box] of boxes) {
+            if (!box.checked) continue;
+            total += Math.max(1, Math.min(8, Number(counts.get(id)?.value) || 1));
+          }
+          return total;
+        };
         const sync = () => {
-          const n = [...boxes.values()].filter((b) => b.checked).length;
-          count.textContent = n > 0 ? `${n}개 선택` : "세션을 하나 이상 고르세요";
-          ok.disabled = n === 0;
+          const picked = [...boxes.values()].filter((b) => b.checked).length;
+          for (const [id, box] of boxes) {
+            const num = counts.get(id);
+            if (num) num.disabled = !box.checked;
+          }
+          const total = totalPanes();
+          count.textContent =
+            picked === 0
+              ? "세션을 하나 이상 고르세요"
+              : total === picked
+                ? `${picked}개 선택`
+                : `${picked}개 선택 · ${total}칸`;
+          ok.disabled = picked === 0;
         };
         for (const b of boxes.values()) b.addEventListener("change", sync);
+        for (const n of counts.values()) n.addEventListener("input", sync);
 
         const buttons = document.createElement("div");
         buttons.className = "modal-buttons";
@@ -122,7 +162,13 @@ export function editGroupDialog(
         ok.className = "btn-accent";
         ok.textContent = "저장";
         ok.addEventListener("click", () => {
-          const picked = [...boxes.entries()].filter(([, b]) => b.checked).map(([id]) => id);
+          // 개수만큼 id 를 되풀이해 담는다 — 목록 자체가 '몇 칸을 어떤 순서로' 라는 뜻이다.
+          const picked: string[] = [];
+          for (const [id, box] of boxes) {
+            if (!box.checked) continue;
+            const n = Math.max(1, Math.min(8, Number(counts.get(id)?.value) || 1));
+            for (let i = 0; i < n; i++) picked.push(id);
+          }
           if (picked.length === 0) return;
           settled = true;
           close();

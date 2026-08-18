@@ -178,8 +178,16 @@ async function applyGroup(tabs: TabManager, g: { name: string; mode: "vertical" 
     appToast(`'${g.name}' 그룹에 열 수 있는 세션이 없습니다`);
     return;
   }
-  const missing = usable.filter((s) => tabs.tabsForSessions([s.id]).length === 0);
-  for (const s of missing) await connectSession(s);
+  // 같은 세션이 여러 번 담길 수 있다(0.82.0) — 세션별로 '몇 개가 필요한지' 를 세어
+  // 모자란 만큼만 새로 연다. 이미 열려 있는 탭은 그대로 쓴다.
+  const want = new Map<string, number>();
+  for (const s of usable) want.set(s.id, (want.get(s.id) ?? 0) + 1);
+  for (const [id, n] of want) {
+    const s = usable.find((x) => x.id === id);
+    if (!s) continue;
+    const have = tabs.tabsForSessions(Array.from({ length: n }, () => id)).length;
+    for (let i = have; i < n; i++) await connectSession(s);
+  }
   const picked = tabs.tabsForSessions(usable.map((s) => s.id));
   if (picked.length === 0) return;
   tabs.startSplit(g.mode, picked);
