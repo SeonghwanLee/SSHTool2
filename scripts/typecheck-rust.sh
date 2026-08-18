@@ -98,7 +98,12 @@ EOF
 
 {
   echo "// 프로젝트의 실제 소스를 직접 참조한다(복사본 아님)."
-  for m in paths store vault hostkey localfs import ssh sftp localshell backup portfwd keystore; do
+  # 모듈 목록은 main.rs 에서 뽑는다 — 손으로 적어 두면 새 모듈이 빠진 채 조용히
+  # 통과한다(실제로 filecrypt · sesslog 가 빠져 있었다). 스텁으로는 볼 수 없는 것만
+  # 아래에서 뺀다: tauri 매크로(#[tauri::command])나 실제 런타임 타입을 쓰는 모듈들.
+  SKIP=" browser debuglog rdp sftpcmd stage windowfit "
+  for m in $(sed -n 's/^mod \([a-z_]*\);$/\1/p' "$SRC/main.rs"); do
+    case "$SKIP" in *" $m "*) continue ;; esac
     echo "#[path = \"$SRC/$m.rs\"] pub mod $m;"
   done
 } > "$CHECK/src/lib.rs"
