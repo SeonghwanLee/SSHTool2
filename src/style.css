@@ -3342,3 +3342,23 @@ button.busy {
 .group-count-input:disabled {
   opacity: 0.35;
 }
+
+/* 트리거 전송값에 \n 이 없을 때 — 글자만 들어가고 실행되지 않는다는 표시(0.83.0).
+   막지는 않는다(응답 한 글자만 보내는 쓰임도 있다) — 눈에만 띄게 한다. */
+.trigger-noenter {
+  border-bottom: 2px solid var(--error);
+}
+
+/* 그룹 편집 — 세션 정렬 기준(0.83.0). 목록 바로 위에 조용히 붙인다. */
+.group-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.group-sort select {
+  font-size: 11px;
+  padding: 2px 4px;
+}

@@ -26,6 +26,7 @@ import {
   LOCKED_HINT,
   ZOOM_BADGE_MS,
   TRIGGER_WINDOW_MS,
+  TRIGGER_MAX_MS,
   stripAnsi,
   formatUptime,
   RESET_INPUT_MODES,
@@ -103,6 +104,8 @@ export class TerminalTab {
   private searchOpen = false;
   private readonly searchCtl: TermSearch;
   private triggerBuf = "";
+  /** 마지막으로 규칙이 발동한 시각 — 다단계 규칙을 위해 창을 여기서부터 다시 잰다. */
+  private triggerFiredAt: number | null = null;
   private readonly decoder = new TextDecoder("utf-8", { fatal: false });
   private readonly lastFired = new Map<string, number>();
 
@@ -706,21 +709,33 @@ export class TerminalTab {
         hit = false; // 잘못된 정규식은 무시
       }
       if (!hit) return;
-      this.lastFired.set(cooldownKey, now);
 
-      // 접속 직후 창을 벗어난 매칭은 전송하지 않는다. 조용히 무시하면 "왜 트리거가
+      // 창을 벗어난 매칭은 전송하지 않는다. 기준은 접속 시각이되, 규칙이 발동할 때마다
+      // 다시 열린다 — 다단계(su → 비밀번호 → 명령)는 앞 단계의 응답을 기다린 뒤에 오므로
+      // 접속 시각만으로 재면 2단계부터 막힌다(0.83.0). 조용히 무시하면 "왜 트리거가
       // 안 되지" 하고 원인을 찾기 어려우므로, 세션당 한 번은 이유를 알려 준다.
-      if (this.connectedAt === null || now - this.connectedAt > TRIGGER_WINDOW_MS) {
+      const openedAt = this.triggerFiredAt ?? this.connectedAt;
+      const tooLate =
+        this.connectedAt === null ||
+        openedAt === null ||
+        now - openedAt > TRIGGER_WINDOW_MS ||
+        now - this.connectedAt > TRIGGER_MAX_MS;
+      if (tooLate) {
         if (!this.triggerWindowNotified) {
           this.triggerWindowNotified = true;
           this.term.writeln(
-            `\r\n\x1b[33m[트리거] 접속 후 ${TRIGGER_WINDOW_MS / 1000}초가 지나 규칙을 실행하지 않았습니다.\x1b[0m`,
+            `\r\n\x1b[33m[트리거] ${this.triggerFiredAt ? "마지막 규칙 실행" : "접속"} 후 ` +
+              `${TRIGGER_WINDOW_MS / 1000}초가 지나 규칙을 실행하지 않았습니다.\x1b[0m`,
           );
         }
         return;
       }
 
+      // 쿨다운은 **실제로 보냈을 때만** 건다. 예전에는 매칭만 해도 걸려서, 창 밖이라
+      // 보내지 못한 매칭이 바로 뒤에 온 진짜 프롬프트의 발동까지 1초 동안 막았다.
+      this.lastFired.set(cooldownKey, now);
       fired = true;
+      this.triggerFiredAt = now; // 다음 단계를 위해 창을 다시 연다
       // 사용자가 적은 \n 은 'Enter' 라는 뜻 — 실행되려면 CR 이어야 한다(위 시작 명령과 동일).
       this.sendText(rule.send.replace(/\\n/g, "\r"));
     });

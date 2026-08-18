@@ -26,6 +26,16 @@ export interface GroupMenuDeps {
 
 const DIR_LABEL: Record<SplitGroup["mode"], string> = { vertical: "세로", horizontal: "가로" };
 
+/** 편집 창의 세션 정렬 기준. 창을 닫았다 열어도 마지막에 고른 것을 그대로 쓴다. */
+type SortKey = "default" | "name" | "recent" | "picked";
+const SORT_LABEL: { key: SortKey; text: string }[] = [
+  { key: "default", text: "목록 순서" },
+  { key: "name", text: "이름순" },
+  { key: "recent", text: "최근 접속순" },
+  { key: "picked", text: "고른 것 먼저" },
+];
+let lastSort: SortKey = "default";
+
 /** 이름을 비워 두면 붙여 주는 기본 이름 — 그룹1, 그룹2 … (이미 있는 번호는 건너뛴다). */
 export function defaultGroupName(groups: SplitGroup[]): string {
   for (let i = 1; i < 1000; i++) {
@@ -86,6 +96,7 @@ export function editGroupDialog(
         list.className = "group-list";
         const boxes = new Map<string, HTMLInputElement>();
         const counts = new Map<string, HTMLInputElement>();
+        const rows = new Map<string, HTMLElement>();
         for (const s of sessions) {
           if (s.kind === "rdp") continue; // 원격 데스크톱은 별도 창이라 분할에 세울 수 없다
           const row = document.createElement("label");
@@ -116,7 +127,51 @@ export function editGroupDialog(
           list.appendChild(row);
           boxes.set(s.id, box);
           counts.set(s.id, num);
+          rows.set(s.id, row);
         }
+
+        /**
+         * 정렬 — 행을 다시 만들지 않고 순서만 바꾼다. 다시 만들면 체크·개수가 날아간다.
+         * 세션이 수십 개면 목록 순서만으로는 찾기 어렵다(사용자 요청 0.83.0).
+         */
+        const usable = sessions.filter((s) => s.kind !== "rdp");
+        const applySort = (key: SortKey) => {
+          lastSort = key;
+          const order = [...usable];
+          if (key === "name") {
+            order.sort((a, b) =>
+              (a.name || a.host).localeCompare(b.name || b.host, "ko"),
+            );
+          } else if (key === "recent") {
+            order.sort((a, b) => (b.lastConnectedUtc ?? 0) - (a.lastConnectedUtc ?? 0));
+          } else if (key === "picked") {
+            // 고른 것을 위로 — 지금 체크 상태 기준이라 누를 때마다 튀지 않게 이때만 정렬한다.
+            order.sort(
+              (a, b) =>
+                Number(boxes.get(b.id)?.checked ?? false) -
+                Number(boxes.get(a.id)?.checked ?? false),
+            );
+          }
+          for (const s of order) {
+            const row = rows.get(s.id);
+            if (row) list.appendChild(row); // 이미 붙어 있는 노드는 '옮기기' 가 된다
+          }
+        };
+
+        const sortRow = document.createElement("div");
+        sortRow.className = "group-sort";
+        const sortLabel = document.createElement("span");
+        sortLabel.textContent = "정렬";
+        const sortSel = document.createElement("select");
+        for (const o of SORT_LABEL) {
+          const opt = document.createElement("option");
+          opt.value = o.key;
+          opt.textContent = o.text;
+          opt.selected = o.key === lastSort;
+          sortSel.appendChild(opt);
+        }
+        sortSel.addEventListener("change", () => applySort(sortSel.value as SortKey));
+        sortRow.append(sortLabel, sortSel);
 
         const count = document.createElement("div");
         count.className = "group-count";
@@ -181,7 +236,8 @@ export function editGroupDialog(
         });
         buttons.append(cancel, ok);
 
-        card.append(title, nameInput, dirRow, list, count, buttons);
+        card.append(title, nameInput, dirRow, sortRow, list, count, buttons);
+        applySort(lastSort);
         sync();
         return card;
       },

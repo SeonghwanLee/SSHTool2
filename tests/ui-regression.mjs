@@ -2752,6 +2752,38 @@ try {
         );
         expect(/그룹\d+/.test(ph), `기본 이름 안내가 없다: ${ph}`);
 
+        // 정렬을 바꿔도 고른 것과 개수가 유지돼야 한다(0.83.0) — 행을 다시 만들면 날아간다.
+        await page.evaluate(() => {
+          const row = document.querySelector(".group-row");
+          const box = row.querySelector('input[type=checkbox]');
+          box.checked = true;
+          box.dispatchEvent(new Event("change", { bubbles: true }));
+          const num = row.querySelector(".group-count-input");
+          num.value = "3";
+          num.dispatchEvent(new Event("input", { bubbles: true }));
+          window.__sortProbe = row.querySelector(".group-name").textContent;
+        });
+        await page.selectOption(".group-sort select", "name");
+        await page.waitForTimeout(200);
+        const kept = await page.evaluate(() => {
+          const rows = [...document.querySelectorAll(".group-row")];
+          const mine = rows.find((r) => r.querySelector(".group-name").textContent === window.__sortProbe);
+          return {
+            on: mine?.querySelector('input[type=checkbox]').checked,
+            cnt: mine?.querySelector(".group-count-input").value,
+            order: rows.map((r) => r.querySelector(".group-name").textContent),
+          };
+        });
+        expect(kept.on === true && kept.cnt === "3", `정렬 뒤 선택·개수가 날아갔다: ${JSON.stringify(kept)}`);
+        const sorted = [...kept.order].sort((a, b) => a.localeCompare(b, "ko"));
+        expect(
+          JSON.stringify(kept.order) === JSON.stringify(sorted),
+          `이름순으로 정렬되지 않았다: ${JSON.stringify(kept.order)}`,
+        );
+        // 검사 뒤 원래 순서로 되돌린다(뒤 단계가 첫 줄을 기준으로 고른다).
+        await page.selectOption(".group-sort select", "default");
+        await page.waitForTimeout(200);
+
         // 이미 열려 있는 세션만 담는다(검사가 새 접속을 만들지 않도록).
         await page.evaluate((ids) => {
           const rows = [...document.querySelectorAll(".group-row")];
@@ -3168,6 +3200,50 @@ try {
         `끊김 배경이 테마 오류색이 아니다: ${shot.deadBg} vs ${shot.errorSoft}`,
       );
       expect(shot.deadColor !== shot.busyColor, "끊김과 안 본 출력의 글자색이 같다");
+    });
+
+    await t.test("다단계 트리거 — 앞 규칙이 실행되면 다음 규칙의 창이 다시 열린다", async () => {
+      // 창을 접속 시각만으로 재면 2단계부터 막힌다 — 앞 단계의 응답을 기다린 뒤에 오기
+      // 때문이다(사용자 보고 0.83.0). 규칙이 실행될 때마다 창이 다시 열려야 한다.
+      const out = await page.evaluate(async () => {
+        const tab = window.__tm?.tabs?.[0];
+        if (!tab) return "탭 없음";
+        // 이 검사만의 규칙을 심는다(끝나면 되돌린다).
+        const keep = tab.session.triggers;
+        tab.session = {
+          ...tab.session,
+          triggers: [
+            { pattern: "일단계프롬프트", send: "first\\n", secret: false, regex: false },
+            { pattern: "이단계프롬프트", send: "second\\n", secret: false, regex: false },
+          ],
+        };
+        const enc = new TextEncoder();
+        const sent = [];
+        const realSend = tab.send;
+        tab.send = (bytes) => sent.push(new TextDecoder().decode(bytes));
+
+        // 창이 이미 닫혔을 수 있으니 접속 시각을 지금으로 되돌린다.
+        tab.connectedAt = Date.now();
+        tab.triggerFiredAt = null;
+        tab.triggerWindowNotified = true; // 검사 중 화면에 경고를 찍지 않게
+
+        tab.writeBytes(enc.encode("\r\n일단계프롬프트"));
+        // 접속 후 창(10초)을 넘긴 것처럼 시계를 되돌린다 — 발동 시각만 최근으로 남긴다.
+        tab.connectedAt = Date.now() - 30_000;
+        await new Promise((r) => setTimeout(r, 50));
+        tab.writeBytes(enc.encode("\r\n이단계프롬프트"));
+        await new Promise((r) => setTimeout(r, 50));
+
+        tab.send = realSend;
+        tab.session = { ...tab.session, triggers: keep };
+        return sent;
+      });
+      expect(Array.isArray(out), `${out}`);
+      expect(out.length === 2, `두 단계가 모두 실행되지 않았다: ${JSON.stringify(out)}`);
+      expect(out[0].startsWith("first"), `1단계 전송이 어긋난다: ${JSON.stringify(out[0])}`);
+      expect(out[1].startsWith("second"), `2단계 전송이 어긋난다: ${JSON.stringify(out[1])}`);
+      // \n 은 Enter(CR)로 나가야 실제로 실행된다.
+      expect(out[1].endsWith("\r"), `Enter 가 붙지 않았다: ${JSON.stringify(out[1])}`);
     });
 
     await t.test("수신 쓰기 펌프 — 조각 폭주에도 순서·내용이 그대로 도달한다", async () => {

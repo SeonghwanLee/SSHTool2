@@ -470,7 +470,11 @@ class TriggerEditor {
       "트리거는 서버가 보낸 출력에 반응해 값을 자동으로 전송합니다.\n" +
         "서버를 장악한 쪽이 패턴 문자열을 아무 때나 출력하면 그 값을 그대로 받아낼 수 있습니다. " +
         "색상 코드로 위장한 출력도 감지되고, 1초 간격으로 반복해서 끌어낼 수 있습니다.\n" +
-        "규칙은 접속 후 10초 안에만 발동합니다 — 그 뒤에 같은 패턴이 나와도 전송하지 않습니다.\n" +
+        "전송값 끝에 \\n 을 붙여야 Enter 까지 눌린 것이 됩니다 — 없으면 글자만 입력되고 " +
+        "실행되지 않습니다(다음 단계 규칙이 안 걸리는 흔한 이유입니다).\n" +
+        "규칙은 접속 후 10초 안에 발동하며, 규칙이 실행될 때마다 그 시점부터 10초가 다시 " +
+        "열립니다 — su → 비밀번호 → 명령처럼 이어지는 규칙이 중간에 끊기지 않게 하기 " +
+        "위해서입니다(접속 후 2분이 지나면 더는 발동하지 않습니다).\n" +
         "'비밀'을 체크하면 값이 세션 파일 대신 볼트에 저장되지만, 그것은 디스크에 남는 것만 " +
         "가립니다 — 자동 전송 위험은 그대로입니다.",
       "트리거 안내",
@@ -515,8 +519,21 @@ class TriggerEditor {
       const pattern = textInput(rule.pattern, "감지할 패턴");
       pattern.addEventListener("input", () => (this.rules[i].pattern = pattern.value));
 
-      const send = textInput(rule.send, "전송할 값 (\\n 은 개행)");
-      send.addEventListener("input", () => (this.rules[i].send = send.value));
+      const send = textInput(rule.send, "전송할 값 — 끝에 \\n 이 있어야 실행됩니다");
+      // 끝에 \n 이 없으면 글자만 들어가고 실행되지 않는다 — 눈으로 알 수 있게 표시한다.
+      const markEnter = () => {
+        const v = this.rules[i].send;
+        const missing = v.trim().length > 0 && !v.includes("\\n");
+        send.classList.toggle("trigger-noenter", missing);
+        send.title = missing
+          ? "끝에 \\n 을 붙이지 않으면 글자만 입력되고 Enter 가 눌리지 않습니다"
+          : "";
+      };
+      send.addEventListener("input", () => {
+        this.rules[i].send = send.value;
+        markEnter();
+      });
+      markEnter();
 
       const rx = document.createElement("input");
       rx.type = "checkbox";
