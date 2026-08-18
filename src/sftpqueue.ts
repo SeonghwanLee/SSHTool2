@@ -116,6 +116,15 @@ export function createQueuePanel(): QueueApi {
   let cancelRunning: () => void = () => {};
   let cancelWaiting: () => void = () => {};
   let collapsed = false;
+  /**
+   * 줄 하나하나의 DOM — 한 줄이 바뀔 때 그 줄만 갈아 끼우기 위한 것(0.84.0).
+   *
+   * 예전에는 상태가 바뀔 때마다 목록을 통째로 지우고 다시 그렸다. 파일 N 개를 보내면
+   * 넣을 때 N 번, 시작·끝날 때 다시 2N 번 — 매번 N 줄을 새로 만드니 **N² 에 비례하는**
+   * DOM 작업이 된다. 폴더째 끌어다 놓아 파일이 수천 개면 창이 멎은 것처럼 굳었다.
+   * (덜어 내기는 묶음을 시작할 때만 하므로 한 묶음 안에서는 목록이 계속 자란다.)
+   */
+  const rowEls = new Map<string, HTMLElement>();
 
   const rowOf = (e: QueueEntry): HTMLElement => {
     const row = document.createElement("div");
@@ -149,7 +158,8 @@ export function createQueuePanel(): QueueApi {
         } else {
           e.state = "skip";
           e.note = "취소됨";
-          draw();
+          repaintRow(e);
+          scheduleSummary();
         }
       });
       row.appendChild(x);
@@ -164,15 +174,11 @@ export function createQueuePanel(): QueueApi {
     return row;
   };
 
-  const draw = (): void => {
-    list.innerHTML = "";
-    if (items.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "queue-empty";
-      empty.textContent = "전송할 항목이 없습니다 — 파일을 끌어다 놓거나 우클릭해 보내면 여기에 줄을 섭니다.";
-      list.appendChild(empty);
-    }
-    for (const e of items) list.appendChild(rowOf(e));
+  /**
+   * 머리말 숫자·버튼만 다시 계산한다. 줄마다 부르면 항목 수만큼 도는 셈이라 한 프레임에
+   * 한 번으로 묶는다(scheduleSummary).
+   */
+  const summary = (): void => {
     const n = (s: QueueState): number => items.filter((x) => x.state === s).length;
     const failed = n("fail");
     counts.textContent = items.length
@@ -184,6 +190,42 @@ export function createQueuePanel(): QueueApi {
     cancelBtn.style.display = n("wait") > 0 ? "" : "none";
     // 전송 중인 줄이 보이게 따라간다 — 목록이 길어지면 어디가 도는지 알 수 없다.
     list.querySelector(".queue-row.q-run")?.scrollIntoView({ block: "nearest" });
+  };
+
+  let summaryPending = 0;
+  const scheduleSummary = (): void => {
+    if (summaryPending) return;
+    summaryPending = requestAnimationFrame(() => {
+      summaryPending = 0;
+      summary();
+    });
+  };
+
+  /** 목록 전체를 다시 만든다 — 줄이 통째로 사라지거나 순서가 바뀔 때만 부른다. */
+  const draw = (): void => {
+    list.innerHTML = "";
+    rowEls.clear();
+    if (items.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "queue-empty";
+      empty.textContent = "전송할 항목이 없습니다 — 파일을 끌어다 놓거나 우클릭해 보내면 여기에 줄을 섭니다.";
+      list.appendChild(empty);
+    }
+    for (const e of items) {
+      const row = rowOf(e);
+      rowEls.set(e.key, row);
+      list.appendChild(row);
+    }
+    summary();
+  };
+
+  /** 그 줄 하나만 갈아 끼운다. 줄을 못 찾으면(전체 재구성 전) 조용히 넘어간다. */
+  const repaintRow = (e: QueueEntry): void => {
+    const old = rowEls.get(e.key);
+    if (!old) return;
+    const row = rowOf(e);
+    rowEls.set(e.key, row);
+    old.replaceWith(row);
   };
 
   const toggleFold = (): void => {
@@ -250,14 +292,23 @@ export function createQueuePanel(): QueueApi {
       const entry: QueueEntry = { ...e, state: "wait" };
       byKey.set(e.key, entry);
       items.push(entry);
-      draw();
+      // 첫 줄이면 '비었습니다' 안내를 치워야 하니 전체를 다시 그린다. 그 뒤로는 덧붙이기만.
+      if (items.length === 1) {
+        draw();
+        return;
+      }
+      const row = rowOf(entry);
+      rowEls.set(entry.key, row);
+      list.appendChild(row);
+      scheduleSummary();
     },
     setState(key, state, note) {
       const e = byKey.get(key);
       if (!e) return;
       e.state = state;
       e.note = note;
-      draw();
+      repaintRow(e);
+      scheduleSummary();
     },
     failedItems: () => items.filter((x) => x.state === "fail"),
     setRetry(fn) {

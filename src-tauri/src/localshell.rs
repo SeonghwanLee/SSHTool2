@@ -113,7 +113,7 @@ pub fn open(
     let task_id = id.clone();
     let mut log_file = log_name
         .as_deref()
-        .and_then(|n| crate::ssh::open_session_log(&app, n, &task_id));
+        .and_then(|n| crate::sesslog::SessionLog::open(&app, n, &task_id));
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
@@ -122,7 +122,7 @@ pub fn open(
                 Ok(n) => {
                     let chunk = &buf[..n];
                     if let Some(f) = log_file.as_mut() {
-                        let _ = f.write_all(chunk);
+                        f.write(chunk);
                     }
                     let _ = app.emit(
                         "ssh://data",

@@ -14,6 +14,7 @@ mod browser;
 mod debuglog;
 mod rdp;
 mod sftp;
+mod sesslog;
 mod sftpcmd;
 mod ssh;
 mod stage;

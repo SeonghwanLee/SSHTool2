@@ -68,7 +68,13 @@ export function pinCompositionOverlay(term: Terminal): void {
         // 타건마다 다시 그리는 앱(claude CLI)에서 커서가 잠깐 줄 끝으로 갔다 돌아올 때
         // 돌아온 자리를 못 따라가고, 그 차이가 **한 칸씩 쌓였다** — 조합 글자 앞이 점점
         // 벌어지는 증상(0.75.1 실기 보고). 래칫을 없애고 창(±8칸) 안이면 그대로 따른다.
-        if (buf.y === pinned.row && Math.abs(buf.x - pinned.col) <= 8) {
+        //
+        // 창을 화면 폭에 비례시킨다(0.83.2). 커서가 잠깐 벗어나는 거리는 대개 '입력줄
+        // 끝까지' 라서 줄 길이에 비례하는데, ±8칸으로 못 박아 두니 전체화면처럼 폭이
+        // 넓을 때(200칸 이상) 그 왕복이 창을 넘어섰다 — 돌아온 커서를 못 따라가고
+        // 조합 글자가 엉뚱한 자리에 남는다. "전체화면에서 주로" 라는 보고와 맞는다.
+        const follow = Math.max(8, Math.round(cols / 10));
+        if (buf.y === pinned.row && Math.abs(buf.x - pinned.col) <= follow) {
           pinned = { col: buf.x, row: buf.y };
         }
 
@@ -98,7 +104,8 @@ export function pinCompositionOverlay(term: Terminal): void {
           const realX = v ? Math.round(v.getBoundingClientRect().left) : -1;
           logLine(
             "IME",
-            `커서=${buf.x},${buf.y} 고정=${pinned.col},${pinned.row} 셀폭=${cell.width.toFixed(2)}` +
+            `커서=${buf.x},${buf.y} 고정=${pinned.col},${pinned.row} 폭=${cols} 창=±${follow}` +
+              ` 셀폭=${cell.width.toFixed(2)}` +
               ` 놓을x=${Math.round(left)} 실제x=${realX} 조합="${text}"(${code})`,
           );
         }

@@ -447,6 +447,9 @@ export async function openSftpBrowser(
       panes: { local: () => local, remote: () => remote },
       transferItems: (dest: Pane, items: Entry[], destDir?: string) =>
         transferItems(dest, items, destDir),
+      // 큐가 줄 하나만 갈아 끼우는지 보기 위한 통로(0.84.0) — 전체 재구성으로 되돌아가면
+      // 항목 수가 많을 때 창이 굳는다. 검사는 줄 DOM 의 동일성으로 확인한다.
+      queue,
     };
   }
 

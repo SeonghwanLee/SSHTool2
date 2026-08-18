@@ -235,25 +235,6 @@ pub fn resolve_encoding(charset: &str) -> Option<&'static encoding_rs::Encoding>
     }
 }
 
-/// 세션 로그 파일을 연다(설정 폴더의 logs/). 실패해도 접속은 계속되어야 하므로 Option.
-pub(crate) fn open_session_log(app: &AppHandle, name: &str, session_id: &str) -> Option<std::fs::File> {
-    let dir = crate::paths::config_dir_opt(app)?.join("logs");
-    std::fs::create_dir_all(&dir).ok()?;
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-    let safe: String = name
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join(format!("{safe}-{stamp}-{}.log", &session_id[..8.min(session_id.len())])))
-        .ok()
-}
-
 /// 접속만 확인하고 곧바로 끊는다 — 자격증명을 묻기 **전에** 서버가 실제로 붙는지 보기 위한 것.
 ///
 /// 예전에는 세션을 열자마자(네트워크에 손도 대기 전에) 비밀번호 창이 떴다. 호스트가
@@ -474,7 +455,7 @@ pub async fn connect(
     // 같은 세션을 같은 초에 두 번 열어도 파일이 섞이지 않도록 세션 id 를 붙인다.
     let mut log_file = log_name
         .as_deref()
-        .and_then(|n| open_session_log(&app, n, &task_id));
+        .and_then(|n| crate::sesslog::SessionLog::open(&app, n, &task_id));
     tokio::spawn(async move {
         let mut reason = String::from("세션이 종료되었습니다");
         // 비-UTF-8 세션은 스트리밍 디코더로 변환한다(청크 경계에 걸친 멀티바이트 보존).
@@ -501,8 +482,7 @@ pub async fn connect(
             ($raw:expr) => {{
                 let out = to_utf8!($raw);
                 if let Some(f) = log_file.as_mut() {
-                    use std::io::Write;
-                    let _ = f.write_all(&out);
+                    f.write(&out);
                 }
                 let _ = app.emit(
                     "ssh://data",

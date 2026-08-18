@@ -1650,6 +1650,67 @@ try {
       expect(unfolded >= 60, `다시 눌러도 펴지지 않는다(${unfolded}px)`);
     });
 
+    await t.test("전송 큐 — 줄 하나가 바뀌어도 나머지 줄을 다시 만들지 않는다", async () => {
+      // 왜: 예전에는 상태가 바뀔 때마다 목록을 통째로 다시 그렸다(N 개 전송 = N² 에 비례하는
+      // DOM 작업). 폴더째 끌어다 놓으면 창이 굳었다. 줄 DOM 의 동일성으로 확인한다.
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const r = await page.evaluate(async () => {
+        const q = window.__sftpTest?.queue;
+        if (!q) return "큐 훅 없음";
+        const mk = (i) => ({
+          key: `/perf/f${i}`,
+          name: `f${i}.bin`,
+          size: 100,
+          dir: "up",
+          srcPath: `/perf/f${i}`,
+          destDir: "/dest",
+        });
+        const N = 40;
+        for (let i = 0; i < N; i++) q.ensure(mk(i));
+        const rowOf = (i) =>
+          [...document.querySelectorAll(".queue-row")].find(
+            (el) => el.querySelector(".queue-name")?.textContent === `f${i}.bin`,
+          );
+        const before = [rowOf(0), rowOf(1), rowOf(N - 1)];
+        if (before.some((el) => !el)) return "넣은 줄이 목록에 없다";
+        // 가운데 한 줄만 상태를 바꾼다 — 나머지는 그대로 있어야 한다.
+        q.setState(`/perf/f5`, "run");
+        const after = [rowOf(0), rowOf(1), rowOf(N - 1)];
+        const kept = before.every((el, i) => el === after[i]);
+        const changed = rowOf(5);
+        return {
+          kept,
+          changedText: changed?.querySelector(".queue-state")?.textContent,
+          rows: document.querySelectorAll(".queue-row").length,
+        };
+      });
+      expect(typeof r === "object", `큐 성능 검사를 돌리지 못했다: ${r}`);
+      expect(
+        r.kept,
+        "한 줄의 상태를 바꿨더니 다른 줄까지 새로 만들어졌다 — 전체 재구성으로 되돌아갔다",
+      );
+      expect(r.changedText === "전송 중", `바뀐 줄이 갱신되지 않았다: ${r.changedText}`);
+      expect(r.rows >= 40, `넣은 줄이 모자란다: ${r.rows}`);
+      // 뒤 검사에 영향이 없도록 넣은 줄을 치운다('끝난 항목 지우기'는 대기·전송 중은 남긴다).
+      await page.evaluate(() => {
+        const q = window.__sftpTest?.queue;
+        for (let i = 0; i < 40; i++) q?.setState(`/perf/f${i}`, "done");
+        document.querySelector(".queue-clear")?.click();
+      });
+      await page.waitForTimeout(100);
+      const left = await page.evaluate(
+        () =>
+          [...document.querySelectorAll(".queue-name")].filter((el) =>
+            /^f\d+\.bin$/.test(el.textContent ?? ""),
+          ).length,
+      );
+      expect(left === 0, `검사용 줄이 ${left}개 남았다 — 뒤 검사를 오염시킨다`);
+    });
+
     await t.test("전송 큐 — 전송 중에 넣어도 거절하지 않고 줄을 선다", async () => {
       await dismissModals(page);
       if ((await page.locator(".sftp-panel").count()) === 0) {
