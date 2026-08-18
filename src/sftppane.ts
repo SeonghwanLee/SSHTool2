@@ -532,6 +532,11 @@ export class Pane {
   }
 
   /** 파일을 기본 연결 프로그램으로 연다(원격은 임시폴더로 내려받아 사본을 연다). */
+  /** 회귀 검사용 — '열기' 를 밖에서 부른다(창 안 클로저라 이 통로가 없으면 검증 불가). */
+  openForTest(entry: Entry): Promise<void> {
+    return this.open(entry);
+  }
+
   private async open(entry: Entry): Promise<void> {
     if (entry.isDir) {
       await this.go(entry.path);

@@ -1288,6 +1288,30 @@ try {
       expect(calls.staged === 0, `임시 사본 경로가 아직 남아 있다(${calls.staged}회)`);
     });
 
+    await t.test("로컬 파일 열기 — 목록의 경로를 그대로 백엔드로 넘긴다", async () => {
+      // 경로를 탐색기에 넘기기 전 역슬래시로 되돌리는 일은 백엔드가 한다(0.83.1).
+      // 프런트는 목록이 준 경로를 그대로 넘겨야 한다 — 여기서 손대면 이중 변환이 된다.
+      await page.evaluate(() => (window.__ipc.length = 0));
+      const asked = await page.evaluate(async () => {
+        const pane = window.__sftpTest?.panes?.local?.();
+        if (!pane) return "패널 훅 없음";
+        const entry = {
+          name: "보고서.xlsx",
+          path: "C:/작업/보고서.xlsx",
+          isDir: false,
+          size: 10,
+          modified: 1,
+        };
+        await pane.openForTest(entry);
+        const call = window.__ipc.filter(([c]) => c === "open_path").pop();
+        return call?.[1]?.path ?? null;
+      });
+      expect(
+        asked === "C:/작업/보고서.xlsx",
+        `열기가 목록 경로를 그대로 넘기지 않는다: ${JSON.stringify(asked)}`,
+      );
+    });
+
     await t.test("원격 우클릭에 '폴더 지정해 다운로드' 가 있다 (로컬엔 없다)", async () => {
       // 위 테스트가 원격 목록을 비웠다 — 행 하나를 다시 채운다.
       await page.evaluate(() => {

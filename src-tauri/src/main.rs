@@ -283,6 +283,17 @@ fn vault_delete_secret(app: AppHandle, key: String) -> Result<(), String> {
 }
 
 
+/// 탐색기에 넘길 수 있는 형태로 경로를 다듬는다.
+///
+/// SFTP 창의 로컬 목록은 경로를 슬래시로 정규화해서 준다(`C:/작업/a.txt`) — 화면과 원격
+/// 경로를 같은 모양으로 다루기 위해서다. Rust 의 파일 API 는 슬래시를 알아듣지만
+/// **explorer.exe 는 알아듣지 못한다**: 인자를 무시하고 기본 창을 띄워, 파일이 열리는
+/// 대신 엉뚱한 폴더가 뜬다(사용자 보고 0.83.1). 넘기기 직전에 역슬래시로 되돌린다.
+#[cfg(windows)]
+fn to_windows_path(path: &str) -> String {
+    path.replace('/', "\\")
+}
+
 /// 파일이 있는 폴더를 탐색기로 열고 **그 파일을 선택해** 보여 준다.
 /// 경로를 클립보드에 넣어 주는 것보다 한 단계 적다 — 사용자는 파일을 찾는 게 목적이다.
 #[tauri::command]
@@ -292,6 +303,7 @@ fn reveal_path(path: String) -> Result<(), String> {
         // explorer 의 /select 는 인자 이스케이프에 까다롭다 — 공백이 든 경로가 깨지지
         // 않도록 원문 그대로(raw_arg) 넘긴다.
         use std::os::windows::process::CommandExt;
+        let path = to_windows_path(&path);
         std::process::Command::new("explorer")
             .raw_arg(format!("/select,\"{path}\""))
             .spawn()
@@ -477,7 +489,7 @@ fn open_path(path: String) -> Result<(), String> {
     // explorer 는 인자를 파일 경로로만 취급해 파일명에 의한 명령 인젝션이 불가능하다.
     #[cfg(windows)]
     std::process::Command::new("explorer")
-        .arg(&path)
+        .arg(to_windows_path(&path))
         .spawn()
         .map_err(|e| format!("열기 실패: {e}"))?;
     #[cfg(target_os = "macos")]
@@ -706,4 +718,20 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running SSHTool2");
+}
+
+#[cfg(all(test, windows))]
+mod path_tests {
+    use super::to_windows_path;
+
+    #[test]
+    fn 슬래시_경로를_역슬래시로_되돌린다() {
+        assert_eq!(to_windows_path("C:/작업/보고서.xlsx"), "C:\\작업\\보고서.xlsx");
+        // 이미 역슬래시면 그대로.
+        assert_eq!(to_windows_path("C:\\작업\\a.txt"), "C:\\작업\\a.txt");
+        // 섞여 있어도 한 가지로 맞춘다.
+        assert_eq!(to_windows_path("C:\\작업/하위/b.log"), "C:\\작업\\하위\\b.log");
+        // UNC 경로도 모양을 지킨다.
+        assert_eq!(to_windows_path("//nas/공유/c.zip"), "\\\\nas\\공유\\c.zip");
+    }
 }
