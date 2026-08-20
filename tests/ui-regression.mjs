@@ -838,6 +838,43 @@ try {
       expect(r.base !== r.live, ".live 를 붙여도 색이 같다 — 뒤에 오는 기본 규칙이 이기고 있다");
     });
 
+    await t.test("분할 보기 — 칸 크기가 나중에 바뀌어도 터미널이 따라간다", async () => {
+      // 왜: 크기 관찰자가 바깥 상자(#panes)만 보고 있었다. 바깥은 그대로인데 안에서만
+      // 나뉘는 경우 — 격자를 바꾸거나 일반창↔분할창을 오갈 때 — 관찰자가 뜨지 않아
+      // 터미널이 옛 크기로 남는다. 서버 PTY 도 그 옛 크기를 믿으므로 top 처럼 화면을
+      // 통째로 다시 그리는 프로그램은 안 보이는 자리에 그린다(실기: 2×3 분할 갱신 멈춤).
+      //
+      // 여기서는 layout() 을 부르지 않고 칸만 좁힌다(gap). 칸을 보고 있지 않으면
+      // 아무 일도 일어나지 않는다.
+      await dismissModals(page);
+      const cols = () =>
+        page.evaluate(() =>
+          window.__tm.tabs.filter((t) => t.root.classList.contains("visible")).map((t) => t.term.cols),
+        );
+      await clickSplit(page, "view-vertical");
+      await page.waitForTimeout(700); // 배치가 멎기를 기다린다
+      const before = await cols();
+      expect(before.length >= 2, `분할된 칸이 모자란다: ${JSON.stringify(before)}`);
+      await page.evaluate(() => {
+        document.getElementById("panes").style.gap = "90px";
+      });
+      await page.waitForTimeout(700);
+      const after = await cols();
+      await page.evaluate(() => {
+        document.getElementById("panes").style.gap = "";
+      });
+      await page.waitForTimeout(700);
+      expect(
+        after.every((c, i) => c < before[i]),
+        `칸이 좁아졌는데 터미널이 따라가지 않았다: ${JSON.stringify(before)} → ${JSON.stringify(after)}`,
+      );
+      const back = await cols();
+      expect(
+        back.every((c, i) => c === before[i]),
+        `칸이 되돌아왔는데 터미널이 따라가지 않았다: ${JSON.stringify(before)} → ${JSON.stringify(back)}`,
+      );
+    });
+
     await t.test("분할 배치 — 4개까지 한 줄, 5개부터 접기", async () => {
       // 지금까지 열린 탭(2개)에 같은 세션을 더 열어 4개를 만든다.
       await openSession(page, 0);

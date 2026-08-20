@@ -89,6 +89,9 @@ export class TabManager {
     horizontal: [],
   };
   private refitPending = false;
+  private settleTimer = 0;
+  /** 칸 크기 변화 관찰자 — 탭이 생길 때 붙이고 닫을 때 뗀다. */
+  private paneObserver!: ResizeObserver;
   /** 탭을 끄는 중이었는지 — 놓은 직후의 click 을 걸러내기 위해 잠깐 남긴다. */
   private dragMoved = false;
   /** 동시 명령이 겨눈 탭 키(null = 표시 안 함). 탭바 강조에만 쓴다. */
@@ -190,7 +193,6 @@ export class TabManager {
     // 줄였다 되돌리면 사라졌다 — 즉 **다시 재면 낫는다**. 전환이 진행되는 동안 잰 크기가
     // 캐시(fittedAt)에 박히면 그 뒤로는 같은 크기로 보여 다시 재지 않기 때문이다.
     // 변화가 멎고 나서 캐시를 버리고 한 번 더 맞춘다 — 사용자가 손으로 하던 일을 대신한다.
-    let settleTimer = 0;
     const scheduleRefit = (remeasure = false) => {
       // 배율이 바뀌면 CSS 크기는 그대로라 캐시에 걸려 다시 재지 못한다 — 캐시를 버린다.
       if (remeasure) for (const t of this.tabs) t.invalidateFit();
@@ -201,14 +203,17 @@ export class TabManager {
           this.fitActive();
         });
       }
-      window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => {
-        for (const t of this.tabs) t.invalidateFit();
-        this.fitActive();
-      }, 250);
+      this.armSettle();
     };
     window.addEventListener("resize", () => scheduleRefit());
     new ResizeObserver(() => scheduleRefit()).observe(this.panes);
+    // 칸 **하나하나**도 본다(0.84.1). 바깥 상자는 그대로인데 안에서만 나뉘는 경우가
+    // 있다 — 분할 격자를 2×3 에서 2×2 로 바꾸거나, 일반창↔분할창을 오갈 때가 그렇다.
+    // 바깥만 보고 있으면 그런 변화에는 관찰자가 뜨지 않아, 터미널은 **옛 크기 그대로**
+    // 남는다. 서버 PTY 도 그 옛 크기를 믿으므로 top 처럼 화면을 통째로 다시 그리는
+    // 프로그램은 보이지 않는 자리에 그리게 되고, 그 칸은 멈춘 것처럼 보인다(실기 보고:
+    // 서버 6대를 2×3 으로 띄우면 갱신이 이어지지 않는다).
+    this.paneObserver = new ResizeObserver(() => scheduleRefit());
 
     // 듀얼모니터에서 배율이 다른 화면으로 창을 옮기면 devicePixelRatio 가 바뀐다.
     // CSS 픽셀 크기가 그대로여도(→ ResizeObserver 안 뜸) 셀 계측이 어긋날 수 있으니
@@ -438,6 +443,7 @@ export class TabManager {
     });
     this.tabs.push(tab);
     this.panes.appendChild(tab.root);
+    this.paneObserver.observe(tab.root);
     // 분할 중이면 새 탭을 분할에 넣지 않고, 화면도 넘기지 않는다(0.80.0) — 골라 둔 배치를
     // 세션 하나 연다고 무너뜨리지 않기 위해서다. 탭바에 흐리게 서 있다가, 눌러서
     // 옮겨 갈 때 분할을 닫을지 묻는다. 무엇이 일어났는지 모르지 않도록 알린다.
@@ -706,6 +712,21 @@ export class TabManager {
   }
 
   /**
+   * 크기 변화가 멎은 뒤 캐시를 버리고 한 번 더 맞춘다(0.78.2).
+   *
+   * 전환이 **진행되는 동안** 잰 크기가 캐시(fittedAt)에 박히면 그 뒤로는 같은 크기로
+   * 보여 다시 재지 않는다 — 어긋난 채로 굳는다. 사용자가 창을 줄였다 되돌려서 고치던
+   * 일을 대신한다.
+   */
+  private armSettle(): void {
+    window.clearTimeout(this.settleTimer);
+    this.settleTimer = window.setTimeout(() => {
+      for (const t of this.tabs) t.invalidateFit();
+      this.layout(false);
+    }, 250);
+  }
+
+  /**
    * SSH 연결만 끊고 탭은 그대로 남긴다('닫기' 와 다르다).
    * 끊긴 뒤에는 평소 연결이 죽었을 때와 똑같이 '재접속' 오버레이가 뜬다.
    */
@@ -902,6 +923,7 @@ export class TabManager {
     }
     const idx = this.tabs.indexOf(tab);
     if (idx >= 0) this.tabs.splice(idx, 1);
+    this.paneObserver.unobserve(tab.root);
     this.splitTabs.delete(tab);
     this.savedSplit.vertical = this.savedSplit.vertical.filter((t) => t !== tab);
     this.savedSplit.horizontal = this.savedSplit.horizontal.filter((t) => t !== tab);
