@@ -7,6 +7,7 @@
 // 아직 열리지 않은 세션은 그 자리에서 접속한다(사용자 결정).
 
 import type { SessionInfo } from "./types";
+import { MAX_SPLIT_PANES } from "./settings";
 import type { SplitGroup } from "./settings";
 import { openModal } from "./dialogs";
 import { confirmDialog } from "./dialogs";
@@ -191,13 +192,19 @@ export function editGroupDialog(
             if (num) num.disabled = !box.checked;
           }
           const total = totalPanes();
+          // 상한을 넘으면 저장을 막는다(0.85.0) — 저장해 두고 띄울 때 잘리면, 그룹에
+          // 담긴 것과 실제로 서는 것이 달라져 그룹을 믿을 수 없게 된다.
+          const over = total > MAX_SPLIT_PANES;
           count.textContent =
             picked === 0
               ? "세션을 하나 이상 고르세요"
-              : total === picked
-                ? `${picked}개 선택`
-                : `${picked}개 선택 · ${total}칸`;
-          ok.disabled = picked === 0;
+              : over
+                ? `${total}칸 — 최대 ${MAX_SPLIT_PANES}칸까지입니다`
+                : total === picked
+                  ? `${picked}개 선택`
+                  : `${picked}개 선택 · ${total}칸`;
+          count.classList.toggle("over", over);
+          ok.disabled = picked === 0 || over;
         };
         for (const b of boxes.values()) b.addEventListener("change", sync);
         for (const n of counts.values()) n.addEventListener("input", sync);

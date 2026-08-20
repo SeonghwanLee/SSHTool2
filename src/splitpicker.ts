@@ -7,6 +7,7 @@
 // 탭바에 그대로 보이고 있어서, 시선을 화면 가운데로 옮겼다 돌아올 이유가 없다.
 
 import { holdFocus } from "./focus";
+import { MAX_SPLIT_PANES } from "./settings";
 
 export interface SplitChoice<T> {
   item: T;
@@ -64,12 +65,17 @@ export function pickSplitTargets<T>(
       b.className = "split-link";
       b.textContent = label;
       b.addEventListener("click", () => {
-        for (const x of boxes) x.checked = on;
+        // '모두 선택' 도 상한을 넘지 않는다 — 넘겨 두고 저장할 때 잘리면 무엇이 빠졌는지
+        // 알 수 없다. 여기서 앞의 N 개만 켜면 무엇이 올라갈지 눈으로 보인다.
+        boxes.forEach((x, i) => (x.checked = on && i < MAX_SPLIT_PANES));
         sync();
       });
       return b;
     };
     bulk.append(mkBulk("모두 선택", true), mkBulk("모두 해제", false));
+
+    const note = document.createElement("div");
+    note.className = "split-note";
 
     const buttons = document.createElement("div");
     buttons.className = "split-buttons";
@@ -87,14 +93,24 @@ export function pickSplitTargets<T>(
      * 뜻이다(사용자 요청 0.80.1). 버튼을 죽여 두면 창을 닫는 것 말고는 길이 없었다.
      */
     const sync = () => {
-      const none = !boxes.some((b) => b.checked);
+      const picked = boxes.filter((b) => b.checked).length;
+      const none = picked === 0;
       ok.textContent = none ? "분할 해제" : "분할";
       ok.classList.toggle("btn-accent", !none);
+      // 상한에 닿으면 안 고른 칸은 더 못 누르게 한다(0.85.0) — 누를 수는 있는데 저장할 때
+      // 잘리는 것보다, 아예 못 누르는 편이 무엇이 올라갈지 분명하다. 이미 고른 것은
+      // 그대로 둬야 마음을 바꿔 뺄 수 있다.
+      const full = picked >= MAX_SPLIT_PANES;
+      for (const b of boxes) b.disabled = full && !b.checked;
+      note.textContent = full
+        ? `최대 ${MAX_SPLIT_PANES}칸까지 — 더 담으려면 하나를 빼세요`
+        : `${picked}개 선택 (최대 ${MAX_SPLIT_PANES})`;
+      note.classList.toggle("full", full);
     };
     for (const b of boxes) b.addEventListener("change", sync);
     sync();
 
-    pop.append(head, list, bulk, buttons);
+    pop.append(head, list, bulk, note, buttons);
 
     let done = false;
     const close = (value: T[] | null) => {

@@ -838,6 +838,88 @@ try {
       expect(r.base !== r.live, ".live 를 붙여도 색이 같다 — 뒤에 오는 기본 규칙이 이기고 있다");
     });
 
+    await t.test("수신 디코딩 — 바이트가 정확하고, 낱개 콜백 방식보다 훨씬 빠르다", async () => {
+      // 왜: 예전 `Uint8Array.from(atob(s), c => c.charCodeAt(0))` 은 바이트마다 콜백을
+      // 부른다. 실측 9.6MB 에 680ms — 같은 양을 xterm 이 파싱·렌더하는 609ms 와 맞먹었다.
+      // tail -f 처럼 쏟아지는 출력에서 창이 멎던 원인이다.
+      const r = await page.evaluate(async () => {
+        const { b64ToBytes } = await import("/src/ipc.ts");
+        // 0x00~0xFF 전부 — 0x80 이상에서 부호/인코딩 실수가 나기 쉬운 자리다.
+        const all = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) all[i] = i;
+        let bin = "";
+        for (const b of all) bin += String.fromCharCode(b);
+        const got = b64ToBytes(btoa(bin));
+        const same = got.length === 256 && all.every((v, i) => got[i] === v);
+
+        // 길이가 4의 배수가 아닌(패딩 있는) 입력도 본다.
+        const odd = b64ToBytes(btoa("abc"));
+        const oddOk = odd.length === 3 && odd[0] === 97 && odd[2] === 99;
+
+        // 속도 — 절대값은 기기마다 다르니 옛 방식과의 **비율**로 본다.
+        let s = "";
+        while (s.length < 32768) s += "로그 한 줄 2026-08-20 INFO ok\r\n";
+        const bytes = new TextEncoder().encode(s);
+        let b2 = "";
+        for (let i = 0; i < bytes.length; i++) b2 += String.fromCharCode(bytes[i]);
+        const b64 = btoa(b2);
+        const slow = (x) => Uint8Array.from(atob(x), (c) => c.charCodeAt(0));
+        b64ToBytes(b64);
+        slow(b64);
+        const time = (fn) => {
+          const t0 = performance.now();
+          for (let i = 0; i < 120; i++) fn(b64);
+          return performance.now() - t0;
+        };
+        const tSlow = time(slow);
+        const tNew = time(b64ToBytes);
+        return { same, oddOk, ratio: tSlow / Math.max(tNew, 0.001), tSlow, tNew };
+      });
+      expect(r.same, "0x00~0xFF 왕복이 어긋난다 — 수신 바이트가 손상된다");
+      expect(r.oddOk, "패딩이 있는 base64 를 잘못 푼다");
+      expect(
+        r.ratio >= 3,
+        `옛 방식보다 빠르지 않다(${r.ratio.toFixed(1)}배: ${r.tSlow.toFixed(0)}ms → ${r.tNew.toFixed(0)}ms)` +
+          " — 낱개 콜백 방식으로 되돌아갔는지 보라",
+      );
+    });
+
+    await t.test("분할 — 최대 9칸까지만 세운다", async () => {
+      await dismissModals(page);
+      // 상한을 넘겨 보려면 서로 다른 탭이 열 개 넘게 있어야 한다 — splitTabs 는 집합이라
+      // 같은 탭을 되풀이해 넣어도 하나로 접힌다(중복 칸은 탭을 따로 여는 방식이다).
+      const had = await page.evaluate(() => window.__tm.tabs.length);
+      let open = had;
+      while (open < 11) {
+        await openSession(page, 0);
+        open = await page.evaluate(() => window.__tm.tabs.length);
+      }
+      const r = await page.evaluate(() => {
+        const tm = window.__tm;
+        tm.startSplit("vertical", tm.tabs.slice());
+        return {
+          청한칸: tm.tabs.length,
+          세운칸: document.querySelectorAll("#panes > .visible").length,
+          모드: tm.getViewMode(),
+        };
+      });
+      expect(r.청한칸 > 9, `상한을 넘길 만큼 탭을 열지 못했다: ${r.청한칸}`);
+      expect(r.모드 !== "tabs", `${r.청한칸}칸을 청했더니 분할 자체가 서지 않았다`);
+      expect(r.세운칸 <= 9, `상한을 넘겨 ${r.세운칸}칸을 세웠다(청한 ${r.청한칸})`);
+      // 뒤 검사는 탭 수를 전제로 하는 것이 있다 — 열었던 만큼 도로 닫는다.
+      // closeTab 은 접속 중이면 확인 창을 띄우고 기다린다 — 정리에는 맞지 않으니
+      // 확인 없이 닫는 쪽을 쓴다(검사 뒷정리이지, 검사 대상이 아니다).
+      await page.evaluate((had) => {
+        const tm = window.__tm;
+        tm.exitSplit();
+        while (tm.tabs.length > had) tm.forceCloseTab(tm.tabs[tm.tabs.length - 1]);
+      }, had);
+      await page.waitForTimeout(500);
+      await dismissModals(page);
+      const left = await page.evaluate(() => window.__tm.tabs.length);
+      expect(left === had, `열었던 탭을 다 닫지 못했다: ${had} → ${left}`);
+    });
+
     await t.test("분할 보기 — 칸 크기가 나중에 바뀌어도 터미널이 따라간다", async () => {
       // 왜: 크기 관찰자가 바깥 상자(#panes)만 보고 있었다. 바깥은 그대로인데 안에서만
       // 나뉘는 경우 — 격자를 바꾸거나 일반창↔분할창을 오갈 때 — 관찰자가 뜨지 않아

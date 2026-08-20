@@ -13,6 +13,15 @@ import { SAVER_NAMES, type SaverName } from "./screensaver";
  * 미만에서 머리말이 두 줄이 된다 — 원래 한 줄 디자인이 유지되는 값으로 잡는다.
  * 예전 기본(240)은 이미 깨지는 폭이었으므로 기본값도 여기에 맞춘다.
  */
+/**
+ * 분할 보기에 세울 수 있는 최대 칸 수(0.85.0, 사용자 요청).
+ *
+ * 왜 막는가: 칸이 늘수록 한 칸이 좁아져 어차피 읽을 수 없고, 터미널 하나하나가
+ * 화면을 그리는 비용을 그대로 더한다 — 열 칸을 세우면 전부가 굼떠진다. 아홉이면
+ * 3×3 으로 딱 떨어지는 가장 큰 배치다.
+ */
+export const MAX_SPLIT_PANES = 9;
+
 export const SIDEBAR_MIN_W = 280;
 export const SIDEBAR_MAX_W = 560;
 

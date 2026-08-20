@@ -330,9 +330,31 @@ export interface DataEvent {
   data: string;
 }
 
-/** base64 → 바이트. 수신 이벤트 전용(성능상 atob 직행). */
-export const b64ToBytes = (b64: string): Uint8Array =>
-  Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+/**
+ * base64 → 바이트. 수신 이벤트 전용 — 폭주 출력에서 **가장 비싼 한 줄**이었다(0.85.0).
+ *
+ * 예전에는 `Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))` 이었다. 짧아 보이지만
+ * 문자열을 이터레이터로 훑으며 **바이트마다 콜백**을 부른다. 실측(9.6MB 기준):
+ *
+ *   현행 680ms · 직접 루프 35ms · 표준 내장 6ms
+ *
+ * 같은 9.6MB 를 xterm 이 파싱·렌더하는 데 609ms 가 드니, 디코딩 하나가 그 전부와
+ * 맞먹고 있었다. `tail -f` 처럼 쏟아지는 출력에서 창이 멎던 원인이다(실기 보고).
+ *
+ * 표준 내장(Uint8Array.fromBase64)이 있으면 쓰고, 없으면 미리 잡은 배열에 채운다 —
+ * WebView2 판올림에 따라 있을 수도 없을 수도 있어 둘 다 둔다.
+ */
+type Base64Ctor = { fromBase64?: (s: string) => Uint8Array };
+const nativeFromBase64 = (Uint8Array as unknown as Base64Ctor).fromBase64;
+export const b64ToBytes: (b64: string) => Uint8Array =
+  typeof nativeFromBase64 === "function"
+    ? (b64) => nativeFromBase64(b64)
+    : (b64) => {
+        const raw = atob(b64);
+        const out = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+        return out;
+      };
 
 /** 수신 일시정지/재개(역압) — 쓰기 큐 워터마크가 호출. 끊긴 세션이면 백엔드가 무시. */
 export const sshPause = (id: string, on: boolean): Promise<void> =>

@@ -3210,6 +3210,20 @@ button.busy {
 .split-link:hover {
   color: var(--accent);
 }
+/* 고르는 창 아래 안내 — 몇 개를 골랐고 상한이 얼마인지. 상한에 닿으면 눈에 띄게. */
+.split-note {
+  padding: 6px 12px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.split-note.full {
+  color: var(--accent);
+}
+.split-row input:disabled + .split-name,
+.split-row input:disabled ~ .split-detail {
+  opacity: 0.45;
+}
+
 .split-buttons {
   display: flex;
   justify-content: flex-end;
@@ -3324,6 +3338,10 @@ button.busy {
   padding: 6px 2px 0;
   color: var(--muted);
   font-size: 11px;
+}
+/* 칸 수가 상한을 넘었다 — 저장이 막힌 이유가 보여야 한다. */
+.group-count.over {
+  color: var(--error);
 }
 
 /* 그룹 편집 — 같은 세션을 몇 칸에 세울지(0.82.0). 평소에는 1이라 조용히 서 있고,

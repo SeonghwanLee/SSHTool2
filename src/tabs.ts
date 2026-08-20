@@ -9,6 +9,7 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { confirmDialog, alertDialog, appToast } from "./dialogs";
 import type { SessionInfo } from "./types";
 import { sessionColorCss } from "./types";
+import { MAX_SPLIT_PANES } from "./settings";
 import type { Settings } from "./settings";
 import { sshConnect, b64ToBytes, localOpen, onSshData, onSshClosed, localWriteText } from "./ipc";
 
@@ -291,7 +292,13 @@ export class TabManager {
    * "이 방향은 이제 안 쓴다"는 뜻이라, 그 방향의 구성도 함께 비운다(사용자 요청).
    */
   startSplit(mode: Exclude<ViewMode, "tabs">, picked: TerminalTab[]): boolean {
-    const keep = picked.filter((t) => this.tabs.includes(t));
+    let keep = picked.filter((t) => this.tabs.includes(t));
+    // 마지막 관문(0.85.0) — 고르는 창과 그룹 편집이 이미 막지만, 이 전에 저장된 구성이나
+    // 그룹은 열 칸 이상일 수 있다. 여기서 잘라야 어떤 경로로 와도 안전하다.
+    if (keep.length > MAX_SPLIT_PANES) {
+      appToast(`분할은 최대 ${MAX_SPLIT_PANES}칸까지입니다 — 앞의 ${MAX_SPLIT_PANES}개만 세웁니다`);
+      keep = keep.slice(0, MAX_SPLIT_PANES);
+    }
     if (keep.length === 0) {
       this.savedSplit[mode] = [];
       this.splitTabs.clear();
