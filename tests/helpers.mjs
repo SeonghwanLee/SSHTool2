@@ -102,11 +102,23 @@ export function tauriStub(overrides = {}) {
       let n = 0;
       const overrides = ${JSON.stringify(overrides)};
       window.__ipc = []; // 테스트가 호출 내역을 들여다볼 수 있게 남긴다
+      // 이벤트 대역 — 앱은 listen 으로 수신 핸들러를 건다. 등록을 이름별로 모아 두고
+      // __emit 으로 실제 수신 경로를 그대로 태울 수 있게 한다(백엔드 없이 검증하려면
+      // 이 길밖에 없다).
+      const handlers = {};
+      window.__emit = (event, payload) => {
+        for (const h of handlers[event] ?? []) h({ event, id: 0, payload });
+      };
       window.__TAURI_INTERNALS__ = {
         metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
         transformCallback(cb) { const id = ++n; window["_" + id] = cb; return id; },
         async invoke(cmd, args) {
           window.__ipc.push([cmd, args]);
+          if (cmd === "plugin:event|listen") {
+            const fn = window["_" + args.handler];
+            if (fn) (handlers[args.event] ??= []).push(fn);
+            return 0;
+          }
           if (cmd in overrides) return overrides[cmd];
           switch (cmd) {
             case "sessions_load": return [];

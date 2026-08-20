@@ -31,6 +31,21 @@ export function pinCompositionOverlay(term: Terminal): void {
 
     /** 고정 기준 셀. null 이면 고정하지 않는다(기본 동작). */
     let pinned: { col: number; row: number } | null = null;
+    /**
+     * 칸 좌표로 계산한 자리와 **실제로 그려진 자리**의 차이(0.85.1).
+     *
+     * DOM 렌더러는 한 줄을 글자가 흐르는 대로 그린다. 한글 글자 하나의 실제 폭이
+     * 두 칸과 딱 맞아떨어지지 않으면 그 오차가 줄을 따라 **쌓인다** — 실측으로 116번째
+     * 칸에서 16px(약 두 칸) 왼쪽으로 밀렸다. 오버레이는 칸 좌표대로 정확히 놓이니
+     * 그만큼 벌어져 보인다(실기 영상: 줄이 길수록 간격이 커진다).
+     *
+     * 그래서 커서가 실제로 그려진 자리를 재서 그 차이를 적용한다. 커서가 깜박여
+     * 잠깐 사라지는 순간에도 흔들리지 않게 마지막 값을 들고 있는다.
+     */
+    let drift = { x: 0, y: 0 };
+    ta.addEventListener("compositionstart", () => {
+      drift = { x: 0, y: 0 };
+    });
 
     ta.addEventListener("compositionstart", () => {
       try {
@@ -78,8 +93,28 @@ export function pinCompositionOverlay(term: Terminal): void {
           pinned = { col: buf.x, row: buf.y };
         }
 
-        const left = Math.min(pinned.col, Math.max(0, cols - 1)) * cell.width;
-        const top = pinned.row * cell.height;
+        const baseLeft = Math.min(pinned.col, Math.max(0, cols - 1)) * cell.width;
+        const baseTop = pinned.row * cell.height;
+
+        // 그려진 커서를 찾아 칸 좌표와의 차이를 잰다. 커서가 고정점과 같은 칸일 때만
+        // 믿는다 — 화면을 다시 그리느라 커서가 잠깐 딴 데 가 있을 때 그 자리를 따라가면
+        // 애초에 고정을 둔 이유가 사라진다.
+        const view0 = helper._compositionView as HTMLElement | undefined;
+        if (view0 && buf.x === pinned.col && buf.y === pinned.row) {
+          const el = (term.element?.querySelector(".xterm-cursor") ?? null) as HTMLElement | null;
+          const parent = view0.offsetParent as HTMLElement | null;
+          if (el && parent) {
+            const cr = el.getBoundingClientRect();
+            const pr = parent.getBoundingClientRect();
+            if (cr.width > 0) {
+              drift = { x: cr.left - pr.left - baseLeft, y: cr.top - pr.top - baseTop };
+            }
+          }
+        }
+        // 보정이 한 칸을 크게 넘으면 무언가 잘못 잰 것이다 — 그럴 때는 칸 좌표를 믿는다.
+        const cap = cell.width * 4;
+        const left = baseLeft + (Math.abs(drift.x) <= cap ? drift.x : 0);
+        const top = baseTop + (Math.abs(drift.y) <= cell.height * 2 ? drift.y : 0);
 
         // 조합 문자열 앞의 공백은 표시에서 뺀다.
         //
@@ -88,7 +123,6 @@ export function pinCompositionOverlay(term: Terminal): void {
         // 특히 **띄어쓰기 직후 첫 글자**에서 벌어짐이 컸다. IME 가 조합 문자열에 앞
         // 공백을 함께 담으면 그 공백이 그대로 한 칸을 밀어 낸다 — 그 공백은 확정될 때
         // 어차피 서버가 그려 주므로 미리 보여 줄 이유가 없다.
-        const view0 = helper._compositionView as HTMLElement | undefined;
         if (view0 && typeof view0.textContent === "string") {
           const trimmed = view0.textContent.replace(/^[ \u3000]+/, "");
           if (trimmed !== view0.textContent) view0.textContent = trimmed;
@@ -105,7 +139,7 @@ export function pinCompositionOverlay(term: Terminal): void {
           logLine(
             "IME",
             `커서=${buf.x},${buf.y} 고정=${pinned.col},${pinned.row} 폭=${cols} 창=±${follow}` +
-              ` 셀폭=${cell.width.toFixed(2)}` +
+              ` 셀폭=${cell.width.toFixed(2)} 보정=${drift.x.toFixed(1)}` +
               ` 놓을x=${Math.round(left)} 실제x=${realX} 조합="${text}"(${code})`,
           );
         }

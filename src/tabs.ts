@@ -151,9 +151,13 @@ export class TabManager {
         return;
       }
       tab.writeBytes(bytes);
-      // '아직 안 본 출력' 표시. 분할 보기에서는 모든 터미널이 눈앞에 있으므로 켜지 않는다
-      // — 보고 있는 화면에 "안 봤다" 표시가 뜨면 표시 자체를 못 믿게 된다.
-      if (tab !== this.active && this.viewMode === "tabs" && !tab.activity) {
+      // '아직 안 본 출력' 표시 — 활성 탭이 아니면 켠다.
+      //
+      // 예전에는 분할 보기에서 켜지 않았다. "칸이 눈앞에 다 보이는데 안 봤다고 표시하면
+      // 표시를 못 믿는다"는 생각이었는데, 실기에서는 반대였다(0.85.1 사용자 보고):
+      // 칸이 여섯 아홉이면 어차피 전부를 동시에 볼 수 없어, 어디가 움직였는지 탭바에서
+      // 짚어 주는 편이 낫다. 분할 밖에 서 있는 탭은 정말로 안 보이므로 더 그렇다.
+      if (tab !== this.active && !tab.activity) {
         tab.activity = true;
         this.renderTabbar();
       }

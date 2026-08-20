@@ -884,6 +884,47 @@ try {
       );
     });
 
+    await t.test("세션탭 색상 — 분할 보기에서도 '안 본 출력' 이 표시된다", async () => {
+      // 왜: 예전에는 분할에서 이 표시를 켜지 않았다("칸이 다 보이니 필요 없다"). 칸이 여럿이면
+      // 동시에 다 볼 수 없어, 어디가 움직였는지 탭바에서 짚어 주는 편이 낫다(사용자 보고).
+      // 실제 수신 이벤트를 쏴서 앱의 진짜 경로를 태운다 — 표시 로직을 검사가 흉내내면
+      // 아무것도 검증하지 못한다.
+      await dismissModals(page);
+      const r = await page.evaluate(async () => {
+        const tm = window.__tm;
+        if (tm.tabs.length < 2) return "탭이 모자람";
+        tm.startSplit("vertical", tm.tabs.slice(0, 2));
+        await new Promise((res) => setTimeout(res, 400));
+        const other = tm.tabs.find((t) => t !== tm.active);
+        if (!other) return "활성 아닌 탭이 없음";
+        // 검사 환경에서는 실제 접속이 서지 않아 liveId 가 없다 — 수신 id 만 이어 준다.
+        // 판정 자체(수신 → 표시)는 앱의 진짜 경로가 그대로 돈다.
+        const fake = "live-test-activity";
+        tm.byLiveId.set(fake, other);
+        other.activity = false;
+        // 끊긴 탭은 붉게(dead) 그려지고 그것이 '안 본 출력' 보다 앞선다 — 검사 환경에서는
+        // 실제 접속이 서지 않으므로 접속 상태로 두고 본다.
+        other.status = "connected";
+        tm.renderTabbar();
+        window.__emit("ssh://data", { id: fake, data: btoa("hello\r\n") });
+        await new Promise((res) => setTimeout(res, 250));
+        const items = [...document.querySelectorAll(".tab")];
+        return {
+          모드: tm.getViewMode(),
+          표시됨: items[tm.tabs.indexOf(other)]?.classList.contains("activity") ?? false,
+          activity: other.activity,
+        };
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      expect(r.모드 !== "tabs", "분할이 서지 않아 검사 의미가 없다");
+      expect(r.표시됨, `분할 보기에서 '안 본 출력' 표시가 탭에 붙지 않는다(activity=${r.activity})`);
+      await page.evaluate(() => {
+        window.__tm.byLiveId.delete("live-test-activity");
+        window.__tm.exitSplit();
+      });
+      await page.waitForTimeout(300);
+    });
+
     await t.test("분할 — 최대 9칸까지만 세운다", async () => {
       await dismissModals(page);
       // 상한을 넘겨 보려면 서로 다른 탭이 열 개 넘게 있어야 한다 — splitTabs 는 집합이라
@@ -3655,6 +3696,76 @@ try {
         return diff;
       });
       expect(r.length === 0, `청크 재생이 ${r.length}개 행에서 다르다(행: ${r.join(",")})`);
+    });
+
+    await page.close();
+  }
+
+  // ── IME 조합 위치(0.85.1) ────────────────────────────────────────────────
+  // 왜 페이지를 따로 여는가: 이 증상은 '갓 연 세션에 긴 한 줄' 이라는 조건에서 드러난다.
+  // 다른 검사가 지나간 페이지에서는 화면 상태가 달라 밀림이 쌓이지 않아, 같은 검사를
+  // 묶음 안에 두면 옛 코드에서도 통과해 버린다(실측으로 확인).
+  {
+    const page = await openPage(browser, {
+      stub: { sessions_load: [SESSIONS[0]] },
+    });
+    await page.waitForTimeout(1500);
+    await openSession(page, 0);
+
+    await t.test("IME 조합 — 긴 한글 줄 끝에서도 조합 글자가 커서 자리에 붙는다", async () => {
+      // DOM 렌더러는 줄을 글자가 흐르는 대로 그린다. 덩어리가 나뉘는 자리마다 폭 반올림이
+      // 쌓여, 줄 끝에서는 실제 글자가 칸 좌표보다 왼쪽으로 밀린다(실측 16px ≈ 두 칸).
+      // 오버레이를 칸 좌표로만 놓으면 그만큼 벌어져 보인다 — 실기 영상으로 확인한 증상이다.
+      const r = await page.evaluate(async () => {
+        const tab = window.__tm.tabs[0];
+        const term = tab.term;
+        const core = term._core;
+        const helper = core._compositionHelper;
+        if (!helper) return "조합 헬퍼 없음";
+        const enc = new TextEncoder();
+        // 띄어쓰기를 섞어야 덩어리가 나뉘고 밀림이 쌓인다 — 한글만 죽 이으면 덩어리가
+        // 하나라 아무 일도 일어나지 않는다.
+        const words = ["우리나라만세", "무궁화", "삼천리", "화려강산", "대한사람", "대한으로", "길이보전", "하세동해", "물과백두", "산이마르"];
+        let text = "";
+        let used = 0;
+        let wi = 0;
+        while (used + 14 < term.cols - 2) {
+          const w = words[wi++ % words.length];
+          text += w + " ";
+          used += w.length * 2 + 1;
+        }
+        await new Promise((res) => term.write(enc.encode("\x1b[H\x1b[2J" + text), res));
+        term.focus();
+        const frame = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+        await frame();
+        const ta = term.textarea;
+        ta.dispatchEvent(new CompositionEvent("compositionstart"));
+        helper._compositionView.textContent = "느";
+        helper.updateCompositionElements();
+        await frame();
+        helper.updateCompositionElements();
+        await frame();
+        const vr = helper._compositionView.getBoundingClientRect();
+        const cur = term.element.querySelector(".xterm-cursor");
+        const cr = cur?.getBoundingClientRect() ?? null;
+        const cell = core._renderService.dimensions.css.cell;
+        ta.dispatchEvent(new CompositionEvent("compositionend"));
+        return {
+          커서있음: !!cr,
+          벗어남: cr ? Math.abs(vr.left - cr.left) : -1,
+          셀폭: cell.width,
+          커서칸: core._bufferService.buffer.x,
+        };
+      });
+      expect(typeof r === "object", `조합 검사를 돌리지 못했다: ${r}`);
+      expect(r.커서있음, "그려진 커서를 찾지 못했다 — 기준으로 삼을 자리가 없다");
+      expect(r.커서칸 >= 60, `줄이 짧아(커서 ${r.커서칸}칸) 밀림이 쌓이지 않는다 — 검사가 무의미하다`);
+      // 한 칸 안이면 눈에 띄지 않는다. 고치기 전에는 약 세 칸(25px) 벌어졌다.
+      expect(
+        r.벗어남 <= r.셀폭,
+        `조합 글자가 커서에서 ${r.벗어남.toFixed(0)}px 벗어났다(셀폭 ${r.셀폭.toFixed(1)}px)` +
+          " — 칸 좌표만 믿고 그린 자리로 되돌아갔는지 보라",
+      );
     });
 
     await page.close();
