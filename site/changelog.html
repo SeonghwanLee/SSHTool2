@@ -29,9 +29,16 @@
   <div class="wrap">
     <h1>SSHTool2 전체 변경 이력</h1>
     <div class="sub">
-      총 134개 버전 · <a href="./">홈으로</a> ·
+      총 135개 버전 · <a href="./">홈으로</a> ·
       <a href="https://github.com/SeonghwanLee/SSHTool2/releases">GitHub 릴리스</a>
     </div>
+      <article class="rel">
+        <h3>v0.85.2<span class="date">2026-08-20</span></h3>
+        <ul>
+          <li>아주 큰 파일을 cat 하는 것처럼 출력이 오래 쏟아질 때 창이 멎던 문제를 고쳤습니다 — 서버에서 받은 조각을 하나씩 곧바로 화면 쪽으로 넘기고 있었는데, 그 넘기는 일에는 조각 크기와 무관한 고정 비용이 붙습니다. 같은 60MB 를 64KB 조각(960건)으로 받으면 2.7초, 2KB 조각(30,482건)으로 받으면 36.0초가 걸렸습니다. 이제 8ms 또는 64KB 만큼 모아서 한 번에 넘깁니다 — 건수가 열 배 이상 줄어듭니다</li>
+          <li>모아 보내도 출력이 끊기는 순간에는 곧바로 나가므로 프롬프트나 입력 메아리가 늦지 않습니다(8ms 는 화면 한 프레임보다 짧습니다). 로컬 셸도 같은 방식으로 바꿨습니다</li>
+        </ul>
+      </article>
       <article class="rel">
         <h3>v0.85.1<span class="date">2026-08-20</span></h3>
         <ul>

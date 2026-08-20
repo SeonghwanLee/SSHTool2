@@ -116,25 +116,46 @@ pub fn open(
         .and_then(|n| crate::sesslog::SessionLog::open(&app, n, &task_id));
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = &buf[..n];
+        // 수신을 모았다가 한 번에 보낸다(0.85.2) — 이벤트 하나에 붙는 고정 비용이 크다.
+        // 자세한 근거는 ssh.rs 의 같은 자리에 적었다.
+        //
+        // 여기는 블로킹 읽기라 시간 만료를 걸 수 없다. 대신 **읽기가 버퍼를 다 못 채우면**
+        // 지금 올 것은 다 왔다는 뜻으로 보고 내보낸다 — 폭주 중에는 매번 가득 차므로
+        // 모이고, 출력이 끊기는 순간에는 곧바로 나간다(프롬프트가 늦지 않는다).
+        const FLUSH_BYTES: usize = 64 * 1024;
+        let mut pending: Vec<u8> = Vec::new();
+        macro_rules! flush_data {
+            () => {{
+                if !pending.is_empty() {
+                    let chunk = std::mem::take(&mut pending);
                     if let Some(f) = log_file.as_mut() {
-                        f.write(chunk);
+                        f.write(&chunk);
                     }
                     let _ = app.emit(
                         "ssh://data",
                         DataPayload {
                             id: task_id.clone(),
-                            data: B64.encode(chunk),
+                            data: B64.encode(&chunk),
                         },
                     );
+                }
+            }};
+        }
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    pending.extend_from_slice(&buf[..n]);
+                    // 버퍼를 가득 채웠다면 뒤에 더 있다는 뜻 — 모아서 한 번에 보낸다.
+                    if pending.len() < FLUSH_BYTES && n == buf.len() {
+                        continue;
+                    }
+                    flush_data!();
                 }
                 Err(_) => break,
             }
         }
+        flush_data!(); // 셸이 끝나도 마지막 출력은 화면에 남아야 한다
         // PTY 정리는 잠금 밖에서 — 종료가 블로킹이라 다른 로컬 세션까지 멈춘다.
         let removed = app.state::<LocalMap>().lock().unwrap().remove(&task_id);
         drop(removed);

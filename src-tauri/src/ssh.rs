@@ -477,17 +477,48 @@ pub async fn connect(
             }};
         }
 
-        // 수신 데이터 → base64 로 프론트에 emit(공용 — Data/ExtendedData 동일 처리).
+        // 수신 데이터를 모았다가 한 번에 보낸다(0.85.2).
+        //
+        // 왜: 프론트로 가는 이벤트 하나에는 크기와 무관한 고정 비용이 붙는다(JSON 직렬화
+        // → IPC → JS 이벤트 전달). 실측(60MB 를 같은 양으로 나눠 보냄):
+        //
+        //   64KB 조각 960건 2.7초 · 8KB 조각 7,665건 9.2초 · 2KB 조각 30,482건 36.0초
+        //
+        // 바이트가 아니라 **건수**가 시간을 정한다. 서버가 잘게 보내면(작은 SSH 패킷)
+        // 60MB 를 받는 동안 화면이 수십 초 멎는다 — 124만 줄짜리 파일을 cat 했을 때의
+        // 증상이다(실기 보고). 모아 보내면 건수가 열 배 이상 줄어든다.
+        //
+        // 8ms 는 화면 한 프레임보다 짧다 — 사람 눈에 늦어 보이지 않는다. 입력 메아리처럼
+        // 한 글자만 오는 경우도 8ms 뒤에는 반드시 나간다(아래 select 의 만료 가지).
+        const FLUSH_BYTES: usize = 64 * 1024;
+        const FLUSH_MS: u64 = 8;
+        let mut pending: Vec<u8> = Vec::new();
+        let mut due: Option<tokio::time::Instant> = None;
+
+        macro_rules! flush_data {
+            () => {{
+                if !pending.is_empty() {
+                    let out = std::mem::take(&mut pending);
+                    due.take(); // 만료 예약 해제(take 는 읽기이기도 해서 경고가 나지 않는다)
+                    if let Some(f) = log_file.as_mut() {
+                        f.write(&out);
+                    }
+                    let _ = app.emit(
+                        "ssh://data",
+                        DataPayload { id: task_id.clone(), data: B64.encode(&out) },
+                    );
+                }
+            }};
+        }
+        // 수신 데이터 모으기(공용 — Data/ExtendedData 동일 처리).
         macro_rules! emit_data {
             ($raw:expr) => {{
-                let out = to_utf8!($raw);
-                if let Some(f) = log_file.as_mut() {
-                    f.write(&out);
+                pending.extend_from_slice(&to_utf8!($raw));
+                if pending.len() >= FLUSH_BYTES {
+                    flush_data!();
+                } else if due.is_none() {
+                    due = Some(tokio::time::Instant::now() + std::time::Duration::from_millis(FLUSH_MS));
                 }
-                let _ = app.emit(
-                    "ssh://data",
-                    DataPayload { id: task_id.clone(), data: B64.encode(&out) },
-                );
             }};
         }
         // 쓰기(문자셋 변환 포함) — 일시정지 중에도 입력(Ctrl+C 등)은 나가야 한다.
@@ -516,6 +547,7 @@ pub async fn connect(
             // russh 는 소비된 만큼만 수신 윈도우를 되채우므로, 안 꺼내면 윈도우가
             // 바닥나 서버 송신이 SSH 규격대로 멈춘다 — 메모리가 어느 쪽에도 안 쌓인다.
             if paused {
+                flush_data!(); // 멈추기 전에 손에 든 것은 마저 보낸다
                 match rx.recv().await {
                     Some(SessionCommand::Pause(p)) => paused = p,
                     Some(SessionCommand::Write(bytes)) => do_write!(bytes),
@@ -530,6 +562,16 @@ pub async fn connect(
                 continue;
             }
             tokio::select! {
+                // 모아 둔 것이 있으면 늦어도 FLUSH_MS 안에 내보낸다 — 출력이 뚝 끊겨도
+                // 마지막 조각이 남아 있으면 안 된다(프롬프트가 안 보이게 된다).
+                _ = async {
+                    match due {
+                        Some(d) => tokio::time::sleep_until(d).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    flush_data!();
+                }
                 msg = channel.wait() => {
                     match msg {
                         Some(ChannelMsg::Data { data }) => emit_data!(data.to_vec()),
@@ -560,6 +602,7 @@ pub async fn connect(
             }
         }
 
+        flush_data!(); // 세션이 끝나도 마지막 출력은 화면에 남아야 한다
         let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
         // 세션이 끝나면 이 세션의 포워딩 리스너도 정리한다.
         if let Some(h) = app.state::<SessionMap>().lock().unwrap().remove(&task_id) {
