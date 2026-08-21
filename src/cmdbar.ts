@@ -1,6 +1,7 @@
 // 동시 명령 창 — 여러 세션에 같은 입력을 보내는 하단 바(대상: 전체/활성/선택).
 // main.ts 에서 분리(0.63.0 정지작업). 로직 변경 없음.
 
+import { confirmDialog } from "./dialogs";
 import type { TabManager } from "./tabs";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -150,6 +151,21 @@ export function wireCommandBar(tabs: TabManager): void {
       if (keys && keys.size === 0) {
         status.textContent = "대상을 고르세요";
         return;
+      }
+      // 화면 밖 세션이 섞여 있으면 되짚는다(0.85.3, 사용자 요청) — 결과를 보지 못하는
+      // 창에 명령만 들어가는 것이 동시 명령에서 가장 위험한 순간이다.
+      const hidden = tabs.hiddenBroadcastTargets(keys ?? undefined);
+      if (hidden.length > 0) {
+        const go = await confirmDialog("현재 화면에 보이지 않는 창으로 전송합니다.", {
+          ok: "실행",
+          cancel: "취소",
+          detail: hidden.join(", "),
+        });
+        if (!go) {
+          status.textContent = "취소했습니다";
+          input.focus();
+          return;
+        }
       }
       const { sent, locked, failed } = await tabs.broadcast(bytes, keys ?? undefined);
       // 잠겨서 빠졌거나 실패한 세션은 반드시 밝힌다 — 보냈다고 믿고 넘어가는 것이

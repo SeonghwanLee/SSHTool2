@@ -338,32 +338,45 @@ export async function saveFailureAlert(what: string, detail: unknown): Promise<v
 }
 
 /** 예/아니오 확인. */
-export function confirmDialog(message: string): Promise<boolean> {
+export interface ConfirmOptions {
+  /** 진행 버튼 이름(기본 "예"). */
+  ok?: string;
+  /** 취소 버튼 이름(기본 "아니오"). */
+  cancel?: string;
+  /** 본문 아래 작은 글씨 — 무엇이 걸려 있는지 이름을 대는 자리. */
+  detail?: string;
+}
+
+export function confirmDialog(message: string, opts: ConfirmOptions = {}): Promise<boolean> {
   return new Promise((resolve) => {
     openModal((close) => {
       const card = document.createElement("div");
       const msg = document.createElement("div");
       msg.className = "modal-msg";
       msg.textContent = message;
+      const detail = document.createElement("div");
+      detail.className = "modal-detail";
+      detail.textContent = opts.detail ?? "";
 
       const buttons = document.createElement("div");
       buttons.className = "modal-buttons";
       const no = document.createElement("button");
-      no.textContent = "아니오";
+      no.textContent = opts.cancel ?? "아니오";
       no.addEventListener("click", () => {
         close();
         resolve(false);
       });
       const yes = document.createElement("button");
       yes.className = "btn-accent";
-      yes.textContent = "예";
+      yes.textContent = opts.ok ?? "예";
       yes.addEventListener("click", () => {
         close();
         resolve(true);
       });
       buttons.append(no, yes);
 
-      card.append(msg, buttons);
+      if (opts.detail) card.append(msg, detail, buttons);
+      else card.append(msg, buttons);
       // y/n 한 키로 즉답(사용자 요청 — 모든 확인창 공통). 확인창에는 입력칸이 없어
       // 타이핑과 충돌하지 않는다. Enter(=예)·Esc(=아니오)는 기존대로 동작한다.
       card.addEventListener("keydown", (e) => {

@@ -30,7 +30,7 @@ import {
 import { beginTabDrag } from "./tabdrag";
 import { tabMenu } from "./tabmenu";
 import { blockedByDisabled } from "./sessionflow";
-import { broadcastTargets, broadcastTo, pruneKeys } from "./tabbroadcast";
+import { broadcastTargets, broadcastTo, hiddenTargets, pruneKeys } from "./tabbroadcast";
 import {
   scheduleAutoReconnect,
   cancelAutoReconnect,
@@ -491,6 +491,16 @@ export class TabManager {
    */
   broadcastTargets(): { key: string; label: string; locked: boolean }[] {
     return broadcastTargets(this.tabs);
+  }
+
+  /** 지금 화면에 보이는가 — 일반창은 활성 탭만, 분할창은 분할에 올린 것만. */
+  private isOnScreen(tab: TerminalTab): boolean {
+    return this.viewMode === "tabs" ? tab === this.active : this.splitTabs.has(tab);
+  }
+
+  /** 고른 대상 중 화면에 보이지 않는 것들의 이름(동시 명령이 보내기 전에 묻는다). */
+  hiddenBroadcastTargets(keys?: ReadonlySet<string>): string[] {
+    return hiddenTargets(this.tabs, (t) => this.isOnScreen(t), keys);
   }
 
   /**

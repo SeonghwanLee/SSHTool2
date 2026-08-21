@@ -925,6 +925,116 @@ try {
       await page.waitForTimeout(300);
     });
 
+    await t.test("동시 명령 — 화면 밖 세션이 섞이면 보내기 전에 되짚는다", async () => {
+      // 왜: 동시 명령은 사고가 가장 크게 번지는 경로다. 탭바 뒤나 분할 밖 세션은 결과를
+      // 보지 못한 채 명령만 들어간다 — 보내기 전에 한 번 묻는다(사용자 요청).
+      await dismissModals(page);
+      await page.evaluate(() => {
+        const tm = window.__tm;
+        tm.exitSplit();
+        // 검사 환경에서는 실제 접속이 서지 않는다 — 보낼 수 있는 상태만 만들어 준다.
+        tm.tabs.forEach((t, i) => {
+          t.liveId = `live-bc-${i}`;
+          tm.byLiveId.set(t.liveId, t);
+          t.locked = false;
+        });
+        window.__ipc.length = 0;
+      });
+      const openBar = async () => {
+        const open = await page.evaluate(
+          () => !document.getElementById("cmdbar").classList.contains("hidden"),
+        );
+        if (!open) await page.click("#cmd-toggle");
+        await page.waitForTimeout(250);
+      };
+      await openBar();
+      await page.selectOption("#cmd-mode", "all");
+      await page.waitForTimeout(200);
+      const 탭수 = await page.evaluate(() => window.__tm.tabs.length);
+      expect(탭수 >= 2, `탭이 모자라 검사 의미가 없다: ${탭수}`);
+
+      // ① 취소하면 아무것도 나가지 않는다.
+      await page.fill("#cmd-input", "uptime");
+      await page.click("#cmd-send");
+      await page.waitForTimeout(400);
+      const 물음 = await page.evaluate(() => {
+        const m = document.querySelector(".modal-msg");
+        return {
+          문구: m?.textContent ?? "",
+          부연: document.querySelector(".modal-detail")?.textContent ?? "",
+          버튼: [...document.querySelectorAll(".modal-buttons button")].map((b) => b.textContent),
+        };
+      });
+      expect(
+        물음.문구.includes("화면에 보이지 않는"),
+        `되짚는 창이 뜨지 않았다: ${JSON.stringify(물음)}`,
+      );
+      expect(
+        물음.버튼.includes("실행") && 물음.버튼.includes("취소"),
+        `버튼 이름이 다르다: ${JSON.stringify(물음.버튼)}`,
+      );
+      expect(물음.부연.length > 0, "어느 세션이 안 보이는지 알려 주지 않는다");
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".modal-buttons button")]
+          .find((b) => b.textContent === "취소")
+          ?.click(),
+      );
+      await page.waitForTimeout(300);
+      const 취소후 = await page.evaluate(
+        () => window.__ipc.filter(([c]) => c === "ssh_write").length,
+      );
+      expect(취소후 === 0, `취소했는데 ${취소후}건이 나갔다`);
+
+      // ② 실행하면 나간다.
+      await page.fill("#cmd-input", "uptime");
+      await page.click("#cmd-send");
+      await page.waitForTimeout(400);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".modal-buttons button")]
+          .find((b) => b.textContent === "실행")
+          ?.click(),
+      );
+      await page.waitForTimeout(400);
+      const 실행후 = await page.evaluate(
+        () => window.__ipc.filter(([c]) => c === "ssh_write").length,
+      );
+      expect(실행후 >= 2, `실행했는데 ${실행후}건만 나갔다(탭 ${탭수}개)`);
+
+      // ③ 보이는 것만 대상이면 묻지 않는다 — 쓸데없이 가로막지 않아야 한다.
+      await page.evaluate(() => {
+        const tm = window.__tm;
+        window.__ipc.length = 0;
+        // 활성 탭 하나만 대상으로 남긴다(나머지는 접속 안 된 것으로).
+        tm.tabs.forEach((t) => {
+          if (t !== tm.active) {
+            tm.byLiveId.delete(t.liveId);
+            t.liveId = null;
+          }
+        });
+      });
+      await page.fill("#cmd-input", "uptime");
+      await page.click("#cmd-send");
+      await page.waitForTimeout(400);
+      const 조용히 = await page.evaluate(() => ({
+        모달: document.querySelectorAll(".modal-msg").length,
+        보냄: window.__ipc.filter(([c]) => c === "ssh_write").length,
+      }));
+      expect(조용히.모달 === 0, "보이는 세션뿐인데도 되짚는 창이 떴다");
+      expect(조용히.보냄 >= 1, `보이는 세션에 보내지 못했다: ${조용히.보냄}건`);
+
+      // 뒷정리 — 창을 닫고 가짜 접속을 지운다.
+      await page.click("#cmd-toggle");
+      await page.evaluate(() => {
+        const tm = window.__tm;
+        tm.tabs.forEach((t) => {
+          if (t.liveId) tm.byLiveId.delete(t.liveId);
+          t.liveId = null;
+        });
+        window.__ipc.length = 0;
+      });
+      await page.waitForTimeout(200);
+    });
+
     await t.test("분할 — 최대 9칸까지만 세운다", async () => {
       await dismissModals(page);
       // 상한을 넘겨 보려면 서로 다른 탭이 열 개 넘게 있어야 한다 — splitTabs 는 집합이라

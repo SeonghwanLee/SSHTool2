@@ -2652,6 +2652,16 @@ body.sftp-resizing * {
   line-height: 1.5;
   white-space: pre-line;
 }
+/* 확인창 부연 — 무엇이 걸려 있는지 이름을 대는 자리(대상 세션 목록 등). */
+.modal-detail {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-height: 120px;
+  overflow-y: auto;
+  word-break: break-all;
+}
 /* 호스트키 지문 — 눈으로 대조하는 값이라 등폭·선택 가능하게, 본문과 뚜렷이 분리. */
 .hostkey-fp {
   font-family: ui-monospace, Consolas, "D2Coding", monospace;

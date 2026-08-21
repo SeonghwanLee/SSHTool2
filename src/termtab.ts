@@ -53,10 +53,61 @@ import { sshWrite, sshPause, sshResize, sshClose, localWrite, localResize, local
 export const isLocal = (s: SessionInfo): boolean => s.kind === "local";
 export const writeTo = (s: SessionInfo, id: string, bytes: Uint8Array): Promise<void> =>
   isLocal(s) ? localWrite(id, bytes) : sshWrite(id, bytes);
-export const resizeTo = (s: SessionInfo, id: string, cols: number, rows: number): Promise<void> =>
-  isLocal(s) ? localResize(id, cols, rows) : sshResize(id, cols, rows);
-export const closeOf = (s: SessionInfo, id: string): Promise<void> =>
-  isLocal(s) ? localClose(id) : sshClose(id);
+/**
+ * 세션마다 '보내는 중' 과 '마지막으로 보낸 크기'(0.85.3).
+ *
+ * 왜 필요한가: 크기 알림은 호출마다 따로 처리되므로, 여러 개를 잇달아 보내면 **도착
+ * 순서가 뒤집힐 수 있다**. 그러면 서버는 옛 크기를 최종값으로 믿는다 — top 처럼 화면을
+ * 통째로 다시 그리는 프로그램은 어긋난 격자에 그리게 되고, 그 칸은 갱신이 안 되는 것처럼
+ * 보인다. 다음 크기 변화가 올 때까지 그대로 남으므로, 창을 다시 흔들면 낫는 것도 설명된다
+ * (실기 보고: 가로/세로를 오가며 창을 줄였다 늘렸다 한 뒤 그렇게 됐다).
+ *
+ * 한 세션에 한 번에 하나만 보내고, 기다리는 동안 새 크기가 오면 **마지막 것만** 남긴다.
+ * 순서가 보장되고 드래그 중 오가는 알림 수도 크게 준다.
+ */
+const resizeSend = new Map<string, { sent: string; busy: boolean; want: [number, number] | null }>();
+
+export function forgetResizeState(id: string): void {
+  resizeSend.delete(id);
+}
+
+export const resizeTo = async (
+  s: SessionInfo,
+  id: string,
+  cols: number,
+  rows: number,
+): Promise<void> => {
+  let st = resizeSend.get(id);
+  if (!st) {
+    st = { sent: "", busy: false, want: null };
+    resizeSend.set(id, st);
+  }
+  st.want = [cols, rows];
+  if (st.busy) return;
+  st.busy = true;
+  try {
+    while (st.want) {
+      const [c, r] = st.want;
+      st.want = null;
+      const key = `${c}x${r}`;
+      if (key === st.sent) continue; // 같은 크기를 두 번 알릴 이유가 없다
+      st.sent = key;
+      logLine("RESIZE", `${s.name || s.host} → ${key}`);
+      try {
+        await (isLocal(s) ? localResize(id, c, r) : sshResize(id, c, r));
+      } catch (e) {
+        st.sent = ""; // 실패했으면 같은 크기도 다시 보낼 수 있어야 한다
+        logLine("RESIZE", `${s.name || s.host} 실패 ${key}: ${String(e).slice(0, 80)}`);
+      }
+    }
+  } finally {
+    st.busy = false;
+  }
+};
+export const closeOf = (s: SessionInfo, id: string): Promise<void> => {
+  forgetResizeState(id);
+  return isLocal(s) ? localClose(id) : sshClose(id);
+};
 
 /** 탭 하나 = 터미널 뷰 + 상태. 접속/재접속 로직은 TabManager 가 구동한다. */
 export class TerminalTab {
