@@ -15,19 +15,20 @@
 
 ## 다운로드 주소
 
-바뀌지 않는 주소 두 개를 쓴다. 릴리스마다 손볼 것이 없다.
-
 | 주소 | 무엇 |
 |---|---|
 | `https://sshtool2.vercel.app/dl` | 최신 설치파일 바로 받기 |
-| `https://github.com/SeonghwanLee/SSHTool2/releases/latest/download/SSHTool2-setup.exe` | 위가 가리키는 실제 파일 |
+| `https://sshtool2.vercel.app` | 안내 페이지 |
 
-`/dl` 은 `vercel.json` 의 정적 리다이렉트다 — 서버리스 함수도, API 호출도 끼지 않아
-느려지거나 한도에 걸릴 구석이 없다. 최종 목적지는 GitHub 이 `latest` 를 직접 풀어 준다.
+`/dl` 은 `api/dl.js` 가 GitHub API 로 최신 릴리스를 찾아 그 설치파일로 넘긴다.
+**릴리스 자산에는 손대지 않는다** — 파일 이름을 바꾸거나 사본을 더 올리면 업데이터
+(`latest.json`)나 이미 돌아다니는 링크가 흔들릴 여지가 생기기 때문이다(2026-08-21 결정).
 
-고정 이름 사본(`SSHTool2-setup.exe`)은 릴리스 워크플로가 매번 한 벌 더 올린다
-(`.github/workflows/build.yml` 의 '고정 이름 사본 업로드'). 버전이 든 원본은 그대로 둔다 —
-업데이터의 `latest.json` 이 그 주소를 가리키고, 받아 둔 파일에서 버전을 알아볼 수 있어야 한다.
+- 결과는 엣지에 10분 캐싱한다(`s-maxage=600`). GitHub API 는 인증 없이 시간당 60회
+  제한이고 서버리스의 나가는 IP 는 여럿이 함께 쓰므로, 캐싱하지 않으면 한도에 걸릴 수 있다.
+- 실패하면 릴리스 페이지로 보내고 그때는 캐싱하지 않는다.
+- 새 버전을 내면 늦어도 10분 안에 `/dl` 이 따라온다.
 
 주소를 더 줄이려면 Vercel 프로젝트 Settings → Domains 에서 `.vercel.app` 이름을 하나 더
-붙일 수 있다(2026-08-21 확인: `sshtool` · `ssht` · `sshtl` 비어 있음). 무료다.
+붙일 수 있다(2026-08-21 확인: `sshtool` · `ssht` · `sshtl` 비어 있음). 무료이고,
+기존 주소도 그대로 살아 있다.

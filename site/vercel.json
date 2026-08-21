@@ -1,14 +1,6 @@
 {
-  "redirects": [
-    {
-      "source": "/dl",
-      "destination": "https://github.com/SeonghwanLee/SSHTool2/releases/latest/download/SSHTool2-setup.exe",
-      "permanent": false
-    },
-    {
-      "source": "/download",
-      "destination": "/dl",
-      "permanent": false
-    }
+  "rewrites": [
+    { "source": "/dl", "destination": "/api/dl" },
+    { "source": "/download", "destination": "/api/dl" }
   ]
 }

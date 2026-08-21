@@ -75,35 +75,6 @@ jobs:
           # Windows NSIS 인스톨러 타겟. 서명된 .nsis.zip + latest.json 이 릴리스에 업로드됨.
           args: --target x86_64-pc-windows-msvc --bundles nsis
 
-      # 버전이 박히지 않은 이름으로 한 벌 더 올린다 — **바뀌지 않는 다운로드 주소**를
-      # 만들기 위해서다.
-      #
-      #   https://github.com/SeonghwanLee/SSHTool2/releases/latest/download/SSHTool2-setup.exe
-      #
-      # GitHub 이 latest 를 직접 풀어 주므로 중간에 아무것도 끼지 않는다 — 리다이렉트
-      # 서버도, API 호출도, 캐시도 없다. 한도에 걸리거나 느려질 구석이 없다는 뜻이다.
-      #
-      # 원본(버전이 든 이름)은 그대로 둔다: 업데이터의 latest.json 이 그 주소를 가리키고
-      # 있고, 받아 둔 파일만 보고도 어느 버전인지 알 수 있어야 한다.
-      #
-      # 실패하면 그대로 드러내야 한다(continue-on-error 를 쓰지 않는다) — 조용히 넘어가면
-      # 고정 주소가 옛 버전을 가리킨 채 남는다. 릴리스 자체는 앞 단계에서 이미 만들어졌다.
-      - name: 고정 이름 사본 업로드
-        if: github.event_name == 'push'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          exe=$(find src-tauri/target -type f -path '*/bundle/nsis/*' -name '*-setup.exe' | head -1)
-          if [ -z "$exe" ]; then
-            echo "::error::설치 파일을 찾지 못했습니다 — 고정 주소가 옛 버전을 가리키게 됩니다"
-            exit 1
-          fi
-          cp "$exe" SSHTool2-setup.exe
-          gh release upload "${{ github.ref_name }}" SSHTool2-setup.exe --clobber
-          echo "고정 주소: https://github.com/${{ github.repository }}/releases/latest/download/SSHTool2-setup.exe" \
-            >> "$GITHUB_STEP_SUMMARY"
-
       # 산출물 크기를 매 실행마다 남겨 추세를 본다(빌드 옵션을 만질 때 대가를 보려는 것).
       #
       # 경로를 박아 두지 않고 target 아래에서 찾는다 — --target 을 붙이면 산출물이
