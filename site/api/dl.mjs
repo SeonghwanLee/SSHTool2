@@ -6,6 +6,12 @@
 // 바뀌면 업데이터(latest.json)나 기존 링크가 흔들릴 여지가 생긴다. 그래서 파일은 그대로
 // 두고 **여기서 그때그때 찾아** 넘긴다.
 //
+// 확장자가 .mjs 인 이유: Vercel 의 Node 런타임은 .js 를 CommonJS 로 읽는다. export default
+// 를 그대로 두면 문법 오류로 500 이 난다(2026-08-21 실제로 겪었다). .mjs 면 모듈로 읽는다.
+//
+// 응답은 Node 기본 API 로 직접 쓴다(res.redirect 같은 도우미에 기대지 않는다) — 런타임이
+// 무엇을 얹어 주는지에 따라 달라지지 않게.
+//
 // 값싸게 굴리기: 결과를 엣지에 10분 캐싱한다(s-maxage). GitHub API 는 인증 없이 시간당
 // 60회 제한이고 서버리스의 나가는 IP 는 여럿이 함께 쓰므로, 캐싱하지 않으면 남의 호출까지
 // 얹혀 한도에 걸릴 수 있다. 10분이면 한 시간에 여섯 번이면 충분하다.
@@ -13,6 +19,12 @@
 // 실패하면 릴리스 페이지로 보낸다 — 빈손으로 돌려보내지 않는다. 그때는 캐싱하지 않는다
 // (실패한 판단을 10분 동안 물고 있으면 안 된다).
 const REPO = "SeonghwanLee/SSHTool2";
+
+function send(res, url) {
+  res.statusCode = 302;
+  res.setHeader("Location", url);
+  res.end();
+}
 
 export default async function handler(req, res) {
   const releasesPage = `https://github.com/${REPO}/releases/latest`;
@@ -32,9 +44,9 @@ export default async function handler(req, res) {
     );
     if (!exe?.browser_download_url) throw new Error("설치파일을 찾지 못했습니다");
     res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=86400");
-    res.redirect(302, exe.browser_download_url);
+    send(res, exe.browser_download_url);
   } catch {
     res.setHeader("Cache-Control", "no-store");
-    res.redirect(302, releasesPage);
+    send(res, releasesPage);
   }
 }
