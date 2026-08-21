@@ -100,7 +100,7 @@
       <div class="logo">&gt;_ SSHTool2</div>
       <h1>Windows를 위한<br /><span class="accent">SSH · SFTP 클라이언트</span></h1>
       <p class="tagline">세션 관리 · 파일 전송 · 원격 데스크톱 · 자동화 — 한글 환경에 맞게 만들었습니다</p>
-      <a id="dl" class="dl-btn" href="https://github.com/SeonghwanLee/SSHTool2/releases/latest">
+      <a id="dl" class="dl-btn" href="https://github.com/SeonghwanLee/SSHTool2/releases/latest/download/SSHTool2-setup.exe">
         다운로드
       </a>
       <div class="dl-meta" id="meta">최신 버전 확인 중…</div>
@@ -182,13 +182,18 @@
 
   <script>
     // 최신 릴리스 정보 — 페이지를 다시 배포하지 않아도 버전이 따라온다.
-    // 실패(오프라인·API 제한)해도 버튼은 releases/latest 로 이동하므로 다운로드는 된다.
+    // 실패(오프라인·API 제한)해도 버튼은 고정 주소(버전이 없는 이름)로 이동하므로
+    // 다운로드는 된다 — 그 주소는 GitHub 이 직접 최신으로 풀어 준다.
     (async () => {
       try {
         const r = await fetch("https://api.github.com/repos/SeonghwanLee/SSHTool2/releases/latest");
         if (!r.ok) throw new Error(r.status);
         const rel = await r.json();
-        const exe = rel.assets.find((a) => a.name.endsWith("-setup.exe"));
+        // 버전이 든 이름을 먼저 고른다 — 고정 이름 사본(SSHTool2-setup.exe)도 같은 꼬리를
+        // 갖고 있어서, 그냥 집으면 화면에 버전 없는 파일명이 뜬다.
+        const exe =
+          rel.assets.find((a) => /_x64-setup\.exe$/.test(a.name)) ??
+          rel.assets.find((a) => a.name.endsWith("-setup.exe"));
         if (!exe) throw new Error("no asset");
         const ver = rel.tag_name.replace(/^v/, "");
         const mb = (exe.size / 1048576).toFixed(1);
