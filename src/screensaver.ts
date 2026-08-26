@@ -741,7 +741,230 @@ const donut: SaverFactory = (canvas, ctx, accent) => {
   };
 };
 
-export const SAVER_NAMES = ["matrix", "starfield", "clock", "mystify", "constellation", "shell", "pipes", "aquarium", "donut"] as const;
+// ── ⑩ 불꽃(aafire) — 바닥에서 피어올라 식는다 ───────────────────────────────
+//
+// 칸마다 열을 두고 아래에서 위로 번지게 하면서 조금씩 식힌다. 그 열을 밀도 글자로
+// 바꿔 찍으면 불처럼 보인다. aalib 시절부터 있던 방식이다.
+const fire: SaverFactory = (canvas, ctx) => {
+  const CHARS = " .:*sS#$@";
+  const COLORS = ["#000000", "#3a0d05", "#7a1c06", "#c34710", "#e87a1a", "#f5b731", "#ffe08a", "#fff3c4", "#ffffff"];
+  let cols = 0;
+  let rows = 0;
+  let cw = 8;
+  let font = 14;
+  let heat = new Float32Array(0);
+
+  const reset = () => {
+    font = Math.max(10, Math.min(18, Math.round(canvas.height / 48)));
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    cw = ctx.measureText("M").width || font * 0.6;
+    cols = Math.max(20, Math.floor(canvas.width / cw));
+    rows = Math.max(12, Math.floor(canvas.height / font));
+    heat = new Float32Array(cols * rows);
+  };
+  reset();
+
+  return {
+    reset,
+    step() {
+      // 바닥에 불씨를 뿌린다 — 군데군데 세게 넣어야 혀가 갈라진다.
+      const base = (rows - 1) * cols;
+      for (let x = 0; x < cols; x++) heat[base + x] = Math.random() < 0.85 ? 1 : Math.random() * 0.4;
+      // 위로 번지며 식는다.
+      for (let y = 0; y < rows - 1; y++) {
+        for (let x = 0; x < cols; x++) {
+          const below = (y + 1) * cols;
+          const l = heat[below + (x > 0 ? x - 1 : 0)];
+          const c = heat[below + x];
+          const r = heat[below + (x < cols - 1 ? x + 1 : cols - 1)];
+          const cc = y + 2 < rows ? heat[(y + 2) * cols + x] : c;
+          // 식는 정도를 칸마다 흔든다 — 고르게 식히면 불이 아니라 벽처럼 보인다.
+          // 첫 시안은 냉각이 약해 화면 전체가 불바다가 됐다.
+          heat[y * cols + x] = Math.max(0, (l + c + r + cc) / 4.02 - (0.012 + Math.random() * 0.05));
+        }
+      }
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+      ctx.textBaseline = "top";
+      // 밝기 단계마다 한 번씩만 그린다(칸마다 그리면 프레임당 수천 번이 된다).
+      for (let lv = 1; lv < CHARS.length; lv++) {
+        ctx.fillStyle = COLORS[lv];
+        for (let y = 0; y < rows; y++) {
+          let line = "";
+          let any = false;
+          for (let x = 0; x < cols; x++) {
+            const v = Math.min(CHARS.length - 1, Math.floor(heat[y * cols + x] * (CHARS.length - 1) + 0.5));
+            if (v === lv) {
+              line += CHARS[lv];
+              any = true;
+            } else line += " ";
+          }
+          if (any) ctx.fillText(line, 0, y * font);
+        }
+      }
+    },
+  };
+};
+
+// ── ⑪ 증기기관차(sl) — 화면을 가로지르는 기차 ───────────────────────────────
+//
+// ls 를 잘못 쳤을 때 나오는 그 기차. 연기를 뿜으며 지나가고, 다 지나가면 잠시 뒤 다시 온다.
+const train: SaverFactory = (canvas, ctx, accent) => {
+  const LOCO = [
+    "      ====        ________                ___________",
+    "  _D _|  |_______/        \\__I_I_____===__|_________|",
+    "   |(_)---  |   H\\________/ |   |        =|___ ___|  ",
+    "   /     |  |   H  |  |     |   |         ||_| |_||  ",
+    "  |      |  |   H  |__--------------------| [___] |  ",
+    "  | ________|___H__/__|_____/[][]~\\_______|       |  ",
+    "  |/ |   |-----------I_____I [][] []  D   |=======|__",
+    "__/ =| o |=-~~\\  /~~\\  /~~\\  /~~\\ ____Y___________|__",
+    " |/-=|___|=O=====O=====O=====O   |_____/~\\___/     ",
+    "  \\_/      \\__/  \\__/  \\__/  \\__/      \\_/         ",
+  ];
+  const SMOKE = ["(   )", "(    )", "(  )", "( )"];
+  let cw = 8;
+  let font = 14;
+  let cols = 0;
+  let rows = 0;
+  let x = 0;
+  let puffs: { x: number; y: number; k: number }[] = [];
+  let t = 0;
+
+  const reset = () => {
+    font = Math.max(11, Math.min(20, Math.round(canvas.width / 95)));
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    cw = ctx.measureText("M").width || font * 0.6;
+    cols = Math.max(30, Math.floor(canvas.width / cw));
+    rows = Math.max(14, Math.floor(canvas.height / font));
+    x = cols + 4;
+    puffs = [];
+    t = 0;
+  };
+  reset();
+
+  return {
+    reset,
+    step() {
+      t++;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+      ctx.textBaseline = "top";
+
+      const top = Math.floor(rows / 2) - Math.floor(LOCO.length / 2);
+      // 연기 — 굴뚝 자리에서 피어올라 뒤로 흘러간다.
+      if (t % 3 === 0) puffs.push({ x: x + 8, y: top - 1, k: 0 });
+      puffs = puffs.filter((p) => p.y > -2 && p.x < cols + 10);
+      ctx.fillStyle = "#7a8a99";
+      for (const p of puffs) {
+        p.y -= 0.34;
+        p.x += 0.5;
+        p.k++;
+        ctx.fillText(SMOKE[Math.min(SMOKE.length - 1, Math.floor(p.k / 6))], p.x * cw, p.y * font);
+      }
+      // 기관차
+      ctx.fillStyle = accent;
+      for (let i = 0; i < LOCO.length; i++) ctx.fillText(LOCO[i], x * cw, (top + i) * font);
+      // 레일
+      ctx.fillStyle = "#44505c";
+      ctx.fillText("=".repeat(cols), 0, (top + LOCO.length) * font);
+
+      x -= 0.9;
+      if (x < -LOCO[0].length - 6) {
+        x = cols + 4;
+        puffs = [];
+      }
+    },
+  };
+};
+
+// ── ⑫ 분재(cbonsai) — 가지가 뻗어 나무가 자란다 ─────────────────────────────
+//
+// 가지 끝마다 방향과 수명을 두고 조금씩 뻗게 한다. 갈라질 때마다 수명을 나눠 가지므로
+// 저절로 나무 모양이 된다. 다 자라면 잠시 두었다가 새로 심는다.
+const bonsai: SaverFactory = (canvas, ctx, accent) => {
+  interface Branch {
+    x: number;
+    y: number;
+    dx: number;
+    life: number;
+    trunk: boolean;
+  }
+  let cw = 8;
+  let font = 16;
+  let cols = 0;
+  let rows = 0;
+  let live: Branch[] = [];
+  let idle = 0;
+
+  const plant = () => {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 화분
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#8a6f4a";
+    const potX = Math.floor(cols / 2) - 6;
+    ctx.fillText("(______________)", potX * cw, (rows - 2) * font);
+    ctx.fillText(" \\____________/ ", potX * cw, (rows - 1) * font);
+    live = [{ x: Math.floor(cols / 2), y: rows - 3, dx: 0, life: 26 + Math.floor(Math.random() * 10), trunk: true }];
+    idle = 0;
+  };
+  const reset = () => {
+    font = Math.max(11, Math.min(20, Math.round(canvas.height / 40)));
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    cw = ctx.measureText("M").width || font * 0.6;
+    cols = Math.max(24, Math.floor(canvas.width / cw));
+    rows = Math.max(14, Math.floor(canvas.height / font));
+    plant();
+  };
+  reset();
+
+  return {
+    reset,
+    step() {
+      ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+      ctx.textBaseline = "top";
+      if (live.length === 0) {
+        // 다 자랐다 — 잠시 두고 감상한 뒤 새로 심는다.
+        if (++idle > 60) plant();
+        return;
+      }
+      const next: Branch[] = [];
+      const mid = Math.floor(cols / 2);
+      const spread = Math.max(6, Math.floor(cols / 9)); // 화분 위를 크게 벗어나지 않게
+      for (const b of live) {
+        // 줄기는 곧게, 곁가지는 옆으로 눕되 **대체로 위로** 자란다.
+        // 첫 시안은 곁가지가 옆으로만 뻗어 나무가 아니라 'V' 자가 됐다.
+        let drift = b.trunk
+          ? Math.round((Math.random() - 0.5) * 1.2)
+          : Math.random() < 0.4
+            ? 0 // 이따금 곧게 — 가지가 위로 휘어 올라간다
+            : Math.sign(b.dx || (Math.random() < 0.5 ? 1 : -1));
+        // 너무 멀리 갔으면 가운데로 되돌린다.
+        if (Math.abs(b.x - mid) > spread) drift = b.x > mid ? -1 : 1;
+        const nx = b.x + drift;
+        const ny = b.y - (Math.random() < (b.trunk ? 0.9 : 0.8) ? 1 : 0);
+        if (nx < 1 || nx >= cols - 1 || ny < 1) continue;
+        const glyph = b.life < 6 ? "&" : drift > 0 ? "\\" : drift < 0 ? "/" : b.trunk ? "|" : "~";
+        ctx.fillStyle = b.life < 6 ? accent : b.trunk ? "#a3874f" : "#7d6a3f";
+        ctx.fillText(glyph, nx * cw, ny * font);
+        const life = b.life - 1;
+        if (life <= 0) continue;
+        next.push({ x: nx, y: ny, dx: drift, life, trunk: b.trunk && Math.random() < 0.86 });
+        // 갈라지기 — 수명이 넉넉할 때만(끝에서 갈라지면 덤불이 된다).
+        if (life > 8 && Math.random() < (b.trunk ? 0.34 : 0.12) && next.length < 40) {
+          next.push({ x: nx, y: ny, dx: -drift || (Math.random() < 0.5 ? 1 : -1), life: Math.floor(life * 0.7), trunk: false });
+        }
+      }
+      live = next;
+    },
+  };
+};
+
+export const SAVER_NAMES = ["matrix", "starfield", "clock", "mystify", "constellation", "shell", "pipes", "aquarium", "donut", "fire", "train", "bonsai"] as const;
 export type SaverName = (typeof SAVER_NAMES)[number];
 const FACTORIES: Record<SaverName, SaverFactory> = {
   matrix: matrixRain,
@@ -753,6 +976,9 @@ const FACTORIES: Record<SaverName, SaverFactory> = {
   pipes,
   aquarium,
   donut,
+  fire,
+  train,
+  bonsai,
 };
 
 let overlay: HTMLDivElement | null = null;

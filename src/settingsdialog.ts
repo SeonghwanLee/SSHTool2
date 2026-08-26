@@ -171,6 +171,9 @@ export function settingsDialog(
       ["pipes", "파이프"],
       ["aquarium", "아스키 수족관"],
       ["donut", "도넛"],
+      ["fire", "불꽃"],
+      ["train", "증기기관차"],
+      ["bonsai", "분재"],
     ];
     for (const [v, label] of SAVER_LABELS) {
       const o = document.createElement("option");
