@@ -51,6 +51,15 @@ export interface Settings {
   collapsedFolders: string[];
   /** 무활동 자동 잠금(분). 0 = 사용 안 함. */
   autoLockMinutes: number;
+  /**
+   * 화면보호기가 뜨기까지의 무활동 시간(분). 0 = 띄우지 않음.
+   *
+   * 0.86.0 이전에는 이 값이 없었고 autoLockMinutes 하나가 둘을 겸했다 — 0이면 '잠그지
+   * 않고 5분 뒤 화면보호기', 1 이상이면 '그 시간에 잠그고 화면보호기는 영영 안 뜸'.
+   * 그래서 '화면보호기 5분 + 잠금 30분' 같은 당연한 조합이 불가능했고, 화면보호기가
+   * 싫으면 잠금을 켜는 수밖에 없었다(사용자 지적). 둘을 갈라 놓는다.
+   */
+  screensaverMinutes: number;
   /** 세션 화면 배치(탭/세로 분할/가로 분할). */
   viewMode: ViewModeSetting;
   /**
@@ -130,6 +139,7 @@ export const DEFAULT_SETTINGS: Settings = {
   folders: [],
   collapsedFolders: [],
   autoLockMinutes: 0,
+  screensaverMinutes: 5,
   viewMode: "tabs",
   splitGroups: [],
   checkUpdateOnStartup: true,
@@ -201,6 +211,13 @@ export async function loadSettings(): Promise<Settings> {
     if (typeof merged.sftpLocalDir !== "string") merged.sftpLocalDir = "";
     // 구버전 파일에는 없던 항목 — 형식이 깨져 있으면 트리 정렬이 통째로 멈춘다.
     if (!merged.folderSort || typeof merged.folderSort !== "object") merged.folderSort = {};
+    // 화면보호기 시간 이관(0.86.0) — 예전 파일에는 이 항목이 없다. **지금 하던 대로**
+    // 옮겨야 판올림만으로 동작이 달라지지 않는다: 잠금이 0이었으면 5분 뒤 화면보호기가
+    // 떴고, 1 이상이었으면 화면보호기는 뜨지 않았다.
+    if (typeof (raw as Partial<Settings>)?.screensaverMinutes !== "number")
+      merged.screensaverMinutes = merged.autoLockMinutes > 0 ? 0 : 5;
+    if (!Number.isFinite(merged.screensaverMinutes)) merged.screensaverMinutes = 5;
+    merged.screensaverMinutes = Math.max(0, Math.min(720, Math.round(merged.screensaverMinutes)));
     // 삭제된 화면보호기(생명게임·프롬프트 등)를 골라 뒀던 파일 방어 — 무작위로 되돌린다.
     if (merged.screensaver !== "random" && !(SAVER_NAMES as readonly string[]).includes(merged.screensaver))
       merged.screensaver = "random";

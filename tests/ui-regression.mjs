@@ -399,7 +399,7 @@ try {
       await page.click("#open-settings");
       await page.waitForTimeout(300);
       await page.evaluate(() =>
-        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "보안")?.click(),
+        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "모양")?.click(),
       );
       await page.waitForTimeout(200);
       // 드롭다운에서 '별하늘' 선택 후 미리보기 — 여는 클릭의 마우스 이동에도 살아남아야 한다.
@@ -601,8 +601,9 @@ try {
       await page.click("#open-settings");
       await page.waitForTimeout(300);
       await page.evaluate(() =>
-        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "터미널")?.click(),
+        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "모양")?.click(),
       );
+      await page.waitForTimeout(200);
       await page.evaluate(() => {
         const row = [...document.querySelectorAll(".check-row")].find((r) =>
           r.textContent.includes("세션 세부 정보 표시"),
@@ -792,6 +793,73 @@ try {
       );
       // 진짜 Esc 로 편집 창 닫기(정리)
       await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    });
+
+    await t.test("자동 잠금 / 화면보호기 — 서로 다른 항목이고 저장까지 살아남는다", async () => {
+      // 왜: 예전에는 autoLockMinutes 하나가 둘을 겸했다 — 0이면 '잠금 없음 + 5분 화면보호기',
+      // 1 이상이면 '그 시간에 잠금 + 화면보호기 영영 없음'. '화면보호기 5분 + 잠금 30분'
+      // 같은 당연한 조합이 불가능했다(사용자 지적).
+      await dismissModals(page);
+      await page.click("#open-settings");
+      await page.waitForTimeout(300);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "보안")?.click(),
+      );
+      await page.waitForTimeout(200);
+      const rowsOf = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll(".control-row")]
+            .filter((r) => r.offsetParent !== null)
+            .map((r) => r.textContent?.replace(/\s+/g, " ").trim() ?? ""),
+        );
+      const 잠금줄 = (await rowsOf()).find((r) => r.includes("무활동 자동 잠금"));
+      expect(!!잠금줄, "보안 탭에 자동 잠금 항목이 없다");
+      expect(
+        !잠금줄.includes("화면보호기"),
+        `자동 잠금 이름이 아직 화면보호기를 겸한다: ${잠금줄}`,
+      );
+      // 화면보호기는 '모양' 으로 옮겼다(배치 정리) — 잠금과 다른 탭에 있어야 한다.
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === "모양")?.click(),
+      );
+      await page.waitForTimeout(200);
+      const 보호기줄 = (await rowsOf()).find((r) => r.includes("대기 시간"));
+      expect(!!보호기줄, "모양 탭에 화면보호기 대기 시간이 없다 — 분리되지 않았다");
+
+      // 둘 다 값을 넣고 저장 → 다시 읽었을 때 살아 있는지(저장 왕복).
+      const saved = await page.evaluate(async () => {
+        const num = (label) => {
+          const row = [...document.querySelectorAll(".control-row")].find((r) =>
+            r.textContent?.includes(label),
+          );
+          return row?.querySelector("input[type=number]") ?? null;
+        };
+        const tabTo = (name) =>
+          [...document.querySelectorAll(".settings-tab")].find((e) => e.textContent === name)?.click();
+        tabTo("모양");
+        const sv = num("대기 시간");
+        tabTo("보안");
+        const lock = num("무활동 자동 잠금");
+        if (!lock || !sv) return "입력칸을 찾지 못함";
+        lock.value = "30";
+        lock.dispatchEvent(new Event("change", { bubbles: true }));
+        sv.value = "7";
+        sv.dispatchEvent(new Event("change", { bubbles: true }));
+        [...document.querySelectorAll(".modal-buttons button")]
+          .find((b) => b.textContent === "저장")
+          ?.click();
+        await new Promise((r) => setTimeout(r, 400));
+        const last = window.__ipc.filter(([c]) => c === "settings_save").pop();
+        return last?.[1]?.value ?? "저장 호출 없음";
+      });
+      expect(typeof saved === "object", `설정이 저장되지 않았다: ${saved}`);
+      expect(saved.autoLockMinutes === 30, `자동 잠금이 저장되지 않았다: ${saved.autoLockMinutes}`);
+      expect(
+        saved.screensaverMinutes === 7,
+        `화면보호기 시간이 저장되지 않았다: ${saved.screensaverMinutes} — 둘이 아직 한 값을 쓰는지 보라`,
+      );
+      await dismissModals(page);
       await page.waitForTimeout(200);
     });
 

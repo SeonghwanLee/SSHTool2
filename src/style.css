@@ -1573,6 +1573,11 @@ body.dragging-tab * {
   font-size: 13px;
   color: var(--fg);
 }
+/* 다른 설정 때문에 지금은 못 쓰는 줄 — 흐리게 두되 값은 그대로 보인다(왜 못 쓰는지는
+   바로 아래 안내가 말해 준다). 숨기지 않는 이유: 사라지면 찾아 헤매게 된다. */
+.control-row.row-off {
+  opacity: 0.45;
+}
 .num-input,
 .path-input,
 .sel-input {

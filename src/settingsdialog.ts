@@ -152,7 +152,100 @@ export function settingsDialog(
     markTheme();
     look.appendChild(themeGrid);
 
-    look.appendChild(sectionLabel("터미널 글꼴"));
+    look.appendChild(sectionLabel("화면보호기"));
+    // 화면보호기 — 종류 선택(무작위 포함) + 미리보기. 처음(0.54.1)엔 미리보기만 있고
+    // 정작 고르는 설정이 없었다(사용자 지적).
+    const svRow = controlRow("종류");
+    const svWrap = document.createElement("div");
+    svWrap.className = "sv-preview-btns";
+    const svSel = document.createElement("select");
+    svSel.className = "sel-input";
+    const SAVER_LABELS: [ScreensaverChoice, string][] = [
+      ["random", "무작위"],
+      ["matrix", "매트릭스"],
+      ["starfield", "별하늘"],
+      ["clock", "시계"],
+      ["mystify", "춤추는 다각형"],
+      ["constellation", "별자리"],
+      ["shell", "셸 데모"],
+      ["pipes", "파이프"],
+      ["aquarium", "아스키 수족관"],
+      ["donut", "도넛"],
+      ["fire", "불꽃"],
+      ["train", "증기기관차"],
+      ["bonsai", "분재"],
+    ];
+    for (const [v, label] of SAVER_LABELS) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = label;
+      if (v === working.screensaver) o.selected = true;
+      svSel.appendChild(o);
+    }
+    svSel.addEventListener("change", () => {
+      working = { ...working, screensaver: svSel.value as ScreensaverChoice };
+      apply();
+    });
+    svWrap.append(
+      svSel,
+      mkSmallButton("미리보기", () => {
+        const v = svSel.value as ScreensaverChoice;
+        showScreensaver(v === "random" ? undefined : v);
+      }),
+    );
+    svRow.appendChild(svWrap);
+    look.appendChild(svRow);
+
+    // 화면보호기 시간 — 예전에는 5분으로 박혀 있었고 자동 잠금이 0일 때만 떴다(0.86.0 분리).
+    const svMinRow = controlRow("대기 시간 (분, 0=띄우지 않음)");
+    const svMinInput = numInput(String(working.screensaverMinutes), 0, 720, 1);
+    svMinInput.addEventListener("change", () => {
+      const v = clampNum(svMinInput, 0, 720, 5);
+      working = { ...working, screensaverMinutes: v };
+      apply();
+    });
+    svMinRow.appendChild(svMinInput);
+    look.appendChild(svMinRow);
+
+    const svHint = document.createElement("div");
+    svHint.className = "settings-hint";
+    svHint.textContent =
+      "정한 시간 동안 입력이 없으면 여기서 고른 화면보호기가 뜹니다. 자동 잠금과는 따로 동작합니다 — 둘 다 켜 두면 이른 쪽이 먼저 뜹니다. 미리보기는 마우스를 움직이면 닫힙니다.";
+    look.appendChild(svHint);
+
+    // 세션 목록 표시 설정은 '모양' 에 둔다(0.86.0 배치 정리) — 목록이 어떻게 보이는가에
+    // 관한 것이라 테마·글꼴과 한 갈래다. 예전에는 '터미널' 탭에 있었는데, 터미널 동작과는
+    // 상관이 없어 찾기 어려웠다(사용자 지적).
+    look.appendChild(sectionLabel("세션 목록"));
+    look.appendChild(
+      checkRow("최근 접속순으로 정렬", working.sortByRecent, (v) => {
+        working = { ...working, sortByRecent: v };
+        apply();
+      }),
+    );
+    look.appendChild(
+      checkRow("세션 세부 정보 표시 (user@host:port)", working.showSessionDetail, (v) => {
+        working = { ...working, showSessionDetail: v };
+        apply();
+      }),
+    );
+
+    const recentRow = controlRow("최근 접속 표시 개수 (0=숨김)");
+    const recent = numInput(String(working.recentLimit), 0, 50, 1);
+    recent.addEventListener("change", () => {
+      const v = clampNum(recent, 0, 50, 10);
+      working = { ...working, recentLimit: v };
+      apply();
+    });
+    recentRow.appendChild(recent);
+    look.appendChild(recentRow);
+
+    // ══════════ 탭: 터미널 ══════════
+    const term = addTab("term", "터미널");
+    // 글꼴 목록은 '터미널' 로 옮겼다(0.86.0 배치 정리). 예전에는 글꼴이 '모양' 에, 글꼴
+    // 크기가 '터미널' 에 있어 한 가지를 두 탭에서 나눠 만지게 했다. 목록이 길어 '모양'
+    // 아래쪽 항목(화면보호기·세션 목록)을 가리는 문제도 함께 사라진다.
+    term.appendChild(sectionLabel("글꼴"));
     const fontList = document.createElement("div");
     fontList.className = "font-list";
     const fontRows = new Map<string, HTMLElement>();
@@ -183,10 +276,12 @@ export function settingsDialog(
       for (const [id, el] of fontRows) el.classList.toggle("selected", id === working.fontFamily);
     };
     markFont();
-    look.appendChild(fontList);
+    term.appendChild(fontList);
 
-    // ══════════ 탭: 터미널 ══════════
-    const term = addTab("term", "터미널");
+    // 화면보호기도 '모양' 이다(0.86.0 배치 정리). 예전에는 '보안' 탭에 있었는데, 자동
+    // 잠금과 한 값을 나눠 쓰던 시절의 흔적이다 — 이제 서로 무관하니 보이는 것끼리 모은다.
+
+
 
     const sizeRow = controlRow("글꼴 크기 (전역 기본)");
     const size = numInput(String(working.fontSize), 9, 28, 1);
@@ -198,6 +293,7 @@ export function settingsDialog(
     sizeRow.appendChild(size);
     term.appendChild(sizeRow);
 
+    term.appendChild(sectionLabel("커서"));
     const cursorRow = controlRow("커서 모양");
     const cursorSel = document.createElement("select");
     cursorSel.className = "sel-input";
@@ -225,6 +321,7 @@ export function settingsDialog(
         apply();
       }),
     );
+    term.appendChild(sectionLabel("복사·붙여넣기"));
     term.appendChild(
       checkRow("선택 시 자동 복사 (copy-on-select)", working.copyOnSelect, (v) => {
         working = { ...working, copyOnSelect: v };
@@ -243,6 +340,7 @@ export function settingsDialog(
     pasteRow.appendChild(pasteIn);
     term.appendChild(pasteRow);
 
+    term.appendChild(sectionLabel("스크롤"));
     const scrollRow = controlRow("스크롤백 (줄)");
     const scroll = numInput(String(working.scrollback), 500, 100000, 500);
     scroll.addEventListener("change", () => {
@@ -253,38 +351,18 @@ export function settingsDialog(
     scrollRow.appendChild(scroll);
     term.appendChild(scrollRow);
 
-    term.appendChild(sectionLabel("세션 목록"));
-    term.appendChild(
-      checkRow("최근 접속순으로 정렬", working.sortByRecent, (v) => {
-        working = { ...working, sortByRecent: v };
-        apply();
-      }),
-    );
-    term.appendChild(
-      checkRow("세션 세부 정보 표시 (user@host:port)", working.showSessionDetail, (v) => {
-        working = { ...working, showSessionDetail: v };
-        apply();
-      }),
-    );
-
-    const recentRow = controlRow("최근 접속 표시 개수 (0=숨김)");
-    const recent = numInput(String(working.recentLimit), 0, 50, 1);
-    recent.addEventListener("change", () => {
-      const v = clampNum(recent, 0, 50, 10);
-      working = { ...working, recentLimit: v };
-      apply();
-    });
-    recentRow.appendChild(recent);
-    term.appendChild(recentRow);
-
     // ══════════ 탭: 보안 ══════════
     const sec = addTab("sec", "보안");
 
-    const lockRow = controlRow("무활동 자동 잠금 (분, 0=화면보호기)");
+    sec.appendChild(sectionLabel("잠금"));
+    const lockRow = controlRow("무활동 자동 잠금 (분, 0=사용 안 함)");
     lockRow.firstChild?.after(
       helpIcon(
-        "1분 이상이면 그 시간 동안 입력이 없을 때 볼트를 잠급니다.\n" +
-          "0이면 잠그지 않고, 5분 무활동 시 화면보호기(움직이는 애니메이션)를 띄웁니다.",
+        "그 시간 동안 입력이 없으면 볼트를 잠급니다. 0이면 잠그지 않습니다.\n" +
+          "화면보호기와는 따로 동작합니다(화면 탭에서 시간을 정합니다).\n\n" +
+          "'이 PC에서 자동 잠금 해제'가 켜져 있으면 이 항목은 쓰지 않습니다 — 그 상태로 잠기면 " +
+          "키체인으로 풀리지 않아(자동 해제는 시작할 때 한 번만 돕니다) 마스터 비밀번호를 " +
+          "다시 넣어야 하기 때문입니다.",
         "자동 잠금 안내",
       ),
     );
@@ -297,48 +375,6 @@ export function settingsDialog(
     lockRow.appendChild(lockInput);
     sec.appendChild(lockRow);
 
-    // 화면보호기 — 종류 선택(무작위 포함) + 미리보기. 처음(0.54.1)엔 미리보기만 있고
-    // 정작 고르는 설정이 없었다(사용자 지적).
-    const svRow = controlRow("화면보호기");
-    const svWrap = document.createElement("div");
-    svWrap.className = "sv-preview-btns";
-    const svSel = document.createElement("select");
-    svSel.className = "sel-input";
-    const SAVER_LABELS: [ScreensaverChoice, string][] = [
-      ["random", "무작위"],
-      ["matrix", "매트릭스"],
-      ["starfield", "별하늘"],
-      ["clock", "시계"],
-      ["mystify", "춤추는 다각형"],
-      ["constellation", "별자리"],
-      ["shell", "셸 데모"],
-    ];
-    for (const [v, label] of SAVER_LABELS) {
-      const o = document.createElement("option");
-      o.value = v;
-      o.textContent = label;
-      if (v === working.screensaver) o.selected = true;
-      svSel.appendChild(o);
-    }
-    svSel.addEventListener("change", () => {
-      working = { ...working, screensaver: svSel.value as ScreensaverChoice };
-      apply();
-    });
-    svWrap.append(
-      svSel,
-      mkSmallButton("미리보기", () => {
-        const v = svSel.value as ScreensaverChoice;
-        showScreensaver(v === "random" ? undefined : v);
-      }),
-    );
-    svRow.appendChild(svWrap);
-    sec.appendChild(svRow);
-    const svHint = document.createElement("div");
-    svHint.className = "settings-hint";
-    svHint.textContent =
-      "무활동 5분 후(자동 잠금이 0일 때) 여기서 고른 화면보호기가 뜹니다. 미리보기는 마우스를 움직이면 닫힙니다.";
-    sec.appendChild(svHint);
-
     const autoRow = document.createElement("label");
     autoRow.className = "check-row control-row";
     const autoBox = document.createElement("input");
@@ -347,17 +383,39 @@ export function settingsDialog(
     const autoText = document.createElement("span");
     autoText.textContent = "이 PC에서 자동 잠금 해제 (OS 키체인, 다른 PC에서는 안 됨)";
     autoRow.append(autoText, autoBox);
+    /**
+     * 자동 해제가 켜져 있으면 무활동 잠금 칸을 잠근다(0.86.0, 사용자 요청).
+     *
+     * 값은 지우지 않는다 — 체크를 풀면 적어 둔 시간이 그대로 되살아난다. 흐리게만 두고
+     * 왜 못 쓰는지 옆에 적어, 눌리지 않는 이유를 찾아 헤매지 않게 한다.
+     */
+    const lockNote = document.createElement("div");
+    lockNote.className = "settings-hint";
+    lockNote.textContent =
+      "'이 PC에서 자동 잠금 해제'가 켜져 있어 무활동 자동 잠금은 쓰지 않습니다.";
+    lockRow.after(lockNote);
+    const syncLockRow = () => {
+      const off = autoBox.checked;
+      lockInput.disabled = off;
+      lockRow.classList.toggle("row-off", off);
+      lockNote.style.display = off ? "" : "none";
+    };
+    syncLockRow();
+
     autoBox.addEventListener("change", async () => {
       autoBox.disabled = true;
       autoBox.checked = await autoUnlock.toggle(autoBox.checked);
       autoBox.disabled = false;
+      syncLockRow();
     });
     sec.appendChild(autoRow);
 
+    sec.appendChild(sectionLabel("볼트"));
     const masterRow = controlRow("마스터 비밀번호");
     masterRow.appendChild(mkSmallButton("변경…", () => onChangeMaster()));
     sec.appendChild(masterRow);
 
+    sec.appendChild(sectionLabel("서버 신뢰"));
     const hostRow = controlRow("알려진 호스트(서버 지문)");
     hostRow.appendChild(mkSmallButton("관리…", () => void knownHostsDialog()));
     sec.appendChild(hostRow);
@@ -365,6 +423,7 @@ export function settingsDialog(
     // ══════════ 탭: 일반 ══════════
     const gen = addTab("gen", "일반");
 
+    gen.appendChild(sectionLabel("업데이트"));
     gen.appendChild(
       checkRow("시작 시 업데이트 확인 (내부망이면 꺼두세요)", working.checkUpdateOnStartup, (v) => {
         // 다시 켜는 행위 = "이 PC 는 인터넷이 된다"는 선언. 내부망 모드의 탈출구다 —
@@ -385,6 +444,7 @@ export function settingsDialog(
     // 전송 속도 상한의 '기본값'. 급할 때 줄이는 것은 SFTP 창에서 즉석으로 한다.
     // 저장은 KB/s 하나로 하고 화면에서만 단위를 고른다 — 값과 단위를 따로 저장하면
     // 둘이 어긋난 파일이 생길 수 있다(예: 단위만 MB 로 바뀐 채 값이 그대로).
+    gen.appendChild(sectionLabel("SFTP"));
     const rateRow = controlRow("SFTP 전송 속도 제한 (0=무제한)");
     const rateWrap = document.createElement("span");
     rateWrap.className = "rate-wrap";

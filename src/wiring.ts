@@ -44,7 +44,12 @@ export function wireSettings(tabs: TabManager): void {
       () => void changeMasterFlow(),
       {
         initial: await keystoreHas().catch(() => false),
-        toggle: (enable) => toggleAutoUnlock(enable),
+        toggle: async (enable) => {
+          const on = await toggleAutoUnlock(enable);
+          // 켜면 무활동 잠금을 세우지 않는다(끄면 설정값대로 되살아난다).
+          setAutoUnlockOn(on);
+          return on;
+        },
       },
     );
     if (saved) {
@@ -381,10 +386,28 @@ function openSftpForActive(): void {
   void openSftpFor(s); // 차단된 세션인지는 이 안에서 함께 본다
 }
 
+/**
+ * '이 PC 에서 자동 잠금 해제'가 켜져 있는가 — 무활동 잠금을 걸지 말지 가른다(0.86.0).
+ *
+ * 왜: 키체인에 마스터를 넣어 두고도 무활동으로 잠기면, 그 잠금은 **키체인으로 풀리지
+ * 않는다**(자동 해제는 앱을 시작할 때 한 번만 돈다). 이 PC 를 믿기로 해 놓고 비밀번호를
+ * 다시 손으로 넣어야 하는 셈이라 앞뒤가 맞지 않는다(사용자 지적). 켜져 있으면 잠그지
+ * 않는다 — 설정값은 그대로 두므로, 체크를 풀면 예전 값이 그대로 되살아난다.
+ */
+let autoUnlockOn = false;
+export function setAutoUnlockOn(on: boolean): void {
+  autoUnlockOn = on;
+  restartAutoLock();
+}
+export function isAutoUnlockOn(): boolean {
+  return autoUnlockOn;
+}
+
 /** 잠금 상태를 사이드바 오버레이에 반영(잠김 시 세션명 숨김). */
 let autoLockTimer = 0;
 export function restartAutoLock(): void {
   window.clearTimeout(autoLockTimer);
+  if (autoUnlockOn) return;
   const minutes = settings?.autoLockMinutes ?? 0;
   if (minutes <= 0) return;
   autoLockTimer = window.setTimeout(
@@ -396,21 +419,35 @@ export function restartAutoLock(): void {
   );
 }
 
-/** 화면보호기 유휴 타이머(무활동 자동잠금=0 일 때만). 기본 5분. */
+/**
+ * 화면보호기 유휴 타이머 — 자기 설정값(screensaverMinutes)만 본다(0.86.0).
+ *
+ * 예전에는 '자동 잠금이 0일 때만 5분 뒤'였다. 숫자 하나가 두 기능을 겸해서, 잠금을 켜면
+ * 화면보호기가 영영 뜨지 않았다. 이제 둘은 서로를 모른다 — 둘 다 켜 두면 이른 쪽이 먼저
+ * 뜨고, 늦은 쪽이 그 위에 얹힌다.
+ */
 let screensaverTimer = 0;
-const SCREENSAVER_IDLE_MS = 5 * 60 * 1000;
 export function restartScreensaver(): void {
   window.clearTimeout(screensaverTimer);
   if (isScreensaverOn()) hideScreensaver();
-  // 자동 잠금이 켜져 있으면(>0) 잠금이 우선 — 화면보호기는 띄우지 않는다.
-  if ((settings?.autoLockMinutes ?? 0) !== 0) return;
-  screensaverTimer = window.setTimeout(() => {
-    const pick = settings.screensaver;
-    showScreensaver(pick === "random" ? undefined : pick);
-  }, SCREENSAVER_IDLE_MS);
+  const minutes = settings?.screensaverMinutes ?? 0;
+  if (minutes <= 0) return;
+  screensaverTimer = window.setTimeout(
+    () => {
+      const pick = settings.screensaver;
+      showScreensaver(pick === "random" ? undefined : pick);
+    },
+    minutes * 60 * 1000,
+  );
 }
 
 export function wireAutoLock(): void {
+  // 시작 시 키체인 상태를 한 번 읽어 둔다 — 이 값이 무활동 잠금을 걸지 말지 가른다.
+  void keystoreHas()
+    .then((on) => setAutoUnlockOn(on))
+    .catch(() => {
+      /* 못 읽으면 잠금을 켜 두는 쪽(안전한 쪽)으로 남는다 */
+    });
   const onActivity = () => {
     if (isScreensaverOn()) hideScreensaver();
     restartAutoLock();

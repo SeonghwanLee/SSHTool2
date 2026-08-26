@@ -469,7 +469,502 @@ const shellDemo: SaverFactory = (canvas, ctx, accent) => {
 };
 
 /** 이름 → 팩토리. 테스트가 특정 것을 강제할 수 있도록 이름을 공개한다. */
-export const SAVER_NAMES = ["matrix", "starfield", "clock", "mystify", "constellation", "shell"] as const;
+// ── ⑦ 파이프(pipes.sh) — 격자를 따라 뻗어 나가는 배관 ────────────────────────
+//
+// 고전 터미널 화면보호기를 글자로 옮긴 것. 파이프 여러 가닥이 칸을 따라 나아가다 이따금
+// 방향을 틀고, 꺾이는 자리에는 모서리 글자를 놓는다. 화면이 어지간히 차면 지우고 다시
+// 시작한다 — 원본과 같은 리듬이다.
+const pipes: SaverFactory = (canvas, ctx, accent) => {
+  // 칸 크기 — 글자가 아니라 선으로 그린다.
+  //
+  // 처음에는 상자 그리기 글자(━ ┃ ┏ ┓)로 그렸는데, 글꼴에 따라 그 글자가 칸을 꽉 채우지
+  // 않아 가로선이 점선처럼 끊겼다(실제로 그렇게 나왔고, 자릿수 폭·잉크 폭 어느 쪽으로
+  // 맞춰도 남았다 — 글꼴 대체가 일어나면 측정값으로도 잡히지 않는다). 원본의 인상은
+  // '격자를 따라 꺾이며 뻗는 배관' 이지 특정 글자가 아니므로, 선으로 그려 어떤 환경에서도
+  // 이어지게 한다.
+  const CELL = 22;
+  const DX = [1, 0, -1, 0];
+  const DY = [0, 1, 0, -1];
+  // 색은 테마 강조색을 축으로 명도만 흔든다 — 무지개색은 앱과 따로 놀아 보인다.
+  const SHADES = ["#ffffff", accent, accent, accent, "#8899aa"];
+
+  interface Pipe {
+    x: number;
+    y: number;
+    dir: number;
+    color: string;
+  }
+  let cols = 0;
+  let rows = 0;
+  let pipes: Pipe[] = [];
+  let drawn = 0;
+
+  const spawn = (): Pipe => ({
+    x: Math.floor(Math.random() * cols),
+    y: Math.floor(Math.random() * rows),
+    dir: Math.floor(Math.random() * 4),
+    color: SHADES[Math.floor(Math.random() * SHADES.length)],
+  });
+  const clear = () => {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawn = 0;
+  };
+  const reset = () => {
+    cols = Math.max(4, Math.floor(canvas.width / CELL));
+    rows = Math.max(4, Math.floor(canvas.height / CELL));
+    pipes = Array.from({ length: 4 }, spawn);
+    clear();
+  };
+  reset();
+
+  /** 칸의 한가운데 좌표 — 이어 그리면 꺾이는 자리가 저절로 맞물린다. */
+  const cx = (x: number) => x * CELL + CELL / 2;
+  const cy = (y: number) => y * CELL + CELL / 2;
+
+  return {
+    reset,
+    step() {
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      for (const p of pipes) {
+        const fromX = cx(p.x);
+        const fromY = cy(p.y);
+        // 이따금 방향을 튼다(직진만 하면 지루하다).
+        if (Math.random() < 0.18) p.dir = (p.dir + (Math.random() < 0.5 ? 1 : 3)) % 4;
+        const nx = p.x + DX[p.dir];
+        const ny = p.y + DY[p.dir];
+        // 화면 밖으로 나가면 다른 자리에서 새로 시작한다(경계를 넘어 그리지 않는다).
+        if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) {
+          Object.assign(p, spawn());
+          continue;
+        }
+        ctx.strokeStyle = p.color;
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(cx(nx), cy(ny));
+        ctx.stroke();
+        p.x = nx;
+        p.y = ny;
+        drawn++;
+      }
+      // 어지간히 차면 지우고 다시 — 원본도 이렇게 숨을 돌린다.
+      if (drawn > cols * rows * 0.7) clear();
+    },
+  };
+};
+
+// ── ⑧ 아스키 수족관(asciiquarium) — 글자로 그린 물속 ────────────────────────
+//
+// 물고기가 좌우로 헤엄치고, 거품이 올라가고, 해초가 흔들린다. 원본처럼 여러 겹으로
+// 겹쳐 두되(깊이), 글자만으로 그린다.
+const aquarium: SaverFactory = (canvas, ctx, accent) => {
+  const FONT = 16;
+  const FONT_CSS = `${FONT}px ui-monospace, Consolas, "D2Coding", monospace`;
+  // 물고기는 한 줄짜리 고전 도안으로 둔다. 두 줄로 그렸더니 윗줄이 몸통과 떨어져
+  // 부스러기처럼 보였다(첫 시안). 대신 종류와 마릿수를 늘려 수족관답게 채운다.
+  const FISH_R = ["><>", "><((º>", ">-=>", "><(((°>", "}-{{{*>", "><)))°>"];
+  const MIRROR: Record<string, string> = {
+    ">": "<", "<": ">", "(": ")", ")": "(", "{": "}", "}": "{", "\\": "/", "/": "\\",
+  };
+  const flip = (line: string) => [...line].reverse().map((c) => MIRROR[c] ?? c).join("");
+  const COLORS = ["#f2c14e", "#e08d4c", "#6fb3d2", "#9ad1a3", "#d98cb3", accent];
+
+  interface Fish {
+    x: number;
+    y: number;
+    vx: number;
+    art: string;
+    color: string;
+  }
+  let cols = 0;
+  let rows = 0;
+  let cw = FONT * 0.6;
+  let fish: Fish[] = [];
+  let bubbles: { x: number; y: number }[] = [];
+  let weeds: { x: number; h: number; phase: number }[] = [];
+  let t = 0;
+  const target = () => Math.max(6, Math.floor(cols / 7));
+
+  const newFish = (atEdge: boolean): Fish => {
+    const right = Math.random() < 0.5;
+    const base = FISH_R[Math.floor(Math.random() * FISH_R.length)];
+    const speed = 0.2 + Math.random() * 0.6;
+    return {
+      x: atEdge ? (right ? -base.length : cols + 1) : Math.random() * cols,
+      y: 2 + Math.random() * Math.max(1, rows - 7),
+      vx: right ? speed : -speed,
+      art: right ? base : flip(base),
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    };
+  };
+  const reset = () => {
+    ctx.font = FONT_CSS;
+    cw = ctx.measureText("M").width || FONT * 0.6;
+    cols = Math.max(20, Math.floor(canvas.width / cw));
+    rows = Math.max(10, Math.floor(canvas.height / FONT));
+    fish = Array.from({ length: target() }, () => newFish(false));
+    bubbles = [];
+    weeds = Array.from({ length: Math.max(4, Math.floor(cols / 12)) }, () => ({
+      x: Math.floor(Math.random() * cols),
+      h: 4 + Math.floor(Math.random() * 7),
+      phase: Math.random() * 6,
+    }));
+    t = 0;
+  };
+  reset();
+
+  const put = (text: string, cx: number, cy: number, color: string) => {
+    ctx.fillStyle = color;
+    ctx.fillText(text, cx * cw, cy * FONT);
+  };
+
+  return {
+    reset,
+    step() {
+      t += 1;
+      ctx.fillStyle = "#04121c"; // 물빛 — 검정보다 물속처럼 보인다
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = FONT_CSS;
+      ctx.textBaseline = "top";
+
+      // 수면 — 물결이 천천히 흐른다
+      let surface = "";
+      for (let i = 0; i < cols; i++) surface += (i + Math.floor(t / 4)) % 6 < 3 ? "~" : "^";
+      put(surface, 0, 0, "#2b6f8f");
+
+      // 해초 — 좌우로 흔들린다(바닥에서 자란다)
+      for (const w of weeds) {
+        for (let i = 0; i < w.h; i++) {
+          put(Math.sin(t / 12 + w.phase + i / 2) > 0 ? ")" : "(", w.x, rows - 1 - i, "#2e7d4f");
+        }
+      }
+
+      // 거품 — 물고기 입에서 나와 수면으로 오른다
+      if (Math.random() < 0.35 && fish.length) {
+        const f = fish[Math.floor(Math.random() * fish.length)];
+        bubbles.push({ x: f.x + (f.vx > 0 ? f.art.length : -1), y: f.y });
+      }
+      bubbles = bubbles.filter((b) => b.y > 1);
+      for (const b of bubbles) {
+        b.y -= 0.3;
+        put(b.y % 2 < 1 ? "·" : "o", b.x, b.y, "#7fd3f0");
+      }
+
+      // 물고기
+      for (const f of fish) {
+        f.x += f.vx;
+        put(f.art, f.x, f.y, f.color);
+      }
+      fish = fish.filter((f) => f.x > -12 && f.x < cols + 12);
+      while (fish.length < target()) fish.push(newFish(true));
+    },
+  };
+};
+
+// ── ⑨ 회전하는 도넛(donut.c) — 밝기를 글자로 옮긴 고전 데모 ─────────────────
+//
+// 원환면 위의 점을 두 축으로 돌려 화면에 투영하고, 빛이 닿는 정도를 글자 밝기로 바꾼다.
+// 자산 없이 수식만으로 그리는 물건이라 아스키 아트의 상징처럼 남았다.
+const donut: SaverFactory = (canvas, ctx, accent) => {
+  const SHADES = ".,-~:;=!*#$@"; // 어두운 → 밝은
+  const R1 = 1;
+  const R2 = 2;
+  const K2 = 5;
+  let cols = 0;
+  let rows = 0;
+  let cw = 8;
+  let ch = 16;
+  let font = 16;
+  let A = 0;
+  let B = 0;
+
+  const reset = () => {
+    // 글자가 너무 작으면 도넛이 뭉개지고, 크면 화면을 못 채운다 — 화면 크기에 맞춘다.
+    font = Math.max(10, Math.min(20, Math.round(canvas.height / 42)));
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    cw = ctx.measureText("M").width || font * 0.6;
+    ch = font;
+    cols = Math.max(20, Math.floor(canvas.width / cw));
+    rows = Math.max(12, Math.floor(canvas.height / ch));
+    A = 0;
+    B = 0;
+  };
+  reset();
+
+  return {
+    reset,
+    step() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+      ctx.textBaseline = "top";
+      ctx.fillStyle = accent;
+
+      // 크기는 **좁은 쪽**에 맞춘다. 가로만 보고 잡았더니 넓은 화면에서 도넛이 위아래로
+      // 넘쳐 화면을 가득 채웠다(첫 시안). 글자칸은 세로로 길어서 rows*2 로 환산한다.
+      const K1 = (Math.min(cols, rows * 2) * 0.82 * K2 * 3) / (8 * (R1 + R2));
+      const out: string[] = new Array(rows).fill("").map(() => " ".repeat(cols));
+      const buf: string[][] = out.map((r) => [...r]);
+      const zbuf = new Float32Array(cols * rows);
+
+      const cA = Math.cos(A), sA = Math.sin(A), cB = Math.cos(B), sB = Math.sin(B);
+      for (let th = 0; th < 6.28; th += 0.07) {
+        const ct = Math.cos(th), st = Math.sin(th);
+        for (let ph = 0; ph < 6.28; ph += 0.02) {
+          const cp = Math.cos(ph), sp = Math.sin(ph);
+          const circleX = R2 + R1 * ct;
+          const circleY = R1 * st;
+          const x = circleX * (cB * cp + sA * sB * sp) - circleY * cA * sB;
+          const y = circleX * (sB * cp - sA * cB * sp) + circleY * cA * cB;
+          const z = K2 + cA * circleX * sp + circleY * sA;
+          const ooz = 1 / z;
+          const xp = Math.floor(cols / 2 + K1 * ooz * x);
+          const yp = Math.floor(rows / 2 - (K1 / 2) * ooz * y);
+          if (xp < 0 || xp >= cols || yp < 0 || yp >= rows) continue;
+          // 빛이 닿는 정도(-√2 ~ √2)
+          const L = cp * ct * sB - cA * ct * sp - sA * st + cB * (cA * st - ct * sA * sp);
+          if (L <= 0) continue;
+          const idx = xp + yp * cols;
+          if (ooz > zbuf[idx]) {
+            zbuf[idx] = ooz;
+            buf[yp][xp] = SHADES[Math.min(SHADES.length - 1, Math.floor(L * 8))];
+          }
+        }
+      }
+      // 줄 단위로 한 번에 그린다 — 글자마다 그리면 프레임마다 수천 번이 된다.
+      for (let y = 0; y < rows; y++) ctx.fillText(buf[y].join(""), 0, y * ch);
+      A += 0.06;
+      B += 0.03;
+    },
+  };
+};
+
+// ── ⑩ 불꽃(aafire) — 바닥에서 피어올라 식는다 ───────────────────────────────
+//
+// 칸마다 열을 두고 아래에서 위로 번지게 하면서 조금씩 식힌다. 그 열을 밀도 글자로
+// 바꿔 찍으면 불처럼 보인다. aalib 시절부터 있던 방식이다.
+const fire: SaverFactory = (canvas, ctx) => {
+  const CHARS = " .:*sS#$@";
+  const COLORS = ["#000000", "#3a0d05", "#7a1c06", "#c34710", "#e87a1a", "#f5b731", "#ffe08a", "#fff3c4", "#ffffff"];
+  let cols = 0;
+  let rows = 0;
+  let cw = 8;
+  let font = 14;
+  let heat = new Float32Array(0);
+
+  const reset = () => {
+    font = Math.max(10, Math.min(18, Math.round(canvas.height / 48)));
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    cw = ctx.measureText("M").width || font * 0.6;
+    cols = Math.max(20, Math.floor(canvas.width / cw));
+    rows = Math.max(12, Math.floor(canvas.height / font));
+    heat = new Float32Array(cols * rows);
+  };
+  reset();
+
+  return {
+    reset,
+    step() {
+      // 바닥에 불씨를 뿌린다 — 군데군데 세게 넣어야 혀가 갈라진다.
+      const base = (rows - 1) * cols;
+      for (let x = 0; x < cols; x++) heat[base + x] = Math.random() < 0.85 ? 1 : Math.random() * 0.4;
+      // 위로 번지며 식는다.
+      for (let y = 0; y < rows - 1; y++) {
+        for (let x = 0; x < cols; x++) {
+          const below = (y + 1) * cols;
+          const l = heat[below + (x > 0 ? x - 1 : 0)];
+          const c = heat[below + x];
+          const r = heat[below + (x < cols - 1 ? x + 1 : cols - 1)];
+          const cc = y + 2 < rows ? heat[(y + 2) * cols + x] : c;
+          // 식는 정도를 칸마다 흔든다 — 고르게 식히면 불이 아니라 벽처럼 보인다.
+          // 첫 시안은 냉각이 약해 화면 전체가 불바다가 됐다.
+          heat[y * cols + x] = Math.max(0, (l + c + r + cc) / 4.02 - (0.012 + Math.random() * 0.05));
+        }
+      }
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+      ctx.textBaseline = "top";
+      // 밝기 단계마다 한 번씩만 그린다(칸마다 그리면 프레임당 수천 번이 된다).
+      for (let lv = 1; lv < CHARS.length; lv++) {
+        ctx.fillStyle = COLORS[lv];
+        for (let y = 0; y < rows; y++) {
+          let line = "";
+          let any = false;
+          for (let x = 0; x < cols; x++) {
+            const v = Math.min(CHARS.length - 1, Math.floor(heat[y * cols + x] * (CHARS.length - 1) + 0.5));
+            if (v === lv) {
+              line += CHARS[lv];
+              any = true;
+            } else line += " ";
+          }
+          if (any) ctx.fillText(line, 0, y * font);
+        }
+      }
+    },
+  };
+};
+
+// ── ⑪ 증기기관차(sl) — 화면을 가로지르는 기차 ───────────────────────────────
+//
+// ls 를 잘못 쳤을 때 나오는 그 기차. 연기를 뿜으며 지나가고, 다 지나가면 잠시 뒤 다시 온다.
+const train: SaverFactory = (canvas, ctx, accent) => {
+  const LOCO = [
+    "      ====        ________                ___________",
+    "  _D _|  |_______/        \\__I_I_____===__|_________|",
+    "   |(_)---  |   H\\________/ |   |        =|___ ___|  ",
+    "   /     |  |   H  |  |     |   |         ||_| |_||  ",
+    "  |      |  |   H  |__--------------------| [___] |  ",
+    "  | ________|___H__/__|_____/[][]~\\_______|       |  ",
+    "  |/ |   |-----------I_____I [][] []  D   |=======|__",
+    "__/ =| o |=-~~\\  /~~\\  /~~\\  /~~\\ ____Y___________|__",
+    " |/-=|___|=O=====O=====O=====O   |_____/~\\___/     ",
+    "  \\_/      \\__/  \\__/  \\__/  \\__/      \\_/         ",
+  ];
+  const SMOKE = ["(   )", "(    )", "(  )", "( )"];
+  let cw = 8;
+  let font = 14;
+  let cols = 0;
+  let rows = 0;
+  let x = 0;
+  let puffs: { x: number; y: number; k: number }[] = [];
+  let t = 0;
+
+  const reset = () => {
+    font = Math.max(11, Math.min(20, Math.round(canvas.width / 95)));
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    cw = ctx.measureText("M").width || font * 0.6;
+    cols = Math.max(30, Math.floor(canvas.width / cw));
+    rows = Math.max(14, Math.floor(canvas.height / font));
+    x = cols + 4;
+    puffs = [];
+    t = 0;
+  };
+  reset();
+
+  return {
+    reset,
+    step() {
+      t++;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+      ctx.textBaseline = "top";
+
+      const top = Math.floor(rows / 2) - Math.floor(LOCO.length / 2);
+      // 연기 — 굴뚝 자리에서 피어올라 뒤로 흘러간다.
+      if (t % 3 === 0) puffs.push({ x: x + 8, y: top - 1, k: 0 });
+      puffs = puffs.filter((p) => p.y > -2 && p.x < cols + 10);
+      ctx.fillStyle = "#7a8a99";
+      for (const p of puffs) {
+        p.y -= 0.34;
+        p.x += 0.5;
+        p.k++;
+        ctx.fillText(SMOKE[Math.min(SMOKE.length - 1, Math.floor(p.k / 6))], p.x * cw, p.y * font);
+      }
+      // 기관차
+      ctx.fillStyle = accent;
+      for (let i = 0; i < LOCO.length; i++) ctx.fillText(LOCO[i], x * cw, (top + i) * font);
+      // 레일
+      ctx.fillStyle = "#44505c";
+      ctx.fillText("=".repeat(cols), 0, (top + LOCO.length) * font);
+
+      x -= 0.9;
+      if (x < -LOCO[0].length - 6) {
+        x = cols + 4;
+        puffs = [];
+      }
+    },
+  };
+};
+
+// ── ⑫ 분재(cbonsai) — 가지가 뻗어 나무가 자란다 ─────────────────────────────
+//
+// 가지 끝마다 방향과 수명을 두고 조금씩 뻗게 한다. 갈라질 때마다 수명을 나눠 가지므로
+// 저절로 나무 모양이 된다. 다 자라면 잠시 두었다가 새로 심는다.
+const bonsai: SaverFactory = (canvas, ctx, accent) => {
+  interface Branch {
+    x: number;
+    y: number;
+    dx: number;
+    life: number;
+    trunk: boolean;
+  }
+  let cw = 8;
+  let font = 16;
+  let cols = 0;
+  let rows = 0;
+  let live: Branch[] = [];
+  let idle = 0;
+
+  const plant = () => {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 화분
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#8a6f4a";
+    const potX = Math.floor(cols / 2) - 6;
+    ctx.fillText("(______________)", potX * cw, (rows - 2) * font);
+    ctx.fillText(" \\____________/ ", potX * cw, (rows - 1) * font);
+    live = [{ x: Math.floor(cols / 2), y: rows - 3, dx: 0, life: 26 + Math.floor(Math.random() * 10), trunk: true }];
+    idle = 0;
+  };
+  const reset = () => {
+    font = Math.max(11, Math.min(20, Math.round(canvas.height / 40)));
+    ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+    cw = ctx.measureText("M").width || font * 0.6;
+    cols = Math.max(24, Math.floor(canvas.width / cw));
+    rows = Math.max(14, Math.floor(canvas.height / font));
+    plant();
+  };
+  reset();
+
+  return {
+    reset,
+    step() {
+      ctx.font = `${font}px ui-monospace, Consolas, "D2Coding", monospace`;
+      ctx.textBaseline = "top";
+      if (live.length === 0) {
+        // 다 자랐다 — 잠시 두고 감상한 뒤 새로 심는다.
+        if (++idle > 60) plant();
+        return;
+      }
+      const next: Branch[] = [];
+      const mid = Math.floor(cols / 2);
+      const spread = Math.max(6, Math.floor(cols / 9)); // 화분 위를 크게 벗어나지 않게
+      for (const b of live) {
+        // 줄기는 곧게, 곁가지는 옆으로 눕되 **대체로 위로** 자란다.
+        // 첫 시안은 곁가지가 옆으로만 뻗어 나무가 아니라 'V' 자가 됐다.
+        let drift = b.trunk
+          ? Math.round((Math.random() - 0.5) * 1.2)
+          : Math.random() < 0.4
+            ? 0 // 이따금 곧게 — 가지가 위로 휘어 올라간다
+            : Math.sign(b.dx || (Math.random() < 0.5 ? 1 : -1));
+        // 너무 멀리 갔으면 가운데로 되돌린다.
+        if (Math.abs(b.x - mid) > spread) drift = b.x > mid ? -1 : 1;
+        const nx = b.x + drift;
+        const ny = b.y - (Math.random() < (b.trunk ? 0.9 : 0.8) ? 1 : 0);
+        if (nx < 1 || nx >= cols - 1 || ny < 1) continue;
+        const glyph = b.life < 6 ? "&" : drift > 0 ? "\\" : drift < 0 ? "/" : b.trunk ? "|" : "~";
+        ctx.fillStyle = b.life < 6 ? accent : b.trunk ? "#a3874f" : "#7d6a3f";
+        ctx.fillText(glyph, nx * cw, ny * font);
+        const life = b.life - 1;
+        if (life <= 0) continue;
+        next.push({ x: nx, y: ny, dx: drift, life, trunk: b.trunk && Math.random() < 0.86 });
+        // 갈라지기 — 수명이 넉넉할 때만(끝에서 갈라지면 덤불이 된다).
+        if (life > 8 && Math.random() < (b.trunk ? 0.34 : 0.12) && next.length < 40) {
+          next.push({ x: nx, y: ny, dx: -drift || (Math.random() < 0.5 ? 1 : -1), life: Math.floor(life * 0.7), trunk: false });
+        }
+      }
+      live = next;
+    },
+  };
+};
+
+export const SAVER_NAMES = ["matrix", "starfield", "clock", "mystify", "constellation", "shell", "pipes", "aquarium", "donut", "fire", "train", "bonsai"] as const;
 export type SaverName = (typeof SAVER_NAMES)[number];
 const FACTORIES: Record<SaverName, SaverFactory> = {
   matrix: matrixRain,
@@ -478,6 +973,12 @@ const FACTORIES: Record<SaverName, SaverFactory> = {
   mystify,
   constellation,
   shell: shellDemo,
+  pipes,
+  aquarium,
+  donut,
+  fire,
+  train,
+  bonsai,
 };
 
 let overlay: HTMLDivElement | null = null;
