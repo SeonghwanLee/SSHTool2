@@ -110,3 +110,13 @@ EOF
 
 cd "$CHECK"
 cargo check --message-format short
+
+# 단위 시험까지 여기서 돌린다.
+#
+# CI(check.yml)는 Windows 에서 `cargo check` 만 한다 — 시험을 돌리려면 tauri 의존성을
+# 통째로 링크해야 해서 몇 분이 더 든다. 그래서 이 하네스가 실질적인 시험 관문이다.
+# 볼트·백업·가져오기처럼 실패의 대가가 큰 자리가 여기에 걸려 있으니, Rust 를 만졌으면
+# 이 스크립트를 돌린다.
+echo
+echo "── 단위 시험 ──"
+cargo test --quiet

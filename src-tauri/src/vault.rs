@@ -381,3 +381,161 @@ pub fn delete_secret(app: &AppHandle, key: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 볼트는 실패의 대가가 가장 큰 자리다 — 여기가 어긋나면 저장한 비밀번호를 영영 꺼낼 수
+    // 없다. 파일·키체인이 없어도 확인할 수 있는 부분(크립토·감싸기·복구 키)만 다룬다.
+
+    #[test]
+    fn same_secret_and_salt_give_the_same_key() {
+        let salt = [7u8; 16];
+        assert_eq!(derive_key("hunter2", &salt), derive_key("hunter2", &salt));
+    }
+
+    #[test]
+    fn different_salt_gives_a_different_key() {
+        // salt 가 무시되면 서로 다른 볼트가 같은 키를 쓰게 된다.
+        assert_ne!(derive_key("hunter2", &[1u8; 16]), derive_key("hunter2", &[2u8; 16]));
+    }
+
+    #[test]
+    fn different_secret_gives_a_different_key() {
+        let salt = [7u8; 16];
+        assert_ne!(derive_key("hunter2", &salt), derive_key("hunter3", &salt));
+    }
+
+    #[test]
+    fn encrypt_then_decrypt_returns_the_original() {
+        let key = derive_key("master", &[3u8; 16]);
+        let secret = "비밀번호 ünïcode\n둘째 줄".as_bytes();
+        let blob = encrypt(&key, secret).unwrap();
+        assert_eq!(decrypt(&key, &blob).unwrap(), secret);
+    }
+
+    #[test]
+    fn the_same_plaintext_encrypts_differently_each_time() {
+        // nonce 를 재사용하면 같은 암호문이 나오고, AES-GCM 에서 그것은 치명적이다.
+        let key = derive_key("master", &[3u8; 16]);
+        assert_ne!(encrypt(&key, b"x").unwrap(), encrypt(&key, b"x").unwrap());
+    }
+
+    #[test]
+    fn a_wrong_key_cannot_decrypt() {
+        let blob = encrypt(&derive_key("right", &[3u8; 16]), b"secret").unwrap();
+        assert!(decrypt(&derive_key("wrong", &[3u8; 16]), &blob).is_err());
+    }
+
+    #[test]
+    fn a_tampered_blob_is_rejected() {
+        // GCM 은 변조를 잡아낸다 — 잡지 못하면 손상된 볼트를 조용히 읽게 된다.
+        let key = derive_key("master", &[3u8; 16]);
+        let blob = encrypt(&key, b"secret").unwrap();
+        let mut raw = B64.decode(&blob).unwrap();
+        let last = raw.len() - 1;
+        raw[last] ^= 0x01;
+        assert!(decrypt(&key, &B64.encode(raw)).is_err());
+    }
+
+    #[test]
+    fn a_short_blob_is_rejected_instead_of_panicking() {
+        let key = derive_key("master", &[3u8; 16]);
+        assert!(decrypt(&key, &B64.encode([0u8; 5])).is_err());
+    }
+
+    #[test]
+    fn to_key_accepts_only_32_bytes() {
+        assert!(to_key(vec![0u8; 32]).is_ok());
+        assert!(to_key(vec![0u8; 31]).is_err());
+        assert!(to_key(vec![0u8; 33]).is_err());
+    }
+
+    #[test]
+    fn recovery_key_has_the_documented_shape() {
+        let k = make_recovery_key();
+        let groups: Vec<&str> = k.split('-').collect();
+        assert_eq!(groups.len(), 8, "8그룹이어야 한다: {k}");
+        assert!(groups.iter().all(|g| g.len() == 4), "각 그룹은 4자: {k}");
+        assert!(
+            k.chars().all(|c| c == '-' || B32.contains(&(c as u8))),
+            "base32 글자만 나와야 한다: {k}"
+        );
+    }
+
+    #[test]
+    fn recovery_keys_are_not_repeated() {
+        assert_ne!(make_recovery_key(), make_recovery_key());
+    }
+
+    #[test]
+    fn recovery_input_is_normalized_the_same_way_it_was_made() {
+        // 사용자가 하이픈을 빼거나 소문자로 적어도 같은 키로 읽혀야 한다.
+        let k = make_recovery_key();
+        let plain = normalize_recovery(&k);
+        assert_eq!(normalize_recovery(&k.to_lowercase()), plain);
+        assert_eq!(normalize_recovery(&k.replace('-', " ")), plain);
+        assert_eq!(normalize_recovery(&format!("  {k}  ")), plain);
+        assert_eq!(plain.len(), 32);
+    }
+
+    #[test]
+    fn wrapped_dek_opens_with_the_master() {
+        let mut vf = VaultFile::default();
+        let dek = [9u8; 32];
+        wrap_dek(&mut vf, &dek, "master!").unwrap();
+        let salt = B64.decode(&vf.salt).unwrap();
+        let got = decrypt(&derive_key("master!", &salt), &vf.wrapped_dek).unwrap();
+        assert_eq!(to_key(got).unwrap(), dek);
+        assert_eq!(vf.version, VERSION_V2);
+        assert!(vf.verifier.is_empty(), "v2 에서는 verifier 를 쓰지 않는다");
+    }
+
+    #[test]
+    fn wrapped_dek_opens_with_the_recovery_key() {
+        // 마스터를 잊었을 때 남는 유일한 길 — 여기가 어긋나면 복구가 불가능해진다.
+        let mut vf = VaultFile::default();
+        let dek = [4u8; 32];
+        let recovery = wrap_dek(&mut vf, &dek, "master!").unwrap();
+        let rsalt = B64.decode(&vf.recovery_salt).unwrap();
+        let key = derive_key(&normalize_recovery(&recovery), &rsalt);
+        let got = decrypt(&key, &vf.recovery_wrapped_dek).unwrap();
+        assert_eq!(to_key(got).unwrap(), dek);
+    }
+
+    #[test]
+    fn rewrapping_keeps_the_same_dek_so_entries_stay_readable() {
+        // 마스터를 바꿔도 항목은 다시 암호화하지 않는다(키만 다시 감싼다). DEK 가 바뀌면
+        // 저장해 둔 비밀번호가 통째로 읽히지 않게 된다.
+        let mut vf = VaultFile::default();
+        let dek = [5u8; 32];
+        wrap_dek(&mut vf, &dek, "old").unwrap();
+        let entry = encrypt(&dek, "저장된 비밀번호".as_bytes()).unwrap();
+        wrap_dek(&mut vf, &dek, "new").unwrap();
+        let salt = B64.decode(&vf.salt).unwrap();
+        let opened = to_key(decrypt(&derive_key("new", &salt), &vf.wrapped_dek).unwrap()).unwrap();
+        assert_eq!(decrypt(&opened, &entry).unwrap(), "저장된 비밀번호".as_bytes());
+    }
+
+    #[test]
+    fn rewrapping_invalidates_the_old_master_and_old_recovery_key() {
+        let mut vf = VaultFile::default();
+        let dek = [6u8; 32];
+        let old_recovery = wrap_dek(&mut vf, &dek, "old").unwrap();
+        wrap_dek(&mut vf, &dek, "new").unwrap();
+        let salt = B64.decode(&vf.salt).unwrap();
+        assert!(decrypt(&derive_key("old", &salt), &vf.wrapped_dek).is_err());
+        let rsalt = B64.decode(&vf.recovery_salt).unwrap();
+        let old_key = derive_key(&normalize_recovery(&old_recovery), &rsalt);
+        assert!(decrypt(&old_key, &vf.recovery_wrapped_dek).is_err());
+    }
+
+    #[test]
+    fn locked_vault_refuses_to_hand_out_the_dek() {
+        let state = VaultState::default();
+        assert!(current_dek(&state).is_err());
+        *state.dek.lock().unwrap() = Some([1u8; 32]);
+        assert_eq!(current_dek(&state).unwrap(), [1u8; 32]);
+    }
+}

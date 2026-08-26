@@ -281,3 +281,100 @@ pub fn factory_reset(app: &AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 백업은 '이 PC 를 갈아엎고 되살리는' 마지막 수단이다 — 내보낸 것을 도로 읽지 못하면
+    // 그 사실을 알게 되는 시점이 이미 늦다. 파일 없이 확인할 수 있는 부분만 다룬다.
+
+    fn sample() -> String {
+        let mut files = std::collections::BTreeMap::new();
+        files.insert("sessions.json".to_string(), "[{\"name\":\"운영-01\"}]".to_string());
+        files.insert("settings.json".to_string(), "{\"theme\":\"everforest\"}".to_string());
+        serde_json::to_string(&Bundle { version: BUNDLE_VERSION, files }).unwrap()
+    }
+
+    #[test]
+    fn export_then_import_returns_the_same_bundle() {
+        let plain = sample();
+        let blob = encrypt_bundle(&plain, "여행가방 암호").unwrap();
+        assert_eq!(decrypt_bundle(&blob, "여행가방 암호").unwrap(), plain);
+    }
+
+    #[test]
+    fn the_container_starts_with_the_magic_bytes() {
+        // import 는 이 바이트로 '암호화된 백업인지'를 가른다 — 형식이 바뀌면 옛 백업을
+        // 평문 JSON 으로 읽으려다 실패한다.
+        let blob = encrypt_bundle(&sample(), "pw").unwrap();
+        assert!(blob.starts_with(MAGIC));
+        assert_eq!(blob[4], ENC_VERSION);
+        assert!(blob.len() > 4 + 1 + 16 + 12);
+    }
+
+    #[test]
+    fn a_wrong_password_is_rejected() {
+        let blob = encrypt_bundle(&sample(), "right").unwrap();
+        assert!(decrypt_bundle(&blob, "wrong").is_err());
+    }
+
+    #[test]
+    fn a_tampered_backup_is_rejected() {
+        // 한 바이트만 뒤집혀도 알아채야 한다 — 조용히 반쪽짜리 설정을 복원하면 안 된다.
+        let mut blob = encrypt_bundle(&sample(), "pw").unwrap();
+        let last = blob.len() - 1;
+        blob[last] ^= 0x01;
+        assert!(decrypt_bundle(&blob, "pw").is_err());
+    }
+
+    #[test]
+    fn a_truncated_file_is_rejected_instead_of_panicking() {
+        // 잘린 파일에 인덱스로 접근하면 패닉이다. 길이를 먼저 본다.
+        for n in [0usize, 4, 16, 32] {
+            assert!(decrypt_bundle(&vec![0u8; n], "pw").is_err(), "{n}바이트에서 막지 못했다");
+        }
+    }
+
+    #[test]
+    fn a_newer_container_version_is_refused() {
+        let mut blob = encrypt_bundle(&sample(), "pw").unwrap();
+        blob[4] = ENC_VERSION + 1;
+        let e = decrypt_bundle(&blob, "pw").unwrap_err();
+        assert!(e.contains("업데이트"), "안내가 바뀌었다: {e}");
+    }
+
+    #[test]
+    fn each_export_differs_even_with_the_same_password() {
+        // salt·nonce 를 재사용하면 같은 바이트가 나온다 — AES-GCM 에서 치명적이다.
+        let a = encrypt_bundle(&sample(), "pw").unwrap();
+        let b = encrypt_bundle(&sample(), "pw").unwrap();
+        assert_ne!(a, b);
+        assert_ne!(a[5..21], b[5..21], "salt 가 반복된다");
+        assert_ne!(a[21..33], b[21..33], "nonce 가 반복된다");
+    }
+
+    #[test]
+    fn the_bundle_survives_a_json_round_trip() {
+        let plain = sample();
+        let back: Bundle = serde_json::from_str(&plain).unwrap();
+        assert_eq!(back.version, BUNDLE_VERSION);
+        assert_eq!(back.files.len(), 2);
+        assert!(back.files["sessions.json"].contains("운영-01"));
+    }
+
+    #[test]
+    fn the_bundle_carries_the_files_import_expects() {
+        // FILES 가 늘었는데 번들에 안 담기면, 되살렸을 때 조용히 빠진다.
+        assert!(FILES.contains(&"sessions.json"));
+        assert!(FILES.contains(&"settings.json"));
+        assert!(FILES.contains(&"vault.json"), "볼트가 빠지면 비밀번호를 못 옮긴다");
+        assert!(FILES.contains(&"known_hosts.json"));
+    }
+
+    #[test]
+    fn different_passwords_give_different_keys() {
+        assert_ne!(derive_key("a", &[1u8; 16]), derive_key("b", &[1u8; 16]));
+        assert_ne!(derive_key("a", &[1u8; 16]), derive_key("a", &[2u8; 16]));
+    }
+}

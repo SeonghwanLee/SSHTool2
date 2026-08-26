@@ -14,8 +14,6 @@ changelog(사용자용)와 git 커밋 메시지(설계 근거)에 남아 있다.
   채널을 연 뒤 그 스트림 위에 두 번째 클라이언트 세션을 붙일 수 있다.
 - **SSH 에이전트 연동(Pageant/OpenSSH agent)** — SecureCRT·WinSCP 공식. 점프 호스트와 세트로 검토.
 - **동적 포워딩 -D(SOCKS)** — SecureCRT 공식. 지금은 -L/-R 만 (`portfwd.rs` 의 Rule 에 종류를 하나 더한다).
-- **세션 로그 회전 · 파일명 규칙** — SecureCRT 공식. 지금 세션 로그는 접속마다 새 파일이
-  쌓이고 상한·정리가 없다.
 - **키워드 실시간 강조** — SecureCRT(정규식)·MobaXterm(구문 강조). 대량 출력에서 비용이 있어
   켠 세션에만 적용 + 규칙 수 제한이 전제.
 - **파일 이름 필터 · 원격 경로 북마크** — WinSCP·FileZilla 공통.

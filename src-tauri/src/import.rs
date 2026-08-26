@@ -649,3 +649,164 @@ fn scan_filezilla() -> Vec<ImportedSession> {
     }
     read_text_best_effort(&path).map(|t| parse_filezilla(&t)).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 가져오기는 남의 프로그램이 쓴 파일을 읽는다 — 형식이 조금만 달라도 조용히 0건이
+    // 되거나 엉뚱한 세션이 섞인다. 파일시스템·레지스트리 없이 확인할 수 있는 파서만 다룬다.
+
+    // ── 포트 ──────────────────────────────────────────────────────────────────
+    #[test]
+    fn out_of_range_ports_fall_back_to_22() {
+        assert_eq!(sanitize_port(22), 22);
+        assert_eq!(sanitize_port(65535), 65535);
+        assert_eq!(sanitize_port(0), DEFAULT_PORT, "0 은 포트가 아니다");
+        assert_eq!(sanitize_port(70000), DEFAULT_PORT, "u16 범위를 넘으면 기본값");
+    }
+
+    // ── SecureCRT ─────────────────────────────────────────────────────────────
+    const CRT: &str = concat!(
+        "S:\"Hostname\"=10.0.0.5\r\n",
+        "S:\"Username\"=deploy\r\n",
+        "S:\"Protocol Name\"=SSH2\r\n",
+        "D:\"[SSH2] Port\"=000007e4\r\n",
+    );
+
+    #[test]
+    fn securecrt_reads_host_user_and_port() {
+        let s = parse_securecrt_ini("운영-01", CRT, "운영").unwrap();
+        assert_eq!((s.host.as_str(), s.user.as_str()), ("10.0.0.5", "deploy"));
+        assert_eq!(s.port, 0x07e4, "16진 DWORD 를 읽어야 한다");
+        assert_eq!((s.name.as_str(), s.folder.as_str()), ("운영-01", "운영"));
+        assert_eq!(s.source, "SecureCRT");
+    }
+
+    #[test]
+    fn securecrt_without_a_host_is_skipped() {
+        // 호스트가 없으면 접속할 수 없다 — 목록에 넣으면 사용자만 헷갈린다.
+        assert!(parse_securecrt_ini("x", "S:\"Username\"=u\r\n", "").is_none());
+    }
+
+    #[test]
+    fn securecrt_skips_non_ssh_protocols() {
+        for proto in ["telnet", "Serial", "rlogin", "RAW"] {
+            let ini = format!("S:\"Hostname\"=h\r\nS:\"Protocol Name\"={proto}\r\n");
+            assert!(parse_securecrt_ini("x", &ini, "").is_none(), "{proto} 가 섞여 들어왔다");
+        }
+        for proto in ["SSH1", "SSH2", "ssh2"] {
+            let ini = format!("S:\"Hostname\"=h\r\nS:\"Protocol Name\"={proto}\r\n");
+            assert!(parse_securecrt_ini("x", &ini, "").is_some(), "{proto} 가 빠졌다");
+        }
+    }
+
+    #[test]
+    fn securecrt_falls_back_to_the_default_port() {
+        let s = parse_securecrt_ini("x", "S:\"Hostname\"=h\r\n", "").unwrap();
+        assert_eq!(s.port, DEFAULT_PORT);
+    }
+
+    #[test]
+    fn securecrt_prefers_the_protocol_specific_port() {
+        // 범용 Port 와 [SSH2] Port 가 함께 있으면 SSH 쪽이 맞다.
+        let ini = "S:\"Hostname\"=h\r\nD:\"Port\"=00000017\r\nD:\"[SSH2] Port\"=00000916\r\n";
+        assert_eq!(parse_securecrt_ini("x", ini, "").unwrap().port, 0x0916);
+    }
+
+    // ── MobaXterm ─────────────────────────────────────────────────────────────
+    #[test]
+    fn mobaxterm_reads_bookmarks_with_folders() {
+        let ini = concat!(
+            "[Bookmarks]\n",
+            "SubRep=운영\\DB\n",
+            "ImgNum=42\n",
+            "디비-01=#109#0%10.0.0.9%2222%oracle%%-1%-1%%%%\n",
+            "[Bookmarks_1]\n",
+            "SubRep=개발\n",
+            "웹-01=#98#0%10.0.1.1%22%root%%\n",
+        );
+        let out = parse_mobaxterm_ini(ini);
+        assert_eq!(out.len(), 2, "두 건이어야 한다: {out:?}");
+        assert_eq!(out[0].name, "디비-01");
+        assert_eq!(out[0].host, "10.0.0.9");
+        assert_eq!(out[0].port, 2222);
+        assert_eq!(out[0].user, "oracle");
+        assert_eq!(out[0].folder, "운영/DB", "SubRep 의 역슬래시는 슬래시로");
+        assert_eq!(out[1].folder, "개발", "섹션이 바뀌면 SubRep 도 새로 읽는다");
+    }
+
+    #[test]
+    fn mobaxterm_skips_non_ssh_types() {
+        // 타입은 아이콘 번호 뒤의 값이다. 아이콘으로 판별하면 안 된다(구버전 버그).
+        let ini = "[Bookmarks]\nrdp=#91#4%10.0.0.2%3389%u%%\ntelnet=#20#1%10.0.0.3%23%u%%\n";
+        assert!(parse_mobaxterm_ini(ini).is_empty(), "SSH 아닌 것이 섞였다");
+    }
+
+    #[test]
+    fn mobaxterm_accepts_any_icon_number() {
+        // 아이콘 번호는 세션마다 다르다 — 특정 값(#109#)에만 반응하면 대부분을 놓친다.
+        for icon in ["#1#", "#109#", "#65535#"] {
+            let ini = format!("[Bookmarks]\ns={icon}0%h%22%u%%\n");
+            assert_eq!(parse_mobaxterm_ini(&ini).len(), 1, "{icon} 를 놓쳤다");
+        }
+    }
+
+    #[test]
+    fn mobaxterm_ignores_lines_outside_bookmarks() {
+        let ini = "[Misc]\ns=#109#0%h%22%u%%\n";
+        assert!(parse_mobaxterm_ini(ini).is_empty());
+    }
+
+    #[test]
+    fn mobaxterm_skips_bookkeeping_keys_and_empty_hosts() {
+        let ini = "[Bookmarks]\nImgNum=#109#0%h%22%u%%\nSubRep=x\nnohost=#109#0%%22%u%%\n";
+        assert!(parse_mobaxterm_ini(ini).is_empty());
+    }
+
+    // ── FileZilla ─────────────────────────────────────────────────────────────
+    #[test]
+    fn filezilla_reads_sftp_servers_and_skips_ftp() {
+        let xml = concat!(
+            "<FileZilla3>\n<Servers>\n",
+            "<Server><Host>10.0.0.7</Host><Port>2200</Port><Protocol>1</Protocol>",
+            "<User>deploy</User><Name>운영 &amp; 배포</Name></Server>\n",
+            "<Server><Host>ftp.example.com</Host><Port>21</Port><Protocol>0</Protocol>",
+            "<User>anon</User><Name>ftp</Name></Server>\n",
+            "</Servers>\n</FileZilla3>\n",
+        );
+        let out = parse_filezilla(xml);
+        assert_eq!(out.len(), 1, "SFTP 만 남아야 한다: {out:?}");
+        assert_eq!(out[0].host, "10.0.0.7");
+        assert_eq!(out[0].port, 2200);
+        assert_eq!(out[0].user, "deploy");
+        assert_eq!(out[0].name, "운영 & 배포", "XML 이스케이프를 풀어야 한다");
+    }
+
+    #[test]
+    fn filezilla_handles_an_empty_document() {
+        assert!(parse_filezilla("").is_empty());
+        assert!(parse_filezilla("<FileZilla3></FileZilla3>").is_empty());
+    }
+
+    // ── PuTTY 세션명 ──────────────────────────────────────────────────────────
+    #[test]
+    fn putty_names_without_escapes_pass_through() {
+        assert_eq!(decode_putty_name("web-01"), "web-01");
+    }
+
+    #[test]
+    fn putty_percent_escapes_become_bytes() {
+        // %XX 는 저장 당시 ANSI 바이트다 — 그대로 글자로 읽으면 이름이 깨진다.
+        assert_eq!(decode_putty_name("a%20b"), "a b");
+        assert_eq!(decode_putty_name("%ED%95%9C"), "한", "UTF-8 바이트열은 그대로 풀린다");
+    }
+
+    #[test]
+    fn a_dangling_percent_is_left_alone_instead_of_panicking() {
+        // 잘린 이스케이프에 인덱스로 접근하면 패닉이다.
+        assert_eq!(decode_putty_name("a%"), "a%");
+        assert_eq!(decode_putty_name("a%2"), "a%2");
+        assert_eq!(decode_putty_name("%zz"), "%zz");
+    }
+}
