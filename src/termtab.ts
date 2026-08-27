@@ -211,15 +211,14 @@ export class TerminalTab {
     this.overlay.addEventListener("mousedown", () => {
       if (this.status === "disconnected") setTimeout(() => this.reconnectBtn?.focus(), 0);
     });
-    this.root.append(
-      this.header,
-      this.termHost,
-      this.overlay,
-      this.toast,
-      this.lockBadge,
-      this.zoomBadge,
-      this.searchBar,
-    );
+    this.root.append(this.header, this.termHost, this.overlay, this.toast, this.lockBadge, this.zoomBadge);
+    // 검색창은 **터미널 영역 안**에 둔다(0.87.0).
+    //
+    // 예전에는 칸(term-pane) 바로 아래에 두고 top:8px 로 띄웠다. 일반창에서는 칸 위쪽이
+    // 곧 터미널이라 괜찮았지만, 분할 보기에서는 그 자리에 세션 이름 머리말이 온다 —
+    // 머리말이 z-index 2 를 갖고 있어 검색창을 덮어 버렸다(실기 보고). 터미널 영역을
+    // 기준으로 삼으면 두 모드 모두 같은 자리에 뜨고, 머리말과 겹칠 일이 없다.
+    this.termHost.appendChild(this.searchBar);
     this.headerLabel.textContent = session.name || `${session.user}@${session.host}`;
 
     const theme = themeById(settings.theme);

@@ -1103,6 +1103,41 @@ try {
       await page.waitForTimeout(200);
     });
 
+    await t.test("분할 보기에서 터미널 찾기 — 세션 이름 머리말에 가리지 않는다", async () => {
+      // 왜: 검색창은 칸(term-pane) 기준으로 top:8px 에 떴다. 일반창에서는 그 자리가 곧
+      // 터미널이라 괜찮았지만, 분할 보기에서는 세션 이름 머리말이 그 자리에 온다 —
+      // 머리말이 z-index 2 라 검색창을 덮어 버렸다(실기 보고). 터미널 영역 기준으로 옮겼다.
+      await dismissModals(page);
+      const r = await page.evaluate(async () => {
+        const tm = window.__tm;
+        if (tm.tabs.length < 2) return "탭이 모자람";
+        tm.startSplit("vertical", tm.tabs.slice(0, Math.min(4, tm.tabs.length)));
+        await new Promise((res) => setTimeout(res, 500));
+        tm.openSearch();
+        await new Promise((res) => setTimeout(res, 300));
+        const bar = [...document.querySelectorAll(".term-search")].find((e) => e.offsetParent !== null);
+        if (!bar) return "보이는 검색창이 없다";
+        const pane = bar.closest(".term-pane");
+        const head = pane?.querySelector(".pane-header");
+        if (!head || head.offsetParent === null) return "분할 머리말이 없다";
+        const b = bar.getBoundingClientRect();
+        const h = head.getBoundingClientRect();
+        const p = pane.getBoundingClientRect();
+        return {
+          겹침: b.top < h.bottom,
+          칸밖으로: Math.round(Math.max(0, p.left - b.left, b.right - p.right)),
+          너비: Math.round(b.width),
+        };
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      expect(!r.겹침, "검색창이 세션 이름 머리말에 가린다");
+      expect(r.칸밖으로 === 0, `검색창이 칸 밖으로 ${r.칸밖으로}px 나갔다`);
+      expect(r.너비 > 40, `검색창이 짜부라졌다: ${r.너비}px`);
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => window.__tm.exitSplit());
+      await page.waitForTimeout(300);
+    });
+
     await t.test("분할 — 최대 9칸까지만 세운다", async () => {
       await dismissModals(page);
       // 상한을 넘겨 보려면 서로 다른 탭이 열 개 넘게 있어야 한다 — splitTabs 는 집합이라
