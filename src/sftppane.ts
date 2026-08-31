@@ -23,6 +23,7 @@ import { span, mkBtn } from "./sftpcommon";
 import { DirTree } from "./sftptree";
 import {
   joinPath,
+  parentOf,
   baseName,
   remoteParent,
   fmtSize,
@@ -111,6 +112,8 @@ export class Pane {
       },
       // 원격 트리 폴더에 탐색기 파일을 떨어뜨리면 그 폴더로 업로드.
       side === "remote" ? (path, dt) => void this.ctx.onOsFilesDropped(dt, path) : undefined,
+      // 목록에서 끌어온 것을 트리의 폴더에 떨어뜨리면 그 폴더로 옮긴다(0.87.0).
+      (path, paths) => void this.moveInto(path, paths),
     );
 
     const head = document.createElement("div");
@@ -204,7 +207,12 @@ export class Pane {
       if (!raw) return;
       try {
         const payload = JSON.parse(raw) as { side: Side; paths: string[] };
-        if (payload.side === this.side) return; // 같은 패널 내 이동은 미지원
+        // 같은 패널 안에서 빈 곳에 떨어뜨린 것은 '지금 폴더로 옮기기' 다 — 하위 폴더에서
+        // 끌어 올린 경우에만 뜻이 있고, 이미 이 폴더에 있는 것은 moveInto 가 걸러 낸다.
+        if (payload.side === this.side) {
+          void this.moveInto(this.path, payload.paths);
+          return;
+        }
         void this.ctx.transferInto(this, payload.paths);
       } catch {
         /* 무시 */
@@ -354,6 +362,68 @@ export class Pane {
 
   reload(): Promise<void> {
     return this.go(this.path, true); // 폴더 생성/삭제/이름변경 후 트리도 갱신
+  }
+
+  /**
+   * 같은 패널 안에서 폴더로 옮긴다(0.87.0) — 목록의 폴더 행에, 또는 트리의 폴더에
+   * 떨어뜨렸을 때. 로컬·원격 모두 이름 바꾸기(rename)로 처리한다: 같은 장치 안이라
+   * 내용을 복사하지 않고 즉시 끝난다.
+   *
+   * 안전 장치가 필요한 자리다. 드래그는 손이 미끄러지기 쉽고, 옮기기는 원본을 그대로
+   * 들어 옮기므로 잘못 떨어뜨리면 파일이 사라진 것처럼 보인다:
+   *  - 자기 자신, 이미 그 폴더에 있는 것, 폴더를 자기 하위로 넣는 것은 조용히 뺀다.
+   *  - **같은 이름이 이미 있으면 건너뛴다.** 로컬 rename 은 Windows 에서 기존 파일을
+   *    말없이 덮어쓴다(std::fs::rename → MOVEFILE_REPLACE_EXISTING). 덮어쓰면 되돌릴
+   *    길이 없으므로, 목적지 목록을 미리 읽어 이름이 겹치는 것은 손대지 않는다.
+   *  - 무엇이 옮겨졌고 무엇이 남았는지 상태줄에 그대로 밝힌다.
+   */
+  async moveInto(destDir: string, paths: string[]): Promise<void> {
+    const targets = [...new Set(paths)].filter((p) => {
+      if (!p || p === destDir) return false;
+      if (destDir === parentOf(p)) return false; // 이미 그 안에 있다
+      if (destDir.startsWith(`${p}/`)) return false; // 폴더를 자기 하위로
+      return true;
+    });
+    if (targets.length === 0) return;
+
+    try {
+      this.ctx.setStatus("옮기는 중…");
+      const existing = new Set(
+        (this.side === "local"
+          ? await localList(destDir)
+          : await sftpList(this.ctx.getSftpId(), destDir || ".")
+        ).map((e) => e.name),
+      );
+      let moved = 0;
+      const skipped: string[] = [];
+      const failed: string[] = [];
+      for (const from of targets) {
+        const name = baseName(from);
+        if (existing.has(name)) {
+          skipped.push(name);
+          continue;
+        }
+        const to = joinPath(destDir, name);
+        try {
+          if (this.side === "local") await localRename(from, to);
+          else await sftpRename(this.ctx.getSftpId(), from, to);
+          moved++;
+        } catch (e) {
+          failed.push(`${name}(${String(e).slice(0, 40)})`);
+        }
+      }
+      await this.reload();
+      const where = baseName(destDir) || destDir;
+      this.ctx.setStatus(
+        moved === 0 && skipped.length === 0 && failed.length === 0
+          ? "옮길 항목이 없습니다"
+          : `${moved}개를 '${where}' 로 옮겼습니다` +
+              (skipped.length ? ` · 같은 이름이 있어 ${skipped.length}개 건너뜀(${skipped.join(", ")})` : "") +
+              (failed.length ? ` · 실패 ${failed.length}개(${failed.join(", ")})` : ""),
+      );
+    } catch (e) {
+      this.ctx.setStatus(`옮기기 실패: ${String(e)}`);
+    }
   }
 
   focusList(): void {
@@ -685,8 +755,47 @@ export class Pane {
         "application/x-sshtool",
         JSON.stringify({ side: this.side, paths }),
       );
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+      // 같은 패널 안 이동도 되므로 복사·이동 둘 다 허용으로 알린다.
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "copyMove";
     });
+
+    // 폴더 행은 드롭을 받는다(0.87.0) — 같은 패널 안에서 그 폴더로 옮긴다.
+    // 파일 행은 받지 않는다(파일 안으로 넣을 자리가 없다).
+    if (entry.isDir) {
+      const sameSide = (e: DragEvent): boolean => {
+        const raw = e.dataTransfer?.getData("application/x-sshtool");
+        // dragover 에서는 getData 가 빈 문자열이라 타입 존재만으로 판단한다.
+        if (!raw) return (e.dataTransfer?.types ?? []).includes("application/x-sshtool");
+        try {
+          return (JSON.parse(raw) as { side: Side }).side === this.side;
+        } catch {
+          return false;
+        }
+      };
+      el.addEventListener("dragover", (e) => {
+        if (hasOsFiles(e) || !sameSide(e)) return; // 탐색기 드롭은 목록 전체가 받는다
+        e.preventDefault();
+        e.stopPropagation(); // 목록(현재 폴더) 드롭이 대신 처리하지 않게
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        el.classList.add("drop-target");
+      });
+      el.addEventListener("dragleave", () => el.classList.remove("drop-target"));
+      el.addEventListener("drop", (e) => {
+        el.classList.remove("drop-target");
+        if (hasOsFiles(e)) return;
+        const raw = e.dataTransfer?.getData("application/x-sshtool");
+        if (!raw) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const payload = JSON.parse(raw) as { side: Side; paths: string[] };
+          if (payload.side !== this.side) return; // 반대 패널에서 온 것은 전송이 맡는다
+          void this.moveInto(entry.path, payload.paths);
+        } catch {
+          /* 무시 */
+        }
+      });
+    }
     el.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       if (!this.selected.has(entry.path)) {

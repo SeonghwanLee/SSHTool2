@@ -25,6 +25,16 @@ export const hasOsFiles = (e: DragEvent): boolean =>
 
 export const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 
+/**
+ * 경로의 상위 폴더. 로컬·원격 모두 목록이 '/' 로 정규화된 경로를 준다.
+ * 상위가 없으면(루트·이름뿐) 빈 문자열 — 호출부는 '모르는 값' 으로 다루면 된다.
+ */
+export const parentOf = (p: string): string => {
+  const t = p.replace(/\/+$/, "");
+  const i = t.lastIndexOf("/");
+  return i <= 0 ? (i === 0 ? "/" : "") : t.slice(0, i);
+};
+
 export function remoteParent(path: string): string {
   const p = path.replace(/\/+$/, "");
   if (p === "") return "/"; // 루트("/")에서 상위 = 루트 유지(홈으로 튀지 않게)

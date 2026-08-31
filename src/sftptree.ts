@@ -23,6 +23,8 @@ export class DirTree {
     private readonly onMenu?: (path: string, x: number, y: number) => void,
     /** 탐색기에서 트리 폴더 위로 파일을 떨어뜨렸을 때(원격 트리에만 연결). */
     private readonly onDropFiles?: (path: string, dt: DataTransfer) => void,
+    /** 같은 패널 목록에서 끌어온 항목을 이 폴더로 옮긴다(0.87.0). */
+    private readonly onDropMove?: (path: string, paths: string[]) => void,
   ) {
     this.el.className = "sftp-tree";
   }
@@ -121,20 +123,39 @@ export class DirTree {
     });
     // 탐색기 파일을 특정 폴더에 조준해 떨어뜨리는 경로 — 목록(현재 폴더) 드롭과 달리
     // 이동하지 않고 그 폴더로 바로 올린다.
-    if (this.onDropFiles) {
+    if (this.onDropFiles || this.onDropMove) {
       row.addEventListener("dragover", (e) => {
-        if (!hasOsFiles(e)) return;
+        const os = hasOsFiles(e);
+        const mine = (e.dataTransfer?.types ?? []).includes("application/x-sshtool");
+        if (!(os && this.onDropFiles) && !(mine && this.onDropMove)) return;
         e.preventDefault();
         e.stopPropagation();
+        if (e.dataTransfer && mine) e.dataTransfer.dropEffect = "move";
         row.classList.add("drop-target");
       });
       row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
       row.addEventListener("drop", (e) => {
         row.classList.remove("drop-target");
-        if (!e.dataTransfer || !hasOsFiles(e)) return;
+        if (!e.dataTransfer) return;
+        if (hasOsFiles(e)) {
+          if (!this.onDropFiles) return;
+          e.preventDefault();
+          e.stopPropagation();
+          this.onDropFiles(path, e.dataTransfer);
+          return;
+        }
+        const raw = e.dataTransfer.getData("application/x-sshtool");
+        if (!raw || !this.onDropMove) return;
         e.preventDefault();
         e.stopPropagation();
-        this.onDropFiles?.(path, e.dataTransfer);
+        try {
+          // 이 트리는 자기 패널의 것이므로, 넘어온 것이 그 패널의 항목일 때만 옮긴다.
+          const payload = JSON.parse(raw) as { side: Side; paths: string[] };
+          if (payload.side !== this.side) return;
+          this.onDropMove(path, payload.paths);
+        } catch {
+          /* 무시 */
+        }
       });
     }
     this.el.appendChild(row);

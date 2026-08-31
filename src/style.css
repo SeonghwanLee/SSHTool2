@@ -2131,6 +2131,12 @@ body.sftp-resizing * {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
+/* 목록의 폴더 행에 조준했을 때 — 어느 폴더로 들어가는지 보여 준다(0.87.0 이동 기능).
+   선택 표시(.selected)보다 뒤에 두어야 끌고 있는 항목이 선택돼 있어도 테두리가 보인다. */
+.sftp-row.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
 .sftp-row.selected {
   background: var(--accent);
 }

@@ -1842,6 +1842,83 @@ try {
       expect(calls[0]?.resumeFrom === 5, `이어받을 위치가 틀리다: ${JSON.stringify(calls[0])}`);
     });
 
+    await t.test("SFTP 이동 — 같은 패널 안에서 폴더로 옮기고, 겹치는 이름은 건드리지 않는다", async () => {
+      // 왜: 드래그 이동은 손이 미끄러지기 쉽고 원본을 그대로 들어 옮긴다. 특히 로컬은
+      // rename 이 Windows 에서 기존 파일을 말없이 덮어쓴다 — 겹치면 건너뛰어야 한다.
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const r = await page.evaluate(async () => {
+        const pane = window.__sftpTest?.panes?.remote?.();
+        if (!pane) return "패널 훅 없음";
+        const calls = [];
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_rename") {
+            calls.push([args.from, args.to]);
+            return null;
+          }
+          if (cmd === "sftp_list") {
+            // 목적지 '/home/u/보관' 에는 dup.txt 가 이미 있다.
+            if (args.path === "/home/u/보관")
+              return [{ name: "dup.txt", path: "/home/u/보관/dup.txt", isDir: false, size: 1, modified: 1 }];
+            return [
+              { name: "보관", path: "/home/u/보관", isDir: true, size: 0, modified: 1 },
+              { name: "a.txt", path: "/home/u/a.txt", isDir: false, size: 1, modified: 1 },
+              { name: "dup.txt", path: "/home/u/dup.txt", isDir: false, size: 1, modified: 1 },
+            ];
+          }
+          return prev(cmd, args);
+        };
+        try {
+          await pane.go("/home/u");
+          await pane.moveInto("/home/u/보관", [
+            "/home/u/a.txt",
+            "/home/u/dup.txt", // 목적지에 같은 이름 → 건너뛴다
+            "/home/u/보관", // 자기 자신 → 뺀다
+          ]);
+          return { calls, status: document.querySelector(".sftp-status")?.textContent ?? "" };
+        } finally {
+          window.__TAURI_INTERNALS__.invoke = prev;
+        }
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      expect(r.calls.length === 1, `이동 호출이 ${r.calls.length}건이다: ${JSON.stringify(r.calls)}`);
+      expect(
+        r.calls[0][0] === "/home/u/a.txt" && r.calls[0][1] === "/home/u/보관/a.txt",
+        `엉뚱한 경로로 옮겼다: ${JSON.stringify(r.calls[0])}`,
+      );
+      expect(
+        r.status.includes("건너뜀"),
+        `같은 이름을 건너뛴 사실을 알리지 않는다: ${r.status}`,
+      );
+
+      // 배선 확인 — 폴더 행만 드롭을 받는다(파일 행에 떨어뜨릴 자리는 없다).
+      const wired = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".sftp-pane")]
+          .map((p) => p.querySelectorAll(".sftp-row"))
+          .find((n) => n.length > 1);
+        if (!rows) return "행이 없다";
+        const dir = [...rows].find((r) => r.classList.contains("is-dir"));
+        const file = [...rows].find((r) => !r.classList.contains("is-dir") && r.dataset.path);
+        if (!dir || !file) return "폴더·파일 행을 찾지 못했다";
+        const over = (el) => {
+          const dt = new DataTransfer();
+          dt.setData("application/x-sshtool", JSON.stringify({ side: "remote", paths: ["/x"] }));
+          el.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+          const on = el.classList.contains("drop-target");
+          el.classList.remove("drop-target");
+          return on;
+        };
+        return { 폴더행: over(dir), 파일행: over(file) };
+      });
+      expect(typeof wired === "object", `배선 확인을 못 했다: ${wired}`);
+      expect(wired.폴더행, "폴더 행이 드롭을 받지 않는다 — 끌어다 놓을 자리가 없다");
+      expect(!wired.파일행, "파일 행이 드롭 대상으로 켜진다 — 들어갈 자리가 없는데 받는다");
+    });
+
     await t.test("폴더 비교·동기화 — 차이를 찾고 고른 방향으로만 보낸다", async () => {
       await dismissModals(page);
       await page.evaluate(() => {
