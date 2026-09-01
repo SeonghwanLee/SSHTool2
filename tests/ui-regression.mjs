@@ -3296,11 +3296,46 @@ try {
       }
     });
 
+    await t.test("Alt+F4 — 터미널에 포커스가 있어도 종료가 걸린다", async () => {
+      // 왜: 제목줄을 직접 그리는 창이라 이 키가 OS 까지 닿지 않는 경우가 있고, 터미널이
+      // 먼저 삼키기도 한다(Ctrl+F4 가 같은 이유로 죽어 있었다). 창버튼 X 와 같은 길로
+      // 보내야 '접속 중인 세션이 N개' 확인창을 건너뛰지 않는다.
+      await dismissModals(page);
+      const r = await page.evaluate(async () => {
+        const term = window.__tm?.active;
+        term?.focus?.(); // 터미널에 포커스를 둔 상태에서 눌러 본다
+        window.__ipc.length = 0;
+        const ev = new KeyboardEvent("keydown", {
+          key: "F4",
+          altKey: true,
+          bubbles: true,
+          cancelable: true,
+        });
+        (document.activeElement ?? document).dispatchEvent(ev);
+        await new Promise((res) => setTimeout(res, 400));
+        return {
+          호출: window.__ipc.map(([c]) => c).filter((c) => c.includes("window|")),
+          막음: ev.defaultPrevented,
+        };
+      });
+      expect(
+        r.호출.includes("plugin:window|close"),
+        `종료가 걸리지 않았다: ${JSON.stringify(r)}`,
+      );
+      expect(r.막음, "기본 동작을 막지 않았다 — 이중 처리가 될 수 있다");
+    });
+
     await t.test("Ctrl+Shift+Home — 창을 화면 안으로 되돌리는 길이 있다", async () => {
       await dismissModals(page);
       // 다른 해상도에서 쓰던 자리가 복원돼 제목줄이 화면 밖으로 나가면, OS 제목줄이 없는
       // 이 창은 잡아 옮길 수 없다. 시작 시 자동 정렬(백엔드)과 별개로 탈출구가 있어야 한다.
-      await page.evaluate(() => (window.__ipc.length = 0));
+      // 터미널에 포커스를 둔 채로 눌러 본다 — 창이 화면 밖으로 나갔을 때가 이 탈출구를
+      // 쓰는 순간이고, 그때 포커스는 대개 터미널에 있다. 예약 목록에서 빠져 있으면
+      // xterm 이 삼켜 아무 일도 일어나지 않는다(실제로 그랬다).
+      await page.evaluate(() => {
+        window.__tm?.active?.focus?.();
+        window.__ipc.length = 0;
+      });
       await page.keyboard.press("Control+Shift+Home");
       await page.waitForTimeout(200);
       const called = await page.evaluate(() =>

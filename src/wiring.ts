@@ -494,6 +494,24 @@ export function wireWindowControls(tabs: TabManager): void {
     void windowFitToScreen().catch(() => undefined);
   });
 
+  // Alt+F4 = 종료(Windows 표준, 사용자 요청 0.87.2).
+  //
+  // 제목줄을 직접 그리는 창이라 이 키가 OS 까지 닿지 않는 경우가 있다. 앱이 직접 받아
+  // 창버튼 X 와 **같은 길**로 보낸다 — win.close() 는 onCloseRequested 를 거치므로
+  // '접속 중인 세션이 N개' 확인창이 그대로 뜬다(그냥 destroy 하면 그 관문을 건너뛴다).
+  //
+  // capture 로 받는다: 모달·검색창 등 중간에서 keydown 을 멈추는 자리가 있어도 종료는
+  // 걸려야 한다. 종료는 사용자가 분명히 뜻을 밝힌 동작이다.
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "F4" || !e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) return;
+      e.preventDefault();
+      void win.close();
+    },
+    true,
+  );
+
   const syncMaxIcon = async () => {
     try {
       applyIcon($("win-max"), (await win.isMaximized()) ? "restore" : "maximize");

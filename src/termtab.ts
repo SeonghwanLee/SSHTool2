@@ -309,9 +309,14 @@ export class TerminalTab {
         const reserved =
           (!e.shiftKey && e.key >= "1" && e.key <= "9") || // 탭 번호 전환
           (!e.shiftKey && e.key === "F4") || // 세션 닫기
+          (e.shiftKey && e.key === "Home") || // 창을 화면 안으로 되돌리기
           e.key === "Tab"; // 탭 순환(Shift 는 역방향이므로 함께)
         if (reserved) return false;
       }
+      // Alt+F4 = 프로그램 종료(Windows 표준). 제목줄이 없는 창이라 OS 가 알아서 처리해
+      // 주지 않는 경우가 있어 앱이 직접 받는다 — 여기서 빼 주지 않으면 터미널이 먼저
+      // 삼킨다(Ctrl+F4 와 같은 사정).
+      if (e.altKey && !ctrl && !e.metaKey && e.key === "F4") return false;
 
       // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
       if (ctrl && e.key === "Enter") {
