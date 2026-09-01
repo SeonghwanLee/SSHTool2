@@ -362,10 +362,20 @@ export async function openSftpBrowser(
   });
 
   // X = 끊고 닫기. 끊기는 되돌릴 수 없다 — 전송 중이면 한 번 확인한다.
+  //
+  // 무엇을 보고 '전송 중' 이라 하는가(0.87.1): 예전에는 xfer.current 만 봤다. 그것은
+  // **파일 하나가 실제로 흐르는 동안에만** 채워진다 — 묶음의 총량을 재는 동안, 폴더를
+  // 훑는 동안, 파일과 파일 사이에는 비어 있다. 그 틈에 X 를 누르면 아무 경고 없이 전송이
+  // 끊겼다(사용자 보고). transferring 은 묶음이 끝날 때까지 켜져 있으므로 그것을 본다.
   closeBtn.addEventListener("click", () => {
     void (async () => {
-      if (xfer.current) {
-        const ok = await confirmDialog("파일을 전송 중입니다. 전송을 취소하고 연결을 끊을까요?");
+      if (xfer.transferring || xfer.current) {
+        const ok = await confirmDialog(
+          "파일을 전송 중입니다.\n창을 닫으면 연결이 끊기고 전송이 중단됩니다.",
+          // 처음 포커스는 '계속 전송' — 실수로 X 를 누른 상황이므로, Enter 가 되돌릴 수
+          // 없는 쪽(전송 중단)을 고르면 안 된다.
+          { ok: "전송 중단하고 닫기", cancel: "계속 전송", defaultCancel: true },
+        );
         if (!ok || disposed) return;
       }
       disconnectNow();
@@ -450,6 +460,8 @@ export async function openSftpBrowser(
       // 큐가 줄 하나만 갈아 끼우는지 보기 위한 통로(0.84.0) — 전체 재구성으로 되돌아가면
       // 항목 수가 많을 때 창이 굳는다. 검사는 줄 DOM 의 동일성으로 확인한다.
       queue,
+      // 전송 중 닫기 경고를 검사에서 만들려면 이 상태를 세울 수 있어야 한다.
+      xfer,
     };
   }
 

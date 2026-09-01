@@ -1842,6 +1842,53 @@ try {
       expect(calls[0]?.resumeFrom === 5, `이어받을 위치가 틀리다: ${JSON.stringify(calls[0])}`);
     });
 
+    await t.test("전송 중 창 닫기 — 경고하고, 계속을 고르면 끊지 않는다", async () => {
+      // 왜: 예전에는 '파일 하나가 실제로 흐르는 중'(xfer.current)일 때만 물었다. 묶음의
+      // 총량을 재거나 폴더를 훑는 동안, 파일과 파일 사이에는 그 값이 비어 있어 아무 경고
+      // 없이 전송이 끊겼다(사용자 보고). 묶음이 끝날 때까지 켜져 있는 값을 봐야 한다.
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const r = await page.evaluate(async () => {
+        const x = window.__sftpTest?.xfer;
+        if (!x) return "전송 상태 훅 없음";
+        // 파일 사이의 틈 — 묶음은 도는데 current 는 비어 있는 상태를 그대로 만든다.
+        x.transferring = true;
+        x.current = null;
+        let closed = false;
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_close") closed = true;
+          return prev(cmd, args);
+        };
+        try {
+          document.querySelector(".sftp-close")?.click();
+          await new Promise((res) => setTimeout(res, 400));
+          const msg = document.querySelector(".modal-msg")?.textContent ?? "";
+          const btns = [...document.querySelectorAll(".modal-buttons button")].map((b) => b.textContent);
+          // '계속 전송' 을 고르면 끊기지 않아야 한다.
+          [...document.querySelectorAll(".modal-buttons button")]
+            .find((b) => b.textContent === "계속 전송")
+            ?.click();
+          await new Promise((res) => setTimeout(res, 300));
+          return { msg, btns, closed, 열려있음: !!document.querySelector(".sftp-panel") };
+        } finally {
+          window.__TAURI_INTERNALS__.invoke = prev;
+          x.transferring = false;
+        }
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      expect(r.msg.includes("전송 중"), `경고가 뜨지 않았다: ${JSON.stringify(r)}`);
+      expect(
+        r.btns.includes("계속 전송"),
+        `버튼 이름이 다르다: ${JSON.stringify(r.btns)}`,
+      );
+      expect(!r.closed, "경고를 띄우고도 연결을 끊었다");
+      expect(r.열려있음, "'계속 전송' 을 골랐는데 창이 닫혔다");
+    });
+
     await t.test("SFTP 이동 — 같은 패널 안에서 폴더로 옮기고, 겹치는 이름은 건드리지 않는다", async () => {
       // 왜: 드래그 이동은 손이 미끄러지기 쉽고 원본을 그대로 들어 옮긴다. 특히 로컬은
       // rename 이 Windows 에서 기존 파일을 말없이 덮어쓴다 — 겹치면 건너뛰어야 한다.

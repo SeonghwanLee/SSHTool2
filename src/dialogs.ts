@@ -345,6 +345,11 @@ export interface ConfirmOptions {
   cancel?: string;
   /** 본문 아래 작은 글씨 — 무엇이 걸려 있는지 이름을 대는 자리. */
   detail?: string;
+  /**
+   * 처음 포커스를 '취소' 에 둔다 — 잘못 눌러서 뜬 창에서 Enter 가 되돌릴 수 없는 쪽을
+   * 고르면 안 되는 경우에 쓴다(전송 중 닫기 등).
+   */
+  defaultCancel?: boolean;
 }
 
 export function confirmDialog(message: string, opts: ConfirmOptions = {}): Promise<boolean> {
@@ -387,7 +392,7 @@ export function confirmDialog(message: string, opts: ConfirmOptions = {}): Promi
         close();
         resolve(k === "y");
       });
-      setTimeout(() => yes.focus(), 0);
+      setTimeout(() => (opts.defaultCancel ? no : yes).focus(), 0);
       return card;
     }, () => resolve(false));
   });
