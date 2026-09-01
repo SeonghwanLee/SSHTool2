@@ -174,6 +174,13 @@ export const FONTS: FontChoice[] = [
   { id: "Cascadia Code", label: "Cascadia Code", note: "내장 · OFL (Microsoft)", embedded: true },
   { id: "Fira Code", label: "Fira Code", note: "내장 · OFL", embedded: true },
   { id: "Source Code Pro", label: "Source Code Pro", note: "내장 · OFL (Adobe)", embedded: true },
+  // 0.88.0 추가. Iosevka 는 폭이 좁아 같은 너비에 글자가 더 들어간다 — 분할 보기에 유리하다.
+  // 원본은 한 벌에 7.7MB(글리프가 방대)라 터미널이 쓰는 구간만 남겨 250KB 로 줄였다:
+  // 라틴·그리스·문장부호·화살표·수학·기술기호·박스드로잉·블록·도형·딩뱃·점자·파워라인.
+  { id: "Iosevka Term", label: "Iosevka Term", note: "내장 · OFL (좁은 폭)", embedded: true },
+  { id: "Meslo LG S", label: "Meslo LG S", note: "내장 · Apache 2.0", embedded: true },
+  { id: "0xProto", label: "0xProto", note: "내장 · OFL", embedded: true },
+  { id: "Ubuntu Mono", label: "Ubuntu Mono", note: "내장 · UFL", embedded: true },
   { id: "Consolas", label: "Consolas", note: "시스템", embedded: false },
   { id: "Courier New", label: "Courier New", note: "시스템", embedded: false },
 ];

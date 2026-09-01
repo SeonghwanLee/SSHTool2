@@ -65,6 +65,54 @@
   font-weight: bold;
   font-display: block;
 }
+@font-face {
+  font-family: "Iosevka Term";
+  src: url("./fonts/IosevkaTerm-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Iosevka Term";
+  src: url("./fonts/IosevkaTerm-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+@font-face {
+  font-family: "Meslo LG S";
+  src: url("./fonts/MesloLGS-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Meslo LG S";
+  src: url("./fonts/MesloLGS-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+@font-face {
+  font-family: "0xProto";
+  src: url("./fonts/0xProto-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "0xProto";
+  src: url("./fonts/0xProto-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
+@font-face {
+  font-family: "Ubuntu Mono";
+  src: url("./fonts/UbuntuMono-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Ubuntu Mono";
+  src: url("./fonts/UbuntuMono-Bold.ttf") format("truetype");
+  font-weight: bold;
+  font-display: block;
+}
 
 /* 기본값(런타임에 테마가 즉시 덮어씀 — themes.ts applyAppTheme). */
 /* 브라우저(WebView2)가 직접 그리는 UI — datalist·select 팝업, 숫자 스피너, 자동완성 틀 —

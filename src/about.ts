@@ -80,11 +80,19 @@ export function aboutDialog(
           ["encoding_rs", "MIT / Apache-2.0", "문자셋 변환"],
           ["portable-pty", "MIT", "로컬 셸 PTY"],
           ["keyring", "MIT / Apache-2.0", "OS 키체인"],
+          // 내장 글꼴 — 목록이 실제와 어긋나 있었다(0.88.0 정리): 빠진 글꼴이 지워져 있지
+          // 않고, 뒤에 넣은 것들이 빠져 있었다. 전문은 설치 폴더의 licenses/ 에 함께 넣는다.
           ["D2Coding", "OFL 1.1", "내장 글꼴 (Naver)"],
-          ["나눔고딕코딩", "OFL 1.1", "내장 글꼴 (Naver)"],
           ["JetBrains Mono", "Apache-2.0", "내장 글꼴"],
           ["IBM Plex Mono", "OFL 1.1", "내장 글꼴"],
           ["Hack", "MIT", "내장 글꼴"],
+          ["Cascadia Code", "OFL 1.1", "내장 글꼴 (Microsoft)"],
+          ["Fira Code", "OFL 1.1", "내장 글꼴"],
+          ["Source Code Pro", "OFL 1.1", "내장 글꼴 (Adobe)"],
+          ["Iosevka Term", "OFL 1.1", "내장 글꼴 (터미널 구간만 서브셋)"],
+          ["Meslo LG S", "Apache-2.0", "내장 글꼴 (Bitstream Vera 계열)"],
+          ["0xProto", "OFL 1.1", "내장 글꼴"],
+          ["Ubuntu Mono", "UFL 1.0", "내장 글꼴 (Canonical)"],
         ];
         for (const [comp, lic, use] of LICENSES) {
           const row = document.createElement("div");

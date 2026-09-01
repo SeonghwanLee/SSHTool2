@@ -9,6 +9,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: "0.88.0",
+    date: "2026-09-01",
+    notes: [
+      "터미널 글꼴 4종을 더했습니다(7종 → 11종) — Iosevka Term(폭이 좁아 같은 너비에 글자가 더 들어갑니다. 분할 보기에 유리합니다) · Meslo LG S · 0xProto · Ubuntu Mono. 설치 용량은 약 0.65MB 늘었습니다",
+      "Iosevka 는 원본이 한 벌에 7.7MB 라 터미널이 실제로 쓰는 구간만 남겨 172KB 로 줄였습니다 — 라틴·문장부호·화살표·수학·기술기호·박스드로잉·블록·도형·딩뱃·점자·파워라인. htop 처럼 테두리와 진행바를 그리는 화면이 깨지지 않습니다",
+      "버전정보 창의 오픈소스 목록을 실제와 맞췄습니다 — 예전에 뺀 글꼴이 남아 있고 나중에 넣은 것들이 빠져 있었습니다. 글꼴 라이선스 전문은 설치 폴더의 licenses/ 에 함께 들어갑니다",
+    ],
+  },
+  {
     version: "0.87.2",
     date: "2026-09-01",
     notes: [
