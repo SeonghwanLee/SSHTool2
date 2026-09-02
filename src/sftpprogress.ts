@@ -127,7 +127,10 @@ export function createProgressStrip(
 
   const showProgress = (name: string, done: number, total: number) => {
     strip.classList.remove("hidden");
-    pName.textContent = overall ? `${name}  (${overall})` : name;
+    // 전체 진행("3/10")은 정보 칸으로 보낸다 — 파일명 칸은 파일명만 담아야 폭이 고정된
+    // 상태에서 이름이 덜 잘린다.
+    pName.textContent = name;
+    pName.title = name;
     const ratio = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
     fill.style.width = `${ratio}%`;
     pct.textContent = `${ratio}%`;
@@ -184,7 +187,10 @@ export function createProgressStrip(
       eta = ` · ${fmtEta(shownEta)}`;
     }
     pInfo.textContent =
-      (total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done)) + speed + eta;
+      (overall ? `${overall} · ` : "") +
+      (total > 0 ? `${fmtSize(done)} / ${fmtSize(total)}` : fmtSize(done)) +
+      speed +
+      eta;
   };
   const setOverall = (o: string) => {
     overall = o;

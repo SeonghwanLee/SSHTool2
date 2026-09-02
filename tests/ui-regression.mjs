@@ -2038,6 +2038,61 @@ try {
       );
     });
 
+    await t.test("진행 스트립 — 파일명·정보가 바뀌어도 막대 폭이 흔들리지 않는다", async () => {
+      // 왜: 예전에는 파일명이 내용만큼 늘고 막대가 남은 자리를 다 먹었다(flex:1). 파일이
+      // 바뀔 때마다, "9.9MB → 10.0MB" 처럼 글자 수가 바뀔 때마다 막대 폭이 따라 흔들려
+      // 화면이 어지러웠다(사용자 보고). 이제 파일명 50자·막대 30% 로 못박는다.
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const r = await page.evaluate(async () => {
+        const strip = document.querySelector(".sftp-progress");
+        const bar = document.querySelector(".prog-bar");
+        const name = document.querySelector(".prog-name");
+        const info = document.querySelector(".prog-info");
+        if (!strip || !bar || !name || !info) return "진행 스트립을 찾지 못했다";
+        const wasHidden = strip.classList.contains("hidden");
+        strip.classList.remove("hidden");
+        const frame = () => new Promise((res) => requestAnimationFrame(res));
+        const seen = [];
+        for (const [n, i] of [
+          ["a.txt", "1 B / 100 B"],
+          ["아주아주아주긴한글파일이름_20260901_최종본_진짜최종_v3.tar.gz", "5.0 MB / 9.3 GB · 6.3 MB/s · 약 38분 10초 남음"],
+          ["b.log", "999.9 MB / 1.0 GB"],
+        ]) {
+          name.textContent = n;
+          info.textContent = i;
+          await frame();
+          seen.push({
+            bar: Math.round(bar.getBoundingClientRect().width),
+            name: Math.round(name.getBoundingClientRect().width),
+          });
+        }
+        const stripW = strip.getBoundingClientRect().width;
+        if (wasHidden) strip.classList.add("hidden");
+        return { seen, stripW: Math.round(stripW) };
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      const bars = r.seen.map((x) => x.bar);
+      const names = r.seen.map((x) => x.name);
+      expect(
+        new Set(bars).size === 1,
+        `내용이 바뀌자 막대 폭이 달라졌다: ${JSON.stringify(bars)}`,
+      );
+      expect(
+        new Set(names).size === 1,
+        `내용이 바뀌자 파일명 칸 폭이 달라졌다: ${JSON.stringify(names)}`,
+      );
+      // 막대는 스트립 가로폭의 30% 언저리여야 한다(여백·간격 때문에 정확히 30%는 아니다).
+      const ratio = bars[0] / r.stripW;
+      expect(
+        ratio > 0.25 && ratio < 0.34,
+        `막대가 가로폭의 ${(ratio * 100).toFixed(0)}% 다 — 30% 고정이 풀렸다`,
+      );
+    });
+
     await t.test("전송 큐 — 항목이 줄 서고 실패는 남아 다시 시도할 수 있다", async () => {
       await dismissModals(page);
       if ((await page.locator(".sftp-panel").count()) === 0) {
@@ -3294,6 +3349,46 @@ try {
           await page.waitForTimeout(300);
         }
       }
+    });
+
+    await t.test("Ctrl+Q — 빠른 접속이 열리고, 옛 Ctrl+Shift+T 는 더 이상 걸리지 않는다", async () => {
+      await dismissModals(page);
+      const r = await page.evaluate(async () => {
+        const btn = document.getElementById("quick-connect");
+        if (!btn) return "빠른 접속 버튼이 없다";
+        let hits = 0;
+        const count = () => hits++;
+        btn.addEventListener("click", count);
+        const press = async (init) => {
+          window.__tm?.active?.focus?.(); // 터미널 포커스 상태에서 눌러 본다
+          (document.activeElement ?? document).dispatchEvent(
+            new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+          );
+          await new Promise((res) => setTimeout(res, 150));
+        };
+        await press({ key: "q", ctrlKey: true });
+        const afterQ = hits;
+        await press({ key: "T", ctrlKey: true, shiftKey: true });
+        const afterT = hits;
+        btn.removeEventListener("click", count);
+        return { ctrlQ: afterQ, ctrlShiftT: afterT - afterQ };
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      expect(r.ctrlQ === 1, `Ctrl+Q 로 빠른 접속이 열리지 않았다(${r.ctrlQ}회)`);
+      expect(r.ctrlShiftT === 0, `옛 Ctrl+Shift+T 가 아직 걸린다(${r.ctrlShiftT}회)`);
+      // 빠른 접속(세션 편집) 창이 실제로 열렸다 — '취소' 로 닫는다.
+      // dismissModals 는 기본 버튼('저장')을 누르므로 여기서는 쓰면 안 되고(빈 호스트로
+      // 검증에 걸려 창이 남는다), 이 창은 Esc 로도 닫히지 않는다.
+      for (let i = 0; i < 5 && (await page.locator(".modal-overlay").count()); i++) {
+        await page.evaluate(() =>
+          [...document.querySelectorAll(".modal-card button")]
+            .find((b) => b.textContent === "취소")
+            ?.click(),
+        );
+        await page.waitForTimeout(250);
+      }
+      const left = await page.locator(".modal-overlay").count();
+      expect(left === 0, `빠른 접속 창이 ${left}개 남았다 — 뒤 검사를 막는다`);
     });
 
     await t.test("Alt+F4 — 터미널에 포커스가 있어도 종료가 걸린다", async () => {

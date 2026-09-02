@@ -310,6 +310,7 @@ export class TerminalTab {
           (!e.shiftKey && e.key >= "1" && e.key <= "9") || // 탭 번호 전환
           (!e.shiftKey && e.key === "F4") || // 세션 닫기
           (e.shiftKey && e.key === "Home") || // 창을 화면 안으로 되돌리기
+          (!e.shiftKey && (e.key === "q" || e.key === "Q")) || // 빠른 접속 — XON(0x11)은 포기
           e.key === "Tab"; // 탭 순환(Shift 는 역방향이므로 함께)
         if (reserved) return false;
       }

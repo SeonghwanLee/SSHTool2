@@ -95,7 +95,7 @@ export function wireBrowserKeyGuard(): void {
         return;
       }
       if (!e.ctrlKey || e.altKey) return;
-      if (e.shiftKey) return; // Ctrl+Shift+F(검색)·Ctrl+Shift+T(빠른접속) 등 앱 단축키 보존
+      if (e.shiftKey) return; // Ctrl+Shift+F(검색)·Ctrl+Shift+Home 등 앱 단축키 보존
       const k = e.key.toLowerCase();
       // 웹뷰 확대/축소(Ctrl +,-,0) 차단 — 터미널 폰트 줌은 자체 핸들러가 처리.
       if (k === "=" || k === "-" || k === "+" || k === "0" || blockedCtrl.has(k)) {

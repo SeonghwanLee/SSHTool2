@@ -29,9 +29,17 @@
   <div class="wrap">
     <h1>SSHTool2 전체 변경 이력</h1>
     <div class="sub">
-      총 142개 버전 · <a href="./">홈으로</a> ·
+      총 143개 버전 · <a href="./">홈으로</a> ·
       <a href="https://github.com/SeonghwanLee/SSHTool2/releases">GitHub 릴리스</a>
     </div>
+      <article class="rel">
+        <h3>v0.89.0<span class="date">2026-09-01</span></h3>
+        <ul>
+          <li>SFTP 전송 진행바가 흔들리지 않습니다 — 파일명 칸(50자)과 막대(가로폭의 30%)를 고정하고 나머지를 정보 칸이 가져갑니다. 예전에는 파일이 바뀔 때마다, 숫자 자릿수가 바뀔 때마다(9.9MB → 10.0MB) 막대 폭이 따라 움직여 어지러웠습니다(실측 995 → 584 → 953px)</li>
+          <li>전체 진행(3/12)을 파일명 옆에서 정보 칸으로 옮겼습니다 — 파일명 칸은 파일명만 담아 이름이 덜 잘립니다</li>
+          <li>빠른 접속 단축키가 Ctrl+Q 로 바뀌었습니다(기존 Ctrl+Shift+T 는 제거). 머리말의 ⚡ 버튼은 그대로입니다. 참고로 Ctrl+Q 는 터미널에서 XON(멈춘 출력 재개)이기도 해서, 그 바이트는 이제 원격으로 보낼 수 없습니다</li>
+        </ul>
+      </article>
       <article class="rel">
         <h3>v0.88.0<span class="date">2026-09-01</span></h3>
         <ul>

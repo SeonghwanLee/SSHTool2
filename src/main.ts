@@ -641,8 +641,14 @@ async function main(): Promise<void> {
         openAbout();
         return;
       }
-      // Ctrl+Shift+T = 빠른 접속(WPF 0.31.0)
-      if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
+      // 빠른 접속 = Ctrl+Q (0.89.0, 사용자 요청). 예전 Ctrl+Shift+T 는 뺐다 — 잘 쓰이지
+      // 않았다.
+      //
+      // Ctrl+Q 는 터미널에서 XON(0x11, 흐름 제어 재개)이기도 하다. 앱이 가로채므로 그
+      // 바이트를 원격에 보낼 길이 막힌다 — Ctrl+S 로 멈춘 출력을 Ctrl+Q 로 푸는 쓰임이
+      // 대표적이다. 실제로 쓰는 경우가 드물어 단축키를 택했고, 필요하면 머리말의 ⚡ 버튼이
+      // 그대로 남아 있다.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "Q" || e.key === "q")) {
         e.preventDefault();
         $("quick-connect").click();
       }

@@ -2207,15 +2207,22 @@ body.sftp-resizing * {
 .sftp-progress.hidden {
   display: none;
 }
+/* 진행 스트립의 세 칸은 **폭이 고정**이다(0.89.0).
+   예전에는 파일명이 내용만큼 늘고 막대가 남은 자리를 다 먹었다(flex:1). 그러면 파일이
+   바뀔 때마다, 그리고 "9.9MB → 10.0MB" 처럼 글자 수가 바뀔 때마다 막대 폭이 따라 흔들려
+   화면이 어지러웠다(사용자 보고). 이제 파일명 50자·막대 30% 로 못박고 남은 자리를
+   정보 칸이 흡수하므로, 숫자가 바뀌어도 막대는 제자리에 있는다. */
 .prog-name {
-  max-width: 240px;
+  flex: 0 1 50ch; /* 50자(≈50byte) 고정. 창이 좁을 때만 줄어든다 */
+  width: 50ch;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .prog-bar {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 0 30%; /* 가로폭의 30% 고정 — 늘어나지도 줄어들지도 않는다 */
   height: 16px;
   background: #00000033;
   border-radius: 8px;
@@ -2238,8 +2245,12 @@ body.sftp-resizing * {
   color: var(--fg);
 }
 .prog-info {
+  flex: 1 1 auto; /* 남은 자리 전부 — 글자가 늘고 줄어도 앞의 두 칸을 밀지 않는다 */
+  min-width: 0;
   color: var(--muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .conflict-buttons {
   flex-wrap: wrap;
