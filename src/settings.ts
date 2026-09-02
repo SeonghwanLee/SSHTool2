@@ -139,7 +139,7 @@ export const DEFAULT_SETTINGS: Settings = {
   folders: [],
   collapsedFolders: [],
   autoLockMinutes: 0,
-  screensaverMinutes: 5,
+  screensaverMinutes: 10,
   viewMode: "tabs",
   splitGroups: [],
   checkUpdateOnStartup: true,
@@ -221,9 +221,12 @@ export async function loadSettings(): Promise<Settings> {
     // 화면보호기 시간 이관(0.86.0) — 예전 파일에는 이 항목이 없다. **지금 하던 대로**
     // 옮겨야 판올림만으로 동작이 달라지지 않는다: 잠금이 0이었으면 5분 뒤 화면보호기가
     // 떴고, 1 이상이었으면 화면보호기는 뜨지 않았다.
-    if (typeof (raw as Partial<Settings>)?.screensaverMinutes !== "number")
+    // 이관은 **쓰던 사람에게만** 적용한다(다음 배포). 처음 설치하는 경우까지 여기서 5로
+    // 덮어쓰면 기본값(10분)을 바꿔도 새 사용자에게 닿지 않는다 — 실제로 그럴 뻔했다.
+    if (!firstRun && typeof (raw as Partial<Settings>)?.screensaverMinutes !== "number")
       merged.screensaverMinutes = merged.autoLockMinutes > 0 ? 0 : 5;
-    if (!Number.isFinite(merged.screensaverMinutes)) merged.screensaverMinutes = 5;
+    if (!Number.isFinite(merged.screensaverMinutes))
+      merged.screensaverMinutes = DEFAULT_SETTINGS.screensaverMinutes;
     merged.screensaverMinutes = Math.max(0, Math.min(720, Math.round(merged.screensaverMinutes)));
     // 삭제된 화면보호기(생명게임·프롬프트 등)를 골라 뒀던 파일 방어 — 무작위로 되돌린다.
     if (merged.screensaver !== "random" && !(SAVER_NAMES as readonly string[]).includes(merged.screensaver))

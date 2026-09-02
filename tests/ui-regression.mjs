@@ -796,6 +796,37 @@ try {
       await page.waitForTimeout(200);
     });
 
+    await t.test("화면보호기 기본값 — 새 설치는 10분, 쓰던 설정은 건드리지 않는다", async () => {
+      // 왜: 기본값만 바꾸면 새 사용자에게 닿지 않는다. 옛 파일용 이관 코드가 값이 없을 때
+      // 5로 덮어쓰는데, 처음 설치도 '값이 없는' 상태라 그 길로 빠진다.
+      const r = await page.evaluate(async () => {
+        const { loadSettings, DEFAULT_SETTINGS } = await import("/src/settings.ts");
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        const run = async (raw) => {
+          window.__TAURI_INTERNALS__.invoke = async (cmd, args) =>
+            cmd === "settings_load" ? raw : prev(cmd, args);
+          try {
+            return (await loadSettings()).screensaverMinutes;
+          } finally {
+            window.__TAURI_INTERNALS__.invoke = prev;
+          }
+        };
+        return {
+          기본값: DEFAULT_SETTINGS.screensaverMinutes,
+          새설치: await run({}),
+          옛파일_잠금없음: await run({ theme: "everforest", autoLockMinutes: 0 }),
+          옛파일_잠금30: await run({ theme: "everforest", autoLockMinutes: 30 }),
+          직접설정7: await run({ theme: "everforest", screensaverMinutes: 7 }),
+        };
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      expect(r.기본값 === 10, `기본값이 10분이 아니다: ${r.기본값}`);
+      expect(r.새설치 === 10, `새 설치가 기본값을 못 받았다: ${r.새설치} (이관 코드가 덮어썼는지 보라)`);
+      expect(r.옛파일_잠금없음 === 5, `쓰던 설정(잠금 0)의 동작이 바뀌었다: ${r.옛파일_잠금없음}`);
+      expect(r.옛파일_잠금30 === 0, `쓰던 설정(잠금 30)의 동작이 바뀌었다: ${r.옛파일_잠금30}`);
+      expect(r.직접설정7 === 7, `직접 정한 값이 유지되지 않는다: ${r.직접설정7}`);
+    });
+
     await t.test("자동 잠금 / 화면보호기 — 서로 다른 항목이고 저장까지 살아남는다", async () => {
       // 왜: 예전에는 autoLockMinutes 하나가 둘을 겸했다 — 0이면 '잠금 없음 + 5분 화면보호기',
       // 1 이상이면 '그 시간에 잠금 + 화면보호기 영영 없음'. '화면보호기 5분 + 잠금 30분'
