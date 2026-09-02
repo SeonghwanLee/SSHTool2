@@ -731,19 +731,60 @@ pub async fn mkdir(state: &SftpMap, id: &str, path: String) -> Result<(), String
         .map_err(|e| format!("폴더 생성 실패: {e}"))
 }
 
+/// 원격 삭제. 폴더는 **안에 든 것까지** 지운다(0.89.1).
+///
+/// SFTP 의 rmdir(SSH_FXP_RMDIR)은 규격상 **빈 폴더만** 지운다 — 예전에는 그걸 그대로
+/// 불렀으므로 내용이 있는 폴더는 "폴더 삭제 실패"로 끝났다(실기 보고: 파일만 지워지는
+/// 것처럼 보임). 로컬은 remove_dir_all 이라 진작 되고 있었고, 원격만 어긋나 있었다.
+///
+/// 재귀 대신 명시적 스택을 쓴다: async 재귀는 Box::pin 이 필요하고, 깊은 트리에서
+/// 호출 스택을 쌓지 않는 편이 안전하다. 순서는 후위(post-order) — 안쪽을 먼저 비우고
+/// 바깥 폴더를 지운다.
+///
+/// 심볼릭 링크인 폴더는 **따라 들어가지 않는다.** 링크만 지운다 — 링크를 따라가면
+/// 그 폴더가 가리키는 엉뚱한 곳(예: /)을 지우게 된다.
 pub async fn remove(state: &SftpMap, id: &str, path: String, is_dir: bool) -> Result<(), String> {
     let conn = get_conn(state, id)?;
-    if is_dir {
-        conn.sftp
-            .remove_dir(text_to_wire(&path, conn.encoding))
-            .await
-            .map_err(|e| format!("폴더 삭제 실패: {e}"))
-    } else {
-        conn.sftp
+    if !is_dir {
+        return conn
+            .sftp
             .remove_file(text_to_wire(&path, conn.encoding))
             .await
-            .map_err(|e| format!("파일 삭제 실패: {e}"))
+            .map_err(|e| format!("파일 삭제 실패: {e}"));
     }
+
+    // ① 훑으면서 파일은 바로 지우고, 하위 폴더는 나중에 지우려고 모아 둔다.
+    let mut pending = vec![text_to_wire(&path, conn.encoding)];
+    let mut dirs: Vec<String> = Vec::new();
+    while let Some(dir_wire) = pending.pop() {
+        let entries = conn
+            .sftp
+            .read_dir(&dir_wire)
+            .await
+            .map_err(|e| format!("폴더 삭제 실패(목록 조회): {e}"))?;
+        for e in entries {
+            let child = join_path(&dir_wire, &e.file_name());
+            let meta = e.metadata();
+            // 링크는 대상이 폴더여도 링크 자체만 지운다.
+            if meta.is_dir() && !meta.file_type().is_symlink() {
+                pending.push(child);
+            } else {
+                conn.sftp
+                    .remove_file(child)
+                    .await
+                    .map_err(|e| format!("폴더 삭제 실패(내부 파일): {e}"))?;
+            }
+        }
+        dirs.push(dir_wire);
+    }
+    // ② 모아 둔 폴더를 안쪽부터 지운다(수집 순서의 역순 = 깊은 것 먼저).
+    for d in dirs.into_iter().rev() {
+        conn.sftp
+            .remove_dir(d)
+            .await
+            .map_err(|e| format!("폴더 삭제 실패: {e}"))?;
+    }
+    Ok(())
 }
 
 pub async fn rename(state: &SftpMap, id: &str, from: String, to: String) -> Result<(), String> {

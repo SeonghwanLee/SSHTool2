@@ -1889,6 +1889,66 @@ try {
       expect(r.열려있음, "'계속 전송' 을 골랐는데 창이 닫혔다");
     });
 
+    await t.test("SFTP 삭제 — 폴더도 지워지고, 폴더가 섞이면 내용까지 지운다고 알린다", async () => {
+      // 왜: 원격 삭제가 rmdir 를 그대로 불렀다. SFTP 규격상 rmdir 는 **빈 폴더만** 지우므로
+      // 내용이 있는 폴더는 실패했고, 화면에는 파일만 지워진 것처럼 보였다(실기 보고).
+      await dismissModals(page);
+      if ((await page.locator(".sftp-panel").count()) === 0) {
+        await page.evaluate(() => window.__open());
+        await page.waitForTimeout(900);
+      }
+      const r = await page.evaluate(async () => {
+        const pane = window.__sftpTest?.panes?.remote?.();
+        if (!pane) return "패널 훅 없음";
+        const calls = [];
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
+          if (cmd === "sftp_remove") {
+            calls.push([args.path, args.isDir]);
+            return null;
+          }
+          if (cmd === "sftp_list")
+            return [
+              { name: "로그", path: "/home/u/로그", isDir: true, size: 0, modified: 1 },
+              { name: "a.txt", path: "/home/u/a.txt", isDir: false, size: 1, modified: 1 },
+            ];
+          return prev(cmd, args);
+        };
+        try {
+          await pane.go("/home/u");
+          pane.selected.clear();
+          pane.selected.add("/home/u/로그");
+          pane.selected.add("/home/u/a.txt");
+          pane.markSelection();
+          // 삭제는 확인창을 거친다 — 열리면 문구를 읽고 '삭제' 를 누른다.
+          const p = pane.removeSelected();
+          await new Promise((res) => setTimeout(res, 400));
+          const msg = document.querySelector(".modal-msg")?.textContent ?? "";
+          const detail = document.querySelector(".modal-detail")?.textContent ?? "";
+          [...document.querySelectorAll(".modal-buttons button")]
+            .find((b) => b.textContent === "삭제")
+            ?.click();
+          await p;
+          return { calls, msg, detail };
+        } finally {
+          window.__TAURI_INTERNALS__.invoke = prev;
+        }
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      const dirCall = r.calls.find((c) => c[1] === true);
+      expect(!!dirCall, `폴더 삭제가 호출되지 않았다: ${JSON.stringify(r.calls)}`);
+      expect(
+        dirCall[0] === "/home/u/로그",
+        `엉뚱한 폴더를 지웠다: ${dirCall[0]}`,
+      );
+      expect(r.calls.length === 2, `파일·폴더 둘 다 지워야 한다: ${JSON.stringify(r.calls)}`);
+      expect(
+        r.detail.includes("안에 든 파일까지"),
+        `폴더가 섞였는데 내용까지 지운다고 알리지 않는다: ${JSON.stringify(r.detail)}`,
+      );
+      await dismissModals(page);
+    });
+
     await t.test("SFTP 이동 — 같은 패널 안에서 폴더로 옮기고, 겹치는 이름은 건드리지 않는다", async () => {
       // 왜: 드래그 이동은 손이 미끄러지기 쉽고 원본을 그대로 들어 옮긴다. 특히 로컬은
       // rename 이 Windows 에서 기존 파일을 말없이 덮어쓴다 — 겹치면 건너뛰어야 한다.

@@ -552,17 +552,43 @@ export class Pane {
   private async removeSelected(): Promise<void> {
     const targets = this.entries.filter((x) => this.selected.has(x.path));
     if (targets.length === 0) return;
-    const ok = await confirmDialog(`${targets.length}개 항목을 삭제할까요?`);
+    // 폴더는 **안에 든 것까지** 지운다 — 되돌릴 수 없으므로 무엇이 걸려 있는지 밝힌다.
+    // 예전에는 원격 폴더가 아예 지워지지 않아(빈 폴더만 지우는 규격) 이 경고가 필요
+    // 없었지만, 0.89.1 부터 실제로 지워진다.
+    const dirs = targets.filter((t) => t.isDir);
+    const detail = dirs.length
+      ? `폴더 ${dirs.length}개는 안에 든 파일까지 함께 지워집니다: ${dirs
+          .map((d) => d.name)
+          .slice(0, 5)
+          .join(", ")}${dirs.length > 5 ? " 외" : ""}`
+      : "";
+    const ok = await confirmDialog(`${targets.length}개 항목을 삭제할까요?`, {
+      ok: "삭제",
+      cancel: "취소",
+      detail,
+      defaultCancel: dirs.length > 0, // 폴더가 섞이면 Enter 가 삭제를 고르지 않게
+    });
     if (!ok) return;
+
+    let done = 0;
+    const failed: string[] = [];
     for (const t of targets) {
       try {
         if (this.side === "local") await localRemove(t.path, t.isDir);
         else await sftpRemove(this.ctx.getSftpId(), t.path, t.isDir);
+        done++;
       } catch (e) {
-        this.ctx.setStatus(`삭제 실패: ${String(e)}`);
+        // 하나가 막혀도 나머지는 계속 지운다. 결과는 마지막에 한 번만 알린다 —
+        // 예전에는 항목마다 상태줄을 덮어써서 무엇이 실패했는지 남지 않았다.
+        failed.push(`${t.name}(${String(e).slice(0, 60)})`);
       }
     }
     await this.reload();
+    this.ctx.setStatus(
+      failed.length === 0
+        ? `${done}개 삭제`
+        : `${done}개 삭제 · 실패 ${failed.length}개 — ${failed.join(", ")}`,
+    );
   }
 
   selectedEntries(): Entry[] {
