@@ -4881,7 +4881,7 @@ dependencies = [
 
 [[package]]
 name = "sshtool2"
-version = "0.89.1"
+version = "0.89.2"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",

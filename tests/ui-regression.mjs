@@ -4297,6 +4297,53 @@ try {
 
     await page.close();
   }
+
+  // ── 글꼴 로딩 경합(0.90.0) ────────────────────────────────────────────────
+  // 왜 페이지를 따로 여는가: 이 증상은 '앱이 막 뜨고 터미널이 처음 만들어질 때' 만
+  // 재현된다. 내장 글꼴(ttf)이 아직 도착하지 않은 순간에 셀 크기를 재면 폴백 글꼴
+  // 기준으로 재고, 그 값이 그대로 굳는다.
+  {
+    const page = await openPage(browser, {
+      stub: {
+        sessions_load: [SESSIONS[0]],
+        // 폴백과 글자 폭이 다른 글꼴을 일부러 고른다(실측 폴백 8.40 vs 0xProto 8.68).
+        settings_load: { fontFamily: "0xProto", fontSize: 14 },
+      },
+    });
+    await page.waitForTimeout(1500);
+    await openSession(page, 0);
+
+    await t.test("글꼴 로딩 — 셀 크기를 폴백 기준으로 재고 굳어 버리지 않는다", async () => {
+      // 실기 보고: 박스 문자로 그린 표의 세로선이 행마다 어긋나고 가로선이 끊겨 보이는데,
+      // 글자 크기를 바꿨다 되돌리면 나았다(= 그때 다시 재기 때문). 원인은 웹폰트가 도착하기
+      // 전에 잰 셀 크기가 그대로 굳는 것. 어긋남은 칸마다 쌓여 80칸이면 20px 을 넘는다.
+      const r = await page.evaluate(async () => {
+        const tab = window.__tm?.tabs?.[0];
+        if (!tab) return "탭이 없다";
+        // 글꼴이 도착할 시간을 넉넉히 준다(수정이 있으면 그 사이에 다시 잰다).
+        await new Promise((res) => setTimeout(res, 1500));
+        const cell = tab.term._core._renderService.dimensions.css.cell;
+        const ctx = document.createElement("canvas").getContext("2d");
+        ctx.font = `${tab.term.options.fontSize}px "0xProto", "D2Coding", Consolas, monospace`;
+        return {
+          로드됨: document.fonts.check(`14px "0xProto"`),
+          셀폭: +cell.width.toFixed(2),
+          글자폭: +ctx.measureText("M").width.toFixed(2),
+          cols: tab.term.cols,
+        };
+      });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
+      expect(r.로드됨, "글꼴이 로드되지 않아 검사가 의미 없다");
+      const gap = Math.abs(r.셀폭 - r.글자폭);
+      expect(
+        gap < 0.05,
+        `셀 폭이 실제 글자 폭과 ${gap.toFixed(2)}px 어긋났다(셀 ${r.셀폭} vs 글자 ${r.글자폭})` +
+          ` — ${r.cols}칸이면 ${(gap * r.cols).toFixed(0)}px 이 쌓여 표가 깨진다`,
+      );
+    });
+
+    await page.close();
+  }
 } finally {
   await browser.close();
   stop();

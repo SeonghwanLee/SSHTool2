@@ -90,6 +90,8 @@ export class TabManager {
     horizontal: [],
   };
   private refitPending = false;
+  /** 모든 탭의 셀 크기를 다시 재게 한다(생성자에서 채운다). */
+  private refitAll: (remeasure?: boolean) => void = () => {};
   private settleTimer = 0;
   /** 칸 크기 변화 관찰자 — 탭이 생길 때 붙이고 닫을 때 뗀다. */
   private paneObserver!: ResizeObserver;
@@ -210,8 +212,11 @@ export class TabManager {
       }
       this.armSettle();
     };
+    this.refitAll = scheduleRefit;
     window.addEventListener("resize", () => scheduleRefit());
     new ResizeObserver(() => scheduleRefit()).observe(this.panes);
+
+    void this.remeasureWhenFontsReady(settings);
     // 칸 **하나하나**도 본다(0.84.1). 바깥 상자는 그대로인데 안에서만 나뉘는 경우가
     // 있다 — 분할 격자를 2×3 에서 2×2 로 바꾸거나, 일반창↔분할창을 오갈 때가 그렇다.
     // 바깥만 보고 있으면 그런 변화에는 관찰자가 뜨지 않아, 터미널은 **옛 크기 그대로**
@@ -423,6 +428,40 @@ export class TabManager {
     this.settings = s;
     for (const t of this.tabs) t.applySettings(s);
     this.emitStatus();
+    void this.remeasureWhenFontsReady(s);
+  }
+
+  /**
+   * 터미널 글꼴이 **실제로 도착한 뒤** 모든 탭의 셀 크기를 다시 잰다(0.89.2).
+   *
+   * 왜 필요한가: 터미널은 만들어지는 즉시 셀 크기를 잰다. 그때 웹폰트(@font-face 의 ttf)가
+   * 아직 로드되지 않았으면 **폴백 글꼴 기준으로** 재고, 잠시 뒤 진짜 글꼴로 글자가 다시
+   * 그려져도 격자 좌표는 옛 측정값 그대로다. 그래서 박스 그리기 문자로 그린 표의 세로선이
+   * 행마다 어긋나고 가로선이 끊겨 보였다(실기 보고). 글자 크기를 바꿨다 되돌리면 나았던
+   * 것도 그때 다시 재기 때문이다.
+   *
+   * `document.fonts.ready` 만으로는 모자란다 — 그것은 **이미 요청된** 로드가 끝나기를
+   * 기다릴 뿐이고, 아직 아무도 쓰지 않은 글꼴은 요청 자체가 시작되지 않아 그냥 통과한다.
+   * 그래서 쓸 글꼴을 load() 로 직접 요청해 그것이 끝나기를 기다린다.
+   *
+   * 폴백(D2Coding)까지 함께 기다리는 이유: 고른 글꼴에 없는 글자(한글 등)는 폴백으로
+   * 그려지므로, 그쪽이 늦게 도착해도 같은 어긋남이 난다.
+   */
+  private async remeasureWhenFontsReady(s: Settings): Promise<void> {
+    const quote = (f: string) => `"${f.replace(/["\\]/g, "")}"`;
+    const size = s.fontSize > 0 ? s.fontSize : 14;
+    try {
+      const fonts = document.fonts;
+      if (!fonts) return;
+      await Promise.allSettled([
+        fonts.load(`${size}px ${quote(s.fontFamily)}`),
+        fonts.load(`${size}px "D2Coding"`), // 폴백 — 한글이 이걸로 그려진다
+        fonts.ready,
+      ]);
+      this.refitAll(true);
+    } catch {
+      /* 글꼴 API 가 없거나 실패해도 앱은 그대로 — 예전 동작으로 남는다 */
+    }
   }
 
   async openSession(session: SessionInfo): Promise<void> {
