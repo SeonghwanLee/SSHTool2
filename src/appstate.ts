@@ -84,3 +84,10 @@ export async function persist(): Promise<void> {
   }
 }
 
+/**
+ * 빠른 접속에서 "성공하면 저장" 을 고른 세션의 id(0.90.0).
+ *
+ * 접속이 실제로 붙었는지는 자격증명 흐름의 onConnected 가 안다. 그 시점에 이 표식을 보고
+ * 목록에 넣는다 — 폼에서 바로 저장해 버리면 호스트를 잘못 적은 세션까지 목록에 쌓인다.
+ */
+export const saveOnConnect = new Set<string>();

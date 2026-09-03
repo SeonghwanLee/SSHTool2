@@ -4,7 +4,7 @@
 import { sshProbe, vaultGetPassword, vaultSetPassword, vaultDeletePassword } from "./ipc";
 import { passwordPrompt, loginPrompt, confirmDialog, alertDialog } from "./dialogs";
 import type { CredentialProvider } from "./tabs";
-import { sessions, setSessions, redraw, persist } from "./appstate";
+import { sessions, setSessions, redraw, persist, saveOnConnect } from "./appstate";
 import { ensureVaultUnlocked, refreshLockIndicator } from "./vaultflow";
 
 /**
@@ -51,6 +51,19 @@ export const credentials: CredentialProvider = {
 
   async onConnected(session, creds) {
     void refreshLockIndicator();
+
+    // 빠른 접속에서 "성공하면 저장" 을 고른 경우 — 지금이 그 '성공' 시점이다(0.90.0).
+    // 비밀번호를 물었는지와 무관하게 먼저 처리한다(키 인증이면 묻지 않는다).
+    if (saveOnConnect.delete(session.id) && !sessions.find((x) => x.id === session.id)) {
+      const order = sessions.reduce((m, x) => Math.max(m, x.sortOrder), 0) + 1;
+      setSessions([
+        ...sessions,
+        { ...session, name: session.name || session.host, sortOrder: order },
+      ]);
+      await persist();
+      redraw();
+    }
+
     // 저장된 자격증명을 그대로 쓴 경우엔 물어볼 게 없다.
     if (!creds.prompted) return;
     // 임시(빠른 접속) 세션은 목록에 없으니 저장 제안 안 함.

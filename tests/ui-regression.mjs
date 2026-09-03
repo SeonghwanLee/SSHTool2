@@ -3442,6 +3442,53 @@ try {
       }
     });
 
+    await t.test("빠른 접속 폼 — 호스트·포트·계정과 저장 여부만 묻는다", async () => {
+      // 왜: 예전에는 세션 편집 창(연결·인증·자동화·트리거·서비스 5탭)을 그대로 띄웠다.
+      // 한 번 쓰고 버릴 접속에 이름·폴더·색 태그·트리거를 묻는 셈이었다(사용자 지적).
+      await dismissModals(page);
+      await page.click("#quick-connect");
+      await page.waitForTimeout(400);
+      const form = await page.evaluate(() => ({
+        제목: document.querySelector(".modal-card h3")?.textContent ?? "",
+        칸: [...document.querySelectorAll(".modal-card .field > span")].map((x) => x.textContent),
+        체크: [...document.querySelectorAll(".modal-card .check-row span")].map((x) => x.textContent),
+        탭수: document.querySelectorAll(".modal-card .settings-tab").length,
+        본문: document.querySelector(".modal-card")?.textContent ?? "",
+      }));
+      expect(form.제목 === "빠른 접속", `제목이 다르다: ${form.제목}`);
+      expect(form.탭수 === 0, `탭이 ${form.탭수}개 남아 있다 — 편집 창을 그대로 쓰고 있다`);
+      expect(
+        JSON.stringify(form.칸) === JSON.stringify(["호스트", "포트", "계정"]),
+        `입력 칸이 다르다: ${JSON.stringify(form.칸)}`,
+      );
+      expect(
+        form.체크.some((x) => x.includes("세션 목록에 저장")),
+        `저장 옵션이 없다: ${JSON.stringify(form.체크)}`,
+      );
+      for (const 없어야 of ["폴더", "색 태그", "트리거", "문자셋", "포트 포워딩"]) {
+        expect(!form.본문.includes(없어야), `'${없어야}' 가 아직 폼에 있다`);
+      }
+
+      // 호스트가 비면 접속되지 않고 안내가 뜬다.
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".modal-buttons button")]
+          .find((b) => b.textContent === "접속")
+          ?.click(),
+      );
+      await page.waitForTimeout(250);
+      const r = await page.evaluate(() => ({
+        열림: !!document.querySelector(".modal-card"),
+        오류: document.querySelector(".modal-err")?.textContent ?? "",
+      }));
+      expect(r.열림 && r.오류.includes("호스트"), `빈 호스트를 막지 않는다: ${JSON.stringify(r)}`);
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".modal-buttons button")]
+          .find((b) => b.textContent === "취소")
+          ?.click(),
+      );
+      await page.waitForTimeout(200);
+    });
+
     await t.test("Ctrl+Q — 빠른 접속이 열리고, 옛 Ctrl+Shift+T 는 더 이상 걸리지 않는다", async () => {
       await dismissModals(page);
       const r = await page.evaluate(async () => {

@@ -2730,6 +2730,19 @@ body.sftp-resizing * {
   line-height: 1.5;
   white-space: pre-line;
 }
+/* 빠른 접속 — 호스트와 포트는 늘 함께 보므로 한 줄에 둔다(포트는 좁게). */
+.quick-hostrow {
+  display: flex;
+  gap: 10px;
+}
+.quick-hostrow > .field:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.quick-hostrow > .field:last-child {
+  flex: 0 0 96px;
+}
+
 /* 확인창 부연 — 무엇이 걸려 있는지 이름을 대는 자리(대상 세션 목록 등). */
 .modal-detail {
   margin-top: 8px;

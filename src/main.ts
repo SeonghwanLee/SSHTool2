@@ -27,6 +27,7 @@ import {
   blockedByDisabled
 } from "./sessionflow";
 import { credentials } from "./credentials";
+import { quickConnectDialog } from "./quickconnect";
 import {
   wireSettings,
   wireViewModes,
@@ -52,7 +53,8 @@ import {
   runImport,
   newFolderFlow,
   injectActions,
-  persist
+  persist,
+  saveOnConnect,
 } from "./appstate";
 import { applyStaticIcons, wireNavigationGuard, wireBrowserKeyGuard } from "./bootguards";
 import { reorderSession, applyDrop } from "./sessionorder";
@@ -296,10 +298,13 @@ async function main(): Promise<void> {
         redraw();
       },
       onQuick: async () => {
-        // 저장하지 않는 1회성 접속.
-        const temp = await sessionDialog(blankSession(), "빠른 접속 (저장 안 함)", allFolderPaths());
-        if (!temp) return;
-        void tabs.openSession(temp);
+        // 저장하지 않는 1회성 접속 — 전용 폼(호스트·포트·계정만)을 쓴다(0.90.0).
+        // 예전에는 세션 편집 창을 그대로 띄워 이름·폴더·색 태그·트리거까지 물었다.
+        const quick = await quickConnectDialog();
+        if (!quick) return;
+        // 목록에 넣는 건 **붙고 나서**다 — 표식만 남기고 onConnected 가 처리한다.
+        if (quick.save) saveOnConnect.add(quick.session.id);
+        void tabs.openSession(quick.session);
       },
       onDuplicate: async (s) => {
         // 복제본은 id 가 달라 원본의 볼트 항목을 가리키지 못한다. 비밀 값은 딸려가지
