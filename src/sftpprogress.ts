@@ -212,6 +212,9 @@ export function createProgressStrip(
     pct.textContent = "";
     pInfo.textContent = "";
     cancelBtn.disabled = true; // 끊을 것이 없다
+    // 전체 진행("3/7")도 여기서 지운다. 묶음 전송이 중간에 실패로 빠져나가면
+    // setOverall("") 을 거치지 못해, 다음 전송의 정보 칸에 지난 묶음 숫자가 남았다.
+    overall = "";
     marks = [];
     lastDone = 0;
     lastTotal = 0;

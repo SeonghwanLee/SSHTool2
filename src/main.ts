@@ -603,6 +603,9 @@ async function main(): Promise<void> {
   if (import.meta.env.DEV) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).__liveTest = { liveSftp, transferStateOf, notifyLive, sidebar };
+    // 정보바는 실제 갱신 경로를 거쳐야 값 span(.st-val) 이 제대로 생기는지까지 확인된다.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__statusTest = updateStatusBar;
   }
   // 잠금 버튼 = 토글: 열려 있으면 잠그고, 잠겨 있으면 마스터 비밀번호로 해제.
   $("vault-lock").addEventListener("click", async () => {

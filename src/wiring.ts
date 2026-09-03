@@ -550,6 +550,32 @@ export function wireLockKeys(): void {
   window.addEventListener("compositionend", () => $("st-hangul").classList.remove("on"), true);
 }
 
+/**
+ * 정보바 한 칸을 채운다 — 기호는 칸에 직접 두고, **값만 따로 span 에 담는다**.
+ *
+ * 값이 든 span 에만 CSS 가 자리를 미리 잡아 준다(`.st-val`). 커서 위치는 화면이 흐르는
+ * 동안 초당 몇 번씩 바뀌는데, 자릿수가 하나 늘고 줄 때마다 칸 폭이 따라 변해 왼쪽 항목이
+ * 통째로 밀렸다. 자리를 잡는 단위가 숫자 한 칸(ch)이라 글꼴이 달라져도 그대로 맞는다 —
+ * 기호(⌖·⏱)는 컴퓨터마다 다른 글꼴에서 그려지므로 자리 계산에서 빼 두는 것이다.
+ *
+ * 값이 없으면 칸을 통째로 비운다. 구분선이 `:not(:empty)` 로 붙기 때문에, 빈 span 이라도
+ * 남겨 두면 값도 없는 칸에 구분선만 서게 된다.
+ */
+function setStat(el: HTMLElement, sign: string, value: string): void {
+  if (!value) {
+    el.textContent = "";
+    return;
+  }
+  let slot = el.querySelector<HTMLElement>(".st-val");
+  if (!slot) {
+    el.textContent = sign ? `${sign} ` : "";
+    slot = document.createElement("span");
+    slot.className = "st-val";
+    el.appendChild(slot);
+  }
+  slot.textContent = value;
+}
+
 /** 하단 정보바 갱신(TabManager onStatus 콜백). */
 export function updateStatusBar(info: StatusInfo): void {
   const session = $("st-session");
@@ -557,10 +583,10 @@ export function updateStatusBar(info: StatusInfo): void {
   session.className = "st-left st-" + info.state;
   $("st-enc").textContent = info.cipher;
   $("st-charset").textContent = info.encoding;
-  $("st-cursor").textContent = info.cursor ? `⌖ ${info.cursor}` : "";
-  $("st-size").textContent = info.size;
+  setStat($("st-cursor"), "⌖", info.cursor);
+  setStat($("st-size"), "", info.size);
   const uptime = $("st-uptime");
-  uptime.textContent = info.uptime ? `⏱ ${info.uptime}` : "";
+  setStat(uptime, "⏱", info.uptime);
   // 끊긴 세션은 최종 유지시간이 멈춘 값이므로 흐리게 — 흘러가는 값과 구분한다.
   uptime.classList.toggle("stale", info.state === "disconnected");
 }

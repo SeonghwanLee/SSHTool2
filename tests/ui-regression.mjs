@@ -118,26 +118,42 @@ try {
       // 커서 위치는 출력이 흐르는 동안 초당 몇 번씩 바뀐다. 오른쪽 정렬이라 자릿수가
       // 하나 늘 때마다 왼쪽 항목이 통째로 움직여 상태바가 흔들려 보였다(0.91.0 이전).
       const r = await page.evaluate(() => {
+        const put = window.__statusTest;
+        if (!put) return "정보바 훅(__statusTest)이 없다";
         const at = () =>
           ["st-enc", "st-charset", "st-cursor", "st-size", "st-uptime", "st-hangul"].map((id) =>
             Math.round(document.getElementById(id).getBoundingClientRect().left),
           );
-        // 동기 측정 — 프레임을 기다리지 않아 앱이 값을 덮어쓸 틈이 없다.
-        const put = (v) => {
-          document.getElementById("st-enc").textContent = "SSH-2";
-          document.getElementById("st-charset").textContent = "UTF-8";
-          document.getElementById("st-cursor").textContent = v.cursor;
-          document.getElementById("st-size").textContent = v.size;
-          document.getElementById("st-uptime").textContent = v.uptime;
+        // 실제 갱신 함수를 거친다 — 값 span 을 만드는 것까지 함께 확인된다.
+        // 동기 측정이라 앱이 다음 갱신으로 덮어쓸 틈이 없다.
+        const shot = (cursor, size, uptime) => {
+          put({
+            label: "evrom1 · root@10.10.20.31:22",
+            state: "connected",
+            cipher: "SSH-2",
+            encoding: "UTF-8",
+            cursor,
+            size,
+            uptime,
+          });
           return at();
         };
-        const 짧게 = put({ cursor: "⌖ 1,1", size: "1×1", uptime: "⏱ 00:00" });
-        const 길게 = put({ cursor: "⌖ 999,999", size: "999×999", uptime: "⏱ 99:59:59" });
-        return { 이동: 길게.map((v, i) => v - 짧게[i]), 폭: 짧게[5] - 짧게[0] };
+        const 짧게 = shot("1,1", "1×1", "00:00");
+        const 길게 = shot("999,999", "999×999", "999:59:59");
+        const 값칸 = document.querySelectorAll("#st-cursor .st-val, #st-size .st-val, #st-uptime .st-val").length;
+        // 값이 비면 칸을 통째로 비워야 한다 — 빈 span 이 남으면 값도 없는 칸에 구분선만 선다.
+        put({ label: "", state: "disconnected", cipher: "", encoding: "", cursor: "", size: "", uptime: "" });
+        const 빈칸 = ["st-cursor", "st-size", "st-uptime"].filter(
+          (id) => document.getElementById(id).childNodes.length > 0,
+        );
+        return { 이동: 길게.map((v, i) => v - 짧게[i]), 폭: 짧게[5] - 짧게[0], 값칸, 빈칸 };
       });
+      expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
       const worst = Math.max(...r.이동.map(Math.abs));
       expect(worst === 0, `상태바가 ${worst}px 밀린다: ${JSON.stringify(r.이동)}`);
       expect(r.폭 > 0, "상태바 항목을 재지 못했다");
+      expect(r.값칸 === 3, `값 span 이 3개가 아니다(${r.값칸}) — 자리 예약이 걸리지 않는다`);
+      expect(r.빈칸.length === 0, `값이 없는데 칸이 비지 않았다: ${JSON.stringify(r.빈칸)}`);
     });
 
     await t.test("탭 전환 — 크기가 그대로면 터미널을 다시 재지 않는다(불필요한 재계측 제거)", async () => {
@@ -1533,10 +1549,10 @@ try {
         await page.waitForTimeout(400);
       }
       const shown = await page.evaluate(() => ({
-        hidden: document.querySelector(".sftp-progress")?.classList.contains("hidden"),
+        쉼: document.querySelector(".sftp-progress")?.classList.contains("idle"),
         info: document.querySelector(".prog-info")?.textContent ?? "",
       }));
-      expect(shown.hidden === false, "전송 중인데 진행바가 숨어 있다");
+      expect(shown.쉼 === false, "전송 중인데 진행바가 쉬는 모습이다");
       expect(/남음|곧 완료/.test(shown.info), `남은 시간이 없다: ${shown.info}`);
 
       // 접기(연결 유지) → 다시 열기. 예전에는 여기서 진행바가 영영 나오지 않았다.
@@ -1549,11 +1565,11 @@ try {
         await page.waitForTimeout(400);
       }
       const again = await page.evaluate(() => ({
-        hidden: document.querySelector(".sftp-progress")?.classList.contains("hidden"),
+        쉼: document.querySelector(".sftp-progress")?.classList.contains("idle"),
         pct: document.querySelector(".prog-pct")?.textContent ?? "",
         info: document.querySelector(".prog-info")?.textContent ?? "",
       }));
-      expect(again.hidden === false, "접었다 편 뒤 진행바가 사라졌다");
+      expect(again.쉼 === false, "접었다 편 뒤 진행바가 쉬는 모습으로 돌아갔다");
       expect(again.pct === "48%", `진행률이 이어지지 않는다: ${again.pct}`);
       expect(/남음|곧 완료/.test(again.info), `접었다 편 뒤 남은 시간이 없다: ${again.info}`);
 
@@ -2185,8 +2201,8 @@ try {
         const name = document.querySelector(".prog-name");
         const info = document.querySelector(".prog-info");
         if (!strip || !bar || !name || !info) return "진행 스트립을 찾지 못했다";
-        const wasHidden = strip.classList.contains("hidden");
-        strip.classList.remove("hidden");
+        const wasIdle = strip.classList.contains("idle");
+        strip.classList.remove("idle");
         const frame = () => new Promise((res) => requestAnimationFrame(res));
         const seen = [];
         for (const [n, i] of [
@@ -2203,7 +2219,12 @@ try {
           });
         }
         const stripW = strip.getBoundingClientRect().width;
-        if (wasHidden) strip.classList.add("hidden");
+        // 쉬던 줄이었으면 원래대로 되돌린다 — 검사용 글자를 남기면 뒤따르는 검사가 본다.
+        if (wasIdle) {
+          strip.classList.add("idle");
+          name.textContent = "전송 중인 항목 없음";
+          info.textContent = "";
+        }
         return { seen, stripW: Math.round(stripW) };
       });
       expect(typeof r === "object", `검사를 돌리지 못했다: ${r}`);
@@ -2526,7 +2547,12 @@ try {
         const j1 = t.transferItems(t.panes.remote(), [1, 2].map((i) => mk("a", i)));
         await new Promise((r) => setTimeout(r, 100));
         const j2 = t.transferItems(t.panes.remote(), [1, 2].map((i) => mk("b", i))); // 줄 세우기
-        await new Promise((r) => setTimeout(r, 200));
+        // 쉬는 동안 취소 버튼은 비활성이다 — 그대로 누르면 아무 일도 없이 지나가
+        // 엉뚱한 단언에서 깨진다. 진행이 실제로 뜬 뒤에 누른다.
+        for (let n = 0; n < 40; n++) {
+          if (!document.querySelector(".sftp-progress")?.classList.contains("idle")) break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
         document.querySelector(".sftp-progress .tree-act")?.click(); // 취소
         await new Promise((r) => setTimeout(r, 2500));
         await Promise.all([j1, j2]);
