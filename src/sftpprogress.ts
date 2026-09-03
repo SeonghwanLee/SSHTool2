@@ -51,7 +51,11 @@ export function createProgressStrip(
 ): ProgressStrip {
   // ── 전송 진행 스트립 ──
   const strip = document.createElement("div");
-  strip.className = "sftp-progress hidden";
+  // 스트립은 **늘 자리에 있는다**(0.91.0). 예전에는 전송 중에만 보였는데, 나타났다
+  // 사라질 때마다 그 높이만큼 목록이 밀려 화면이 들썩였다. 또 속도 제한 고르기가 이 줄에
+  // 있어서, 전송이 없을 때는 아예 손댈 수가 없었다 — 정작 "다음 전송은 느리게" 를 미리
+  // 정해 두고 싶은 순간에 막혀 있던 셈이다.
+  strip.className = "sftp-progress";
   const pName = document.createElement("span");
   pName.className = "prog-name";
   const bar = document.createElement("div");
@@ -126,7 +130,8 @@ export function createProgressStrip(
   let overall = ""; // "3/10" 같은 전체 진행
 
   const showProgress = (name: string, done: number, total: number) => {
-    strip.classList.remove("hidden");
+    strip.classList.remove("idle");
+    cancelBtn.disabled = false;
     // 전체 진행("3/10")은 정보 칸으로 보낸다 — 파일명 칸은 파일명만 담아야 폭이 고정된
     // 상태에서 이름이 덜 잘린다.
     pName.textContent = name;
@@ -195,7 +200,24 @@ export function createProgressStrip(
   const setOverall = (o: string) => {
     overall = o;
   };
-  const hideProgress = () => strip.classList.add("hidden");
+  /**
+   * 전송이 끝났을 때 — 줄을 감추지 않고 **쉬는 모습**으로 되돌린다.
+   * (이름은 예전 그대로 둔다. 부르는 쪽이 여러 군데라 뜻만 바꾼다.)
+   */
+  const hideProgress = () => {
+    strip.classList.add("idle");
+    pName.textContent = "전송 중인 항목 없음";
+    pName.title = "";
+    fill.style.width = "0%";
+    pct.textContent = "";
+    pInfo.textContent = "";
+    cancelBtn.disabled = true; // 끊을 것이 없다
+    marks = [];
+    lastDone = 0;
+    lastTotal = 0;
+    shownEta = 0;
+  };
+  hideProgress(); // 처음에는 쉬는 모습으로 시작
 
   return { strip, showProgress, setOverall, hideProgress };
 }

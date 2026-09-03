@@ -1233,6 +1233,22 @@ body.dragging-tab * {
 #st-uptime.stale {
   color: var(--muted);
 }
+/*
+ * 값이 바뀌어도 왼쪽 항목이 밀리지 않게 자리를 미리 잡아 둔다. 커서 위치는 출력이
+ * 흐르는 동안 초당 몇 번씩 바뀌는데, 자릿수가 하나 늘고 줄 때마다 왼쪽 항목이 통째로
+ * 움직여 상태바가 흔들려 보였다. 폭은 각 항목의 최대 표기(⌖ 999,999 · 999×999 ·
+ * ⏱ 99:59:59)를 실제 글꼴에서 잰 값이며 구분선(::before) 몫을 포함한다.
+ * 빈 항목은 구분선도 달지 않으므로 자리도 잡지 않는다(:not(:empty)).
+ */
+#st-cursor:not(:empty) {
+  min-width: 76px;
+}
+#st-size:not(:empty) {
+  min-width: 65px;
+}
+#st-uptime:not(:empty) {
+  min-width: 80px;
+}
 .st-right > span:not(:empty)::before {
   content: "│ ";
   color: var(--border);
@@ -2204,8 +2220,18 @@ body.sftp-resizing * {
   background: var(--panel-2);
   font-size: 12px;
 }
-.sftp-progress.hidden {
-  display: none;
+/* 전송이 없을 때 — 줄은 남기고 눈에 덜 띄게 둔다. 감추면 목록이 들썩인다. */
+.sftp-progress.idle .prog-name,
+.sftp-progress.idle .prog-info {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.sftp-progress.idle .prog-bar {
+  opacity: 0.45;
+}
+.sftp-progress.idle .tree-act {
+  opacity: 0.35;
+  pointer-events: none; /* 끊을 것이 없다 */
 }
 /* 진행 스트립의 세 칸은 **폭이 고정**이다(0.89.0).
    예전에는 파일명이 내용만큼 늘고 막대가 남은 자리를 다 먹었다(flex:1). 그러면 파일이

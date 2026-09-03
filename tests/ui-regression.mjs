@@ -114,6 +114,32 @@ try {
       await page.keyboard.press("Control+Digit0"); // 원복
     });
 
+    await t.test("상태바 — 커서·크기·유지시간이 바뀌어도 왼쪽 항목이 밀리지 않는다", async () => {
+      // 커서 위치는 출력이 흐르는 동안 초당 몇 번씩 바뀐다. 오른쪽 정렬이라 자릿수가
+      // 하나 늘 때마다 왼쪽 항목이 통째로 움직여 상태바가 흔들려 보였다(0.91.0 이전).
+      const r = await page.evaluate(() => {
+        const at = () =>
+          ["st-enc", "st-charset", "st-cursor", "st-size", "st-uptime", "st-hangul"].map((id) =>
+            Math.round(document.getElementById(id).getBoundingClientRect().left),
+          );
+        // 동기 측정 — 프레임을 기다리지 않아 앱이 값을 덮어쓸 틈이 없다.
+        const put = (v) => {
+          document.getElementById("st-enc").textContent = "SSH-2";
+          document.getElementById("st-charset").textContent = "UTF-8";
+          document.getElementById("st-cursor").textContent = v.cursor;
+          document.getElementById("st-size").textContent = v.size;
+          document.getElementById("st-uptime").textContent = v.uptime;
+          return at();
+        };
+        const 짧게 = put({ cursor: "⌖ 1,1", size: "1×1", uptime: "⏱ 00:00" });
+        const 길게 = put({ cursor: "⌖ 999,999", size: "999×999", uptime: "⏱ 99:59:59" });
+        return { 이동: 길게.map((v, i) => v - 짧게[i]), 폭: 짧게[5] - 짧게[0] };
+      });
+      const worst = Math.max(...r.이동.map(Math.abs));
+      expect(worst === 0, `상태바가 ${worst}px 밀린다: ${JSON.stringify(r.이동)}`);
+      expect(r.폭 > 0, "상태바 항목을 재지 못했다");
+    });
+
     await t.test("탭 전환 — 크기가 그대로면 터미널을 다시 재지 않는다(불필요한 재계측 제거)", async () => {
       const r = await page.evaluate(async () => {
         const tm = window.__tm;
@@ -1531,17 +1557,32 @@ try {
       expect(again.pct === "48%", `진행률이 이어지지 않는다: ${again.pct}`);
       expect(/남음|곧 완료/.test(again.info), `접었다 편 뒤 남은 시간이 없다: ${again.info}`);
 
-      // 전송이 끝나면 사라진다.
+      // 전송이 끝나면 **감추지 않고** 쉬는 모습으로 되돌린다(0.91.0).
+      // 감추면 그 높이만큼 목록이 밀려 화면이 들썩이고, 이 줄에 있는 속도 제한도
+      // 전송이 없을 때는 손댈 수 없게 된다.
       await page.evaluate(() => {
         const { transferStateOf, notifyLive } = window.__live;
         transferStateOf("t1").transferring = false;
         notifyLive();
       });
       await page.waitForTimeout(200);
-      expect(
-        await page.evaluate(() => document.querySelector(".sftp-progress")?.classList.contains("hidden")),
-        "전송이 끝났는데 진행바가 남아 있다",
-      );
+      const rest = await page.evaluate(() => {
+        const strip = document.querySelector(".sftp-progress");
+        const rate = document.querySelector(".prog-rate");
+        return {
+          보임: !!strip && strip.getBoundingClientRect().height > 0,
+          쉼표시: strip?.classList.contains("idle") ?? false,
+          이름: document.querySelector(".prog-name")?.textContent ?? "",
+          퍼센트: document.querySelector(".prog-pct")?.textContent ?? "",
+          정보: document.querySelector(".prog-info")?.textContent ?? "",
+          속도제한쓸수있나: !!rate && !rate.disabled,
+        };
+      });
+      expect(rest.보임, "전송이 끝나자 진행바가 사라졌다 — 목록이 들썩인다");
+      expect(rest.쉼표시, "쉬는 상태 표시(idle)가 붙지 않았다");
+      expect(rest.이름.includes("없음"), `쉴 때 안내 문구가 없다: ${rest.이름}`);
+      expect(rest.퍼센트 === "" && rest.정보 === "", `쉴 때 옛 수치가 남아 있다: ${JSON.stringify(rest)}`);
+      expect(rest.속도제한쓸수있나, "전송이 없을 때 속도 제한을 고를 수 없다");
       } finally {
         // 상태를 원래대로 — 창이 접힌 채 끝났으면 다시 열어 둔다.
         await page.evaluate(() => {
