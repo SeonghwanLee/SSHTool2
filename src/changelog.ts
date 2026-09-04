@@ -9,7 +9,7 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
-    version: "0.93.0",
+    version: "0.92.1",
     date: "2026-09-04",
     notes: [
       "F11 로 전체화면이 됩니다 — 다시 누르거나 Esc 로 나옵니다(사용자 요청)",
