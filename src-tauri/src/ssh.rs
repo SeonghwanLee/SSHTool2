@@ -278,7 +278,10 @@ pub async fn probe(
             } else {
                 let msg = e.to_string();
                 let hint = algorithm_hint(&msg, allow_legacy_algorithms).unwrap_or("");
-                format!("연결 실패: {msg}{hint}")
+                // 어디에 붙으려 했는지 함께 알린다. 이름을 못 찾았다는 오류가 나도
+                // 예전에는 사유만 보여서, 호스트 칸에 눈에 안 보이는 글자가 섞였거나
+                // 포트가 같이 들어간 경우를 알아챌 방법이 없었다(사용자 지적).
+                format!("'{host}:{port}' — {msg}{hint}")
             });
         }
     };
@@ -357,7 +360,10 @@ pub async fn connect(
             } else {
                 let msg = e.to_string();
                 let hint = algorithm_hint(&msg, allow_legacy_algorithms).unwrap_or("");
-                format!("연결 실패: {msg}{hint}")
+                // 어디에 붙으려 했는지 함께 알린다. 이름을 못 찾았다는 오류가 나도
+                // 예전에는 사유만 보여서, 호스트 칸에 눈에 안 보이는 글자가 섞였거나
+                // 포트가 같이 들어간 경우를 알아챌 방법이 없었다(사용자 지적).
+                format!("'{host}:{port}' — {msg}{hint}")
             });
         }
     };
