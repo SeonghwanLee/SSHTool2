@@ -3548,11 +3548,51 @@ try {
         오류: document.querySelector(".modal-err")?.textContent ?? "",
       }));
       expect(r.열림 && r.오류.includes("호스트"), `빈 호스트를 막지 않는다: ${JSON.stringify(r)}`);
-      await page.evaluate(() =>
-        [...document.querySelectorAll(".modal-buttons button")]
-          .find((b) => b.textContent === "취소")
-          ?.click(),
+
+      // 계정도 반드시 받는다 — 비워 두면 접속이 되지 않는데, 예전에는 그대로 내보내
+      // 무엇이 잘못됐는지 알 수 없는 백엔드 오류만 보게 됐다(사용자 지적).
+      const 접속 = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll(".modal-buttons button")]
+            .find((b) => b.textContent === "접속")
+            ?.click(),
+        );
+      await page.locator(".quick-hostrow input.txt-input").first().fill("10.10.20.31");
+      await 접속();
+      await page.waitForTimeout(250);
+      const r2 = await page.evaluate(() => ({
+        열림: !!document.querySelector(".modal-card"),
+        오류: document.querySelector(".modal-err")?.textContent ?? "",
+        // 브라우저 기본 말풍선이 뜨면 앱의 오류 줄이 가려진다 — 검사는 앱이 해야 한다.
+        기본검사: [...document.querySelectorAll(".modal-card input")].some((i) => i.required),
+      }));
+      expect(r2.열림 && r2.오류.includes("계정"), `빈 계정을 막지 않는다: ${JSON.stringify(r2)}`);
+      expect(!r2.기본검사, "required 를 걸어 브라우저 말풍선이 앱 오류 줄을 가린다");
+
+      // 둘 다 채우면 통과한다 — 막기만 하고 못 들어가면 소용없다.
+      await page.evaluate(() => {
+        window.__qcOpened = [];
+        const tm = window.__tm;
+        const prev = tm.openSession.bind(tm);
+        tm.openSession = (sx) => {
+          window.__qcOpened.push({ host: sx.host, port: sx.port, user: sx.user });
+          return Promise.resolve();
+        };
+        window.__qcRestore = () => (tm.openSession = prev);
+      });
+      await page.locator("form .field input.txt-input").last().fill("root");
+      await 접속();
+      await page.waitForTimeout(400);
+      const r3 = await page.evaluate(() => {
+        window.__qcRestore?.();
+        return { 열림: !!document.querySelector(".modal-card"), 연것: window.__qcOpened ?? [] };
+      });
+      expect(!r3.열림, "다 채웠는데도 창이 닫히지 않는다");
+      expect(
+        JSON.stringify(r3.연것) === JSON.stringify([{ host: "10.10.20.31", port: 22, user: "root" }]),
+        `넘어간 값이 다르다: ${JSON.stringify(r3.연것)}`,
       );
+      await dismissModals(page);
       await page.waitForTimeout(200);
     });
 

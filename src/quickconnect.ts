@@ -28,7 +28,7 @@ export function quickConnectDialog(): Promise<QuickConnectResult | null> {
       const hint = document.createElement("div");
       hint.className = "settings-hint";
       hint.textContent =
-        "한 번만 접속합니다. 비밀번호는 서버에 연결한 뒤 물어봅니다.";
+        "한 번만 접속합니다. 호스트와 계정은 반드시 넣어야 합니다 — 비밀번호는 서버에 연결한 뒤 물어봅니다.";
 
       const host = document.createElement("input");
       host.className = "txt-input";
@@ -87,9 +87,17 @@ export function quickConnectDialog(): Promise<QuickConnectResult | null> {
           port.focus();
           return;
         }
+        // 계정도 반드시 받는다. 비워 두면 접속 자체가 되지 않는데 그 사실이 백엔드
+        // 오류로만 드러나, 무엇이 잘못됐는지 알 수 없는 문구를 보게 됐다(사용자 지적).
+        const u = user.value.trim();
+        if (!u) {
+          err.textContent = "계정을 입력하세요.";
+          user.focus();
+          return;
+        }
         close();
         resolve({
-          session: { ...blankSession(), host: h, port: p, user: user.value.trim() },
+          session: { ...blankSession(), host: h, port: p, user: u },
           save: saveBox.checked,
         });
       });
