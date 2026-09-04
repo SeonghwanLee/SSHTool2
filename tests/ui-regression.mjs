@@ -156,6 +156,75 @@ try {
       expect(r.빈칸.length === 0, `값이 없는데 칸이 비지 않았다: ${JSON.stringify(r.빈칸)}`);
     });
 
+    await t.test("F11 전체화면 — 제목줄을 접었다 펴고, 터미널이 삼키지 않는다", async () => {
+      await dismissModals(page);
+      // 창 쪽 전체화면 상태를 흉내낸다 — 대역은 상태를 갖지 않으므로 여기서 붙인다.
+      await page.evaluate(() => {
+        window.__full = false;
+        window.__fullCalls = [];
+        const prev = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = (cmd, args) => {
+          if (cmd === "plugin:window|set_fullscreen") {
+            window.__full = !!(args?.value ?? args?.fullscreen);
+            window.__fullCalls.push(window.__full);
+            return Promise.resolve(null);
+          }
+          if (cmd === "plugin:window|is_fullscreen") return Promise.resolve(window.__full);
+          if (cmd === "ssh_write") window.__sent.push(args?.data ?? []);
+          return prev(cmd, args);
+        };
+        window.__sent = [];
+      });
+      const 상태 = () =>
+        page.evaluate(() => ({
+          몸: document.body.classList.contains("fullscreen"),
+          제목줄: getComputedStyle(document.getElementById("titlebar")).display,
+          창: window.__full,
+          호출: window.__fullCalls,
+          보냄: window.__sent,
+        }));
+
+      // 터미널에 포커스를 둔 채 눌러야 '터미널이 삼키는가' 까지 함께 본다.
+      await page.locator(".term-host").first().click();
+      await page.evaluate(() => (window.__sent = []));
+      await page.keyboard.press("F11");
+      await page.waitForTimeout(400);
+      const 켠뒤 = await 상태();
+      expect(켠뒤.창 === true, `F11 이 창에 닿지 않는다 — 터미널이 삼켰다: ${JSON.stringify(켠뒤)}`);
+      expect(켠뒤.몸 && 켠뒤.제목줄 === "none", `제목줄이 접히지 않았다: ${JSON.stringify(켠뒤)}`);
+      // 창을 키우는 키가 원격에도 함께 찍히면 안 된다 — 터미널 예약 목록에서 빠지면
+      // xterm 이 F11 이스케이프 시퀀스를 그대로 서버로 보낸다.
+      const 보낸것 = await page.evaluate(() => window.__sent);
+      expect(
+        보낸것.length === 0,
+        `F11 이 원격으로도 전송된다: ${JSON.stringify(보낸것)}`,
+      );
+
+      await page.keyboard.press("F11");
+      await page.waitForTimeout(400);
+      const 끈뒤 = await 상태();
+      expect(끈뒤.창 === false, `F11 로 다시 나오지 못한다: ${JSON.stringify(끈뒤)}`);
+      expect(!끈뒤.몸 && 끈뒤.제목줄 !== "none", `제목줄이 돌아오지 않았다: ${JSON.stringify(끈뒤)}`);
+
+      // Esc 로도 나온다 — 창버튼이 없는 상태라 나오는 길이 하나뿐이면 갇힌 것 같다.
+      await page.keyboard.press("F11");
+      await page.waitForTimeout(400);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(400);
+      const esc = await 상태();
+      expect(esc.창 === false, `Esc 로 전체화면이 풀리지 않는다: ${JSON.stringify(esc)}`);
+
+      // 전체화면이 아닐 때 Esc 는 건드리지 않는다(터미널로 가야 한다).
+      await page.evaluate(() => (window.__fullCalls = []));
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+      const 평소 = await 상태();
+      expect(
+        평소.호출.length === 0,
+        `전체화면이 아닌데 Esc 가 창을 건드린다: ${JSON.stringify(평소.호출)}`,
+      );
+    });
+
     await t.test("분할 크기 계산 — 두 칸 안에서만 나누고, 최소 폭을 지킨다", async () => {
       // 순수 함수라 화면 없이 본다. 실제 모듈을 그대로 불러 쓴다.
       const r = await page.evaluate(async () => {

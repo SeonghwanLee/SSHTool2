@@ -319,6 +319,10 @@ export class TerminalTab {
       // 삼킨다(Ctrl+F4 와 같은 사정).
       if (e.altKey && !ctrl && !e.metaKey && e.key === "F4") return false;
 
+      // F11 = 전체화면(Windows 표준). 빼 주지 않으면 터미널이 먼저 삼켜 원격으로 보낸다.
+      // 대가: F11 을 원격 앱에 보내는 길이 막힌다(실사용 희박 — 창 조작 쪽이 흔하다).
+      if (!ctrl && !e.altKey && !e.shiftKey && !e.metaKey && e.key === "F11") return false;
+
       // Ctrl+Enter = 줄바꿈(제출 없이 다중행 입력, claude CLI 등).
       if (ctrl && e.key === "Enter") {
         if (e.isComposing || e.keyCode === 229) {

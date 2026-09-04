@@ -284,6 +284,11 @@ button {
   border-bottom: 1px solid var(--border);
   user-select: none;
 }
+/* 전체화면(F11) — 직접 그리는 제목줄을 접어 화면을 온전히 내준다. 접고 나면 창버튼도
+   없으므로 나오는 길은 F11 또는 Esc 다(들어갈 때 토스트로 알린다). */
+body.fullscreen #titlebar {
+  display: none;
+}
 .tb-brand {
   display: flex;
   align-items: center;

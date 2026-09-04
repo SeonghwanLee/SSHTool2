@@ -512,9 +512,51 @@ export function wireWindowControls(tabs: TabManager): void {
     true,
   );
 
+  // F11 = 전체화면(Windows 표준, 사용자 요청 0.93.0).
+  //
+  // 제목줄을 직접 그리는 창이라 전체화면으로 가도 그 줄이 그대로 남아 자리를 먹는다.
+  // OS 가 걷어 주지 않으므로 앱이 접는다 — 접고 나면 창버튼도 함께 사라지니, 나오는
+  // 길(F11 을 다시)을 토스트로 알려 준다. Alt+F4 와 같은 이유로 capture 로 받는다.
+  const setFull = async (on: boolean): Promise<void> => {
+    await win.setFullscreen(on);
+    document.body.classList.toggle("fullscreen", on);
+    if (on) appToast("전체화면 — F11 을 다시 누르면 나옵니다");
+  };
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "F11" || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      e.preventDefault();
+      void win
+        .isFullscreen()
+        .then((on) => setFull(!on))
+        .catch(() => undefined);
+    },
+    true,
+  );
+  // 전체화면에서 Esc 로도 나온다 — 창버튼이 없는 상태라 나오는 길이 하나뿐이면 갇힌 것
+  // 같다. 전체화면이 아닐 때는 손대지 않는다(터미널로 가야 할 Esc 를 삼키면 안 된다).
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "Escape" || !document.body.classList.contains("fullscreen")) return;
+      // 모달·검색창이 떠 있으면 그쪽의 '닫기' 가 먼저다 — 전체화면 해제는 그 다음 Esc.
+      // 검색창은 닫혀도 DOM 에 남아 display 로만 감춘다 — 있는지가 아니라 **보이는지**를
+      // 봐야 한다(있는지로 보면 Esc 가 영영 전체화면에 닿지 않는다).
+      const 떠있다 = [...document.querySelectorAll(".modal-overlay, .term-search")].some(
+        (x) => (x as HTMLElement).offsetParent !== null,
+      );
+      if (떠있다) return;
+      e.preventDefault();
+      void setFull(false).catch(() => undefined);
+    },
+    true,
+  );
   const syncMaxIcon = async () => {
     try {
       applyIcon($("win-max"), (await win.isMaximized()) ? "restore" : "maximize");
+      // 전체화면이 다른 길로(OS·작업표시줄) 풀린 경우에도 제목줄을 되살린다.
+      document.body.classList.toggle("fullscreen", await win.isFullscreen());
     } catch {
       /* 무시 */
     }
