@@ -156,6 +156,56 @@ try {
       expect(r.빈칸.length === 0, `값이 없는데 칸이 비지 않았다: ${JSON.stringify(r.빈칸)}`);
     });
 
+    await t.test("분할 크기 계산 — 두 칸 안에서만 나누고, 최소 폭을 지킨다", async () => {
+      // 순수 함수라 화면 없이 본다. 실제 모듈을 그대로 불러 쓴다.
+      const r = await page.evaluate(async () => {
+        const m = await import("/src/splitsizes.ts");
+        const round = (a) => a.map((x) => Math.round(x * 1000) / 1000);
+        return {
+          가운데만: round(m.dragWeights([1, 1, 1], 0, [300, 300, 300], 60)),
+          최소폭: round(m.dragWeights([1, 1], 0, [300, 300], 1000, 80)),
+          좁으면포기: round(m.dragWeights([1, 1], 0, [50, 50], 30, 80)),
+          범위밖: round(m.dragWeights([1, 1], 5, [300, 300], 60)),
+          틀: m.template([1, 2], 6),
+          모양이름: m.shapeKey("vertical", 3, 2),
+          개수틀리면균등: m.normalize({ cols: [3, 1], rows: [1, 1] }, 3, 2),
+          이상한값이면균등: m.normalize({ cols: [0, -1, NaN], rows: [1, 1] }, 3, 2),
+          살아있으면그대로: m.normalize({ cols: [3, 1, 2], rows: [1, 1] }, 3, 2),
+          균등판정: [m.isEven([1, 1, 1]), m.isEven([1, 2, 1])],
+        };
+      });
+      // 첫 경계를 끌면 1·2번만 바뀌고 3번은 그대로여야 한다 — 반대편 끝이 따라 움직이면 안 된다.
+      expect(
+        JSON.stringify(r.가운데만) === JSON.stringify([1.2, 0.8, 1]),
+        `양옆 두 칸 밖으로 번진다: ${JSON.stringify(r.가운데만)}`,
+      );
+      // 600px 을 80/520 으로 나눈 비중 = 0.267 / 1.733
+      expect(r.최소폭[1] > 0.26 && r.최소폭[1] < 0.27, `최소 폭을 넘겨 밀어붙인다: ${JSON.stringify(r.최소폭)}`);
+      expect(
+        JSON.stringify(r.좁으면포기) === JSON.stringify([1, 1]),
+        `둘 다 최소 폭을 못 지키는데 건드린다: ${JSON.stringify(r.좁으면포기)}`,
+      );
+      expect(JSON.stringify(r.범위밖) === JSON.stringify([1, 1]), "없는 경계에 손댄다");
+      expect(r.틀 === "1fr 6px 2fr", `격자 틀이 다르다: ${r.틀}`);
+      expect(r.모양이름 === "vertical-3x2", `모양 이름이 다르다: ${r.모양이름}`);
+      expect(
+        JSON.stringify(r.개수틀리면균등.cols) === JSON.stringify([1, 1, 1]),
+        "칸 수가 안 맞는 저장분을 그대로 쓴다 — 격자가 무너진다",
+      );
+      expect(
+        JSON.stringify(r.이상한값이면균등.cols) === JSON.stringify([1, 1, 1]),
+        "0·음수·NaN 이 든 저장분을 그대로 쓴다",
+      );
+      expect(
+        JSON.stringify(r.살아있으면그대로.cols) === JSON.stringify([3, 1, 2]),
+        "멀쩡한 저장분을 버린다",
+      );
+      expect(
+        JSON.stringify(r.균등판정) === JSON.stringify([true, false]),
+        `균등 판정이 틀리다: ${JSON.stringify(r.균등판정)}`,
+      );
+    });
+
     await t.test("탭 전환 — 크기가 그대로면 터미널을 다시 재지 않는다(불필요한 재계측 제거)", async () => {
       const r = await page.evaluate(async () => {
         const tm = window.__tm;
@@ -1247,6 +1297,74 @@ try {
       expect(left === had, `열었던 탭을 다 닫지 못했다: ${had} → ${left}`);
     });
 
+    await t.test("분할 크기 조절 — 경계선을 끌면 열이 넓어지고, 저장돼 되살아난다", async () => {
+      await dismissModals(page);
+      await clickSplit(page, "view-vertical");
+      await page.waitForTimeout(700);
+      const 폭 = () =>
+        page.evaluate(() =>
+          getComputedStyle(document.getElementById("panes"))
+            .gridTemplateColumns.split(" ")
+            .filter((_, i) => i % 2 === 0)
+            .map((v) => Math.round(parseFloat(v))),
+        );
+      const 칸수 = () =>
+        page.evaluate(() =>
+          window.__tm.tabs.filter((t) => t.root.classList.contains("visible")).map((t) => t.term.cols),
+        );
+      const 경계 = await page.evaluate(() => ({
+        전체: document.querySelectorAll(".pane-gutter").length,
+        세로: document.querySelectorAll(".pane-gutter.col").length,
+      }));
+      const 처음 = await 폭();
+      if (처음.length < 2) {
+        expect(경계.세로 === 0, "칸이 한 열뿐인데 세로 경계선이 있다");
+        return; // 열이 하나뿐이면 끌 경계가 없다 — 여기서 볼 것이 없다
+      }
+      expect(경계.전체 > 0, "분할인데 경계선이 하나도 없다");
+      const 처음칸수 = await 칸수();
+
+      // 첫 세로 경계선을 오른쪽으로 끈다.
+      const g = await page.locator(".pane-gutter.col").first().boundingBox();
+      await page.mouse.move(g.x + g.width / 2, g.y + Math.min(60, g.height / 2));
+      await page.mouse.down();
+      await page.mouse.move(g.x + g.width / 2 + 120, g.y + Math.min(60, g.height / 2), { steps: 12 });
+      await page.mouse.up();
+      await page.waitForTimeout(800);
+
+      const 끈뒤 = await 폭();
+      expect(
+        끈뒤[0] - 처음[0] > 90 && 처음[1] - 끈뒤[1] > 90,
+        `경계선을 끌어도 열 폭이 안 바뀐다: ${JSON.stringify(처음)} -> ${JSON.stringify(끈뒤)}`,
+      );
+      // 3열 이상이면 나머지 열은 그대로여야 한다 — 반대편 끝이 따라 움직이면 안 된다.
+      if (처음.length >= 3) {
+        expect(
+          Math.abs(끈뒤[2] - 처음[2]) <= 2,
+          `건드리지 않은 열이 움직였다: ${처음[2]} -> ${끈뒤[2]}`,
+        );
+      }
+      // 터미널도 새 폭을 따라가야 한다(안 따라가면 서버가 옛 크기로 그린다).
+      const 끈뒤칸수 = await 칸수();
+      expect(
+        끈뒤칸수[0] > 처음칸수[0],
+        `열은 넓어졌는데 터미널 칸수가 그대로다: ${JSON.stringify(처음칸수)} -> ${JSON.stringify(끈뒤칸수)}`,
+      );
+
+      // 설정에 남아야 다음에 되살아난다.
+      const 저장 = await page.evaluate(() => window.__tm.sizesByShape ?? null);
+      expect(저장 === null || 저장 instanceof Object, "저장 구조가 없다");
+
+      // 두 번 누르면 균등으로 돌아온다.
+      await page.locator(".pane-gutter.col").first().dblclick();
+      await page.waitForTimeout(700);
+      const 되돌린뒤 = await 폭();
+      expect(
+        Math.abs(되돌린뒤[0] - 되돌린뒤[1]) <= 2,
+        `두 번 눌러도 균등으로 안 돌아온다: ${JSON.stringify(되돌린뒤)}`,
+      );
+    });
+
     await t.test("분할 보기 — 칸 크기가 나중에 바뀌어도 터미널이 따라간다", async () => {
       // 왜: 크기 관찰자가 바깥 상자(#panes)만 보고 있었다. 바깥은 그대로인데 안에서만
       // 나뉘는 경우 — 격자를 바꾸거나 일반창↔분할창을 오갈 때 — 관찰자가 뜨지 않아
@@ -1291,8 +1409,8 @@ try {
       const grid = () =>
         page.evaluate(() => {
           const p = document.getElementById("panes");
-          // 'repeat(4, 1fr)' 문법이라 1fr 개수를 세면 안 된다 — repeat 의 N 을 읽는다.
-          const count = (v) => Number(/repeat\((\d+),/.exec(v)?.[1] ?? 0);
+          // 칸 사이에 경계선 track(6px)이 끼어 있다(0.92.0) — fr 짜리만 센다.
+          const count = (v) => (v ? v.split(" ").filter((x) => x.endsWith("fr")).length : 0);
           return { cols: count(p.style.gridTemplateColumns), rows: count(p.style.gridTemplateRows) };
         });
       await clickSplit(page, "view-vertical");

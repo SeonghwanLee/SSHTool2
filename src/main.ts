@@ -68,6 +68,7 @@ import { liveSftp, transferStateOf, notifyLive } from "./sftpcommon";
 import { aboutDialog } from "./about";
 import { setFocusHome } from "./focus";
 import { loadSettings, saveSettings, type Settings } from "./settings";
+import { isEven } from "./splitsizes";
 import { applyAppTheme, themeById } from "./themes";
 import { logLine, setDebugLogging } from "./debuglog";
 import { listen } from "@tauri-apps/api/event";
@@ -93,6 +94,17 @@ function onSessionFontSize(session: SessionInfo, size: number): void {
   setSessions(sessions.map((x) => (x.id === session.id ? { ...x, fontSize: size } : x)));
   window.clearTimeout(fontSaveTimer);
   fontSaveTimer = window.setTimeout(() => void persist(), 500);
+}
+
+/** 분할 칸 비중 저장 — 격자 모양별로 담는다. 끌어 놓을 때 한 번씩만 불린다. */
+function onSplitSizes(shape: string, sizes: { cols: number[]; rows: number[] }): void {
+  if (!shape) return;
+  const next = { ...(settings.splitSizes ?? {}) };
+  // 균등으로 되돌아왔으면 아예 지운다 — 기본값과 같은 항목을 설정 파일에 쌓지 않는다.
+  if (isEven(sizes.cols) && isEven(sizes.rows)) delete next[shape];
+  else next[shape] = { cols: [...sizes.cols], rows: [...sizes.rows] };
+  setSettings({ ...settings, splitSizes: next });
+  void saveSettings(settings);
 }
 
 // ── 세션의 '비밀 값'(트리거 send · 시작 명령) 볼트 분리 ──────────────────────
@@ -131,6 +143,7 @@ async function main(): Promise<void> {
     settings,
     updateStatusBar,
     onSessionFontSize,
+    onSplitSizes,
     {
       sftp: (s) => void openSftpFor(s),
       rename: renameSessionFlow,

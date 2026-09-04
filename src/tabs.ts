@@ -4,6 +4,17 @@
 // 검색(Ctrl+Shift+F), Ctrl+휠 zoom, Ctrl+Enter=LF, 탭 상태색, 탭 단축키, 상태바 연동.
 
 import { applyIcon, iconSpan } from "./icons";
+import {
+  GUTTER_PX,
+  MIN_PANE_PX,
+  dragWeights,
+  evenSizes,
+  isEven,
+  normalize,
+  shapeKey,
+  template,
+  type SplitSizes,
+} from "./splitsizes";
 import { showContextMenu } from "./contextmenu";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { confirmDialog, alertDialog, appToast } from "./dialogs";
@@ -105,6 +116,16 @@ export class TabManager {
   private lastRxStatusAt = 0;
   /** 탭 구성·접속 상태가 바뀔 때 알림받을 구독자(동시 명령 창 세션 수 등). */
   private readonly tabsChanged: Array<() => void> = [];
+  /** 지금 격자의 줄·칸 비중. 격자 모양이 바뀌면 저장분에서 다시 읽는다. */
+  private splitSizes: SplitSizes = evenSizes(1, 1);
+  /** 지금 화면에 서 있는 격자 모양(예: "vertical-2x3"). 비중 저장·조회 열쇠. */
+  private shape = "";
+  /** 화면에 깔린 경계선들. 격자 모양이 바뀔 때만 새로 만든다. */
+  private gutters: HTMLElement[] = [];
+  /** 지금 경계선이 깔린 격자 모양("3x2"). 이게 그대로면 손대지 않는다. */
+  private gutterShape = "";
+  /** 격자 모양별로 기억해 둔 비중 — 설정에서 읽어 오되 이후에는 이쪽이 기준이다. */
+  private readonly sizesByShape = new Map<string, SplitSizes>();
 
   constructor(
     private readonly tabbar: HTMLElement,
@@ -115,6 +136,8 @@ export class TabManager {
     settings: Settings,
     private readonly onStatus: (info: StatusInfo) => void,
     private readonly onSessionFontSize: (session: SessionInfo, size: number) => void = () => {},
+    /** 분할 칸 비중이 바뀌었을 때 — 격자 모양별로 설정에 저장한다. */
+    private readonly onSplitSizes: (shape: string, sizes: SplitSizes) => void = () => {},
     /** 세션 탭 우클릭 메뉴가 앱에 위임하는 동작들. 미주입 항목은 메뉴에 넣지 않는다. */
     private readonly actions: TabActions = {},
   ) {
@@ -375,12 +398,14 @@ export class TabManager {
 
     // 분할에 올린 탭만 화면에 세운다(0.80.0) — 예전에는 열린 탭 전부였다.
     const shown = tiled ? this.tabs.filter((t) => this.splitTabs.has(t)) : [];
+    let cols = 1;
+    let rows = 1;
     if (tiled) {
       const n = Math.max(1, shown.length);
       // 4개까지는 한 줄로 나열한다(세로 분할이면 ⅠⅠⅠⅠ, 가로 분할이면 4단) — 로그 넉 대를
       // 나란히 두고 보는 용도(사용자 요청). 5개부터는 접는다: 한 줄에 다섯을 세우면
       // 폭이 좁아져 어차피 읽을 수 없다. 세로는 정사각에 가깝게, 가로는 3단 기준.
-      const cols =
+      cols =
         this.viewMode === "vertical"
           ? n <= 4
             ? n
@@ -388,26 +413,54 @@ export class TabManager {
           : n <= 4
             ? 1
             : Math.ceil(n / 3);
-      const rows = Math.ceil(n / cols);
-      this.panes.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-      this.panes.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+      rows = Math.ceil(n / cols);
+      // 격자 모양이 바뀌면 그 모양에 저장해 둔 비중을 새로 읽어 온다.
+      const shape = shapeKey(this.viewMode, cols, rows);
+      if (shape !== this.shape) {
+        this.shape = shape;
+        this.splitSizes = normalize(
+          this.sizesByShape.get(shape) ?? this.settings.splitSizes?.[shape],
+          cols,
+          rows,
+        );
+      }
+      this.panes.style.gridTemplateColumns = template(this.splitSizes.cols);
+      this.panes.style.gridTemplateRows = template(this.splitSizes.rows);
+    } else {
+      this.shape = "";
+      this.syncGutters(0, 0);
     }
 
     // 타일 배치는 DOM 순서를 따른다 — 탭 순서를 바꿔도(드래그) 화면에 반영되지 않아
     // 분할 보기에서는 '연 순서' 가 그대로 남았다(0.70.0 수정). 순서가 어긋날 때만
     // 다시 붙인다: appendChild 는 이미 붙어 있는 노드를 옮기므로, 같은 순서면 건드리지
     // 않아 터미널이 흔들리지 않는다.
-    const domOrder = [...this.panes.children];
+    // 경계선도 #panes 의 자식이므로 칸만 골라서 견준다. 통째로 세면 개수가 안 맞아
+    // 늘 '순서가 다르다' 가 되고, 그때마다 칸을 다시 붙이면서 경계선 뒤로 밀렸다.
+    const domOrder = [...this.panes.children].filter((c) => c.classList.contains("term-pane"));
     const sameOrder =
       domOrder.length === this.tabs.length && this.tabs.every((t, i) => domOrder[i] === t.root);
     if (!sameOrder) {
       for (const t of this.tabs) this.panes.appendChild(t.root);
+      // 칸을 다시 붙이면 경계선보다 뒤로 가므로 경계선도 뒤로 옮겨 순서를 지킨다.
+      for (const g of this.gutters) this.panes.appendChild(g);
     }
 
     for (const t of this.tabs) {
       // 타일 모드에서는 분할에 올린 것만, 탭 모드에서는 활성 탭만 보인다.
       t.root.classList.toggle("visible", tiled ? this.splitTabs.has(t) : t === this.active);
       t.root.classList.toggle("focused", tiled && t === this.active);
+      // 경계선 track 이 끼어 있으므로 칸 자리를 직접 지정한다(자동 배치는 경계선 칸에도
+      // 터미널을 밀어 넣는다). 탭 모드에서는 격자를 쓰지 않으므로 지정을 지운다.
+      t.root.style.gridColumn = "";
+      t.root.style.gridRow = "";
+    }
+    if (tiled) {
+      shown.forEach((t, k) => {
+        t.root.style.gridColumn = String(((k % cols) << 1) + 1);
+        t.root.style.gridRow = String((Math.floor(k / cols) << 1) + 1);
+      });
+      this.syncGutters(cols, rows);
     }
     this.emptyState.style.display = this.tabs.length ? "none" : "flex";
 
@@ -421,6 +474,119 @@ export class TabManager {
       if (focusActive) this.active?.focus();
       this.emitStatus();
     });
+  }
+
+  /**
+   * 칸 사이에 끌 수 있는 경계선을 깐다.
+   *
+   * 세로 경계선을 끌면 **그 열 전체**가 함께 움직인다 — 격자 배치의 성질이며 SFTP 창의
+   * 로컬/리모트 경계선과 같은 방식이다(사용자와 A안으로 합의).
+   *
+   * 경계선 하나를 끝까지 잇지 않고 **칸 사이 구간마다 따로** 만든다. 통으로 이으면
+   * 세로선과 가로선이 교차점에서 겹쳐, 위에 깔린 쪽이 다른 쪽을 가로막는다(3×2 격자에서는
+   * 세로선 한가운데가 정확히 그 자리라 아예 잡히지 않았다). 구간을 나누면 겹칠 일이
+   * 없고, 어느 구간을 잡든 같은 경계를 움직이므로 쓰는 느낌은 같다.
+   */
+  private syncGutters(cols: number, rows: number): void {
+    const shape = cols > 0 ? `${cols}x${rows}` : "";
+    // 배치는 크기가 바뀔 때마다 다시 돈다. 그때마다 경계선을 새로 만들면 잡고 있던 것이
+    // 손에서 사라지고(끌기가 끊긴다), 두 번 누르기도 두 번째 누름 전에 없어져 먹지 않는다.
+    if (shape === this.gutterShape) return;
+    for (const g of this.gutters) g.remove();
+    this.gutters = [];
+    this.gutterShape = shape;
+    if (cols > 0) this.buildGutters(cols, rows);
+  }
+
+  private buildGutters(cols: number, rows: number): void {
+    const make = (vertical: boolean, i: number, col: number, row: number): void => {
+      const g = el("div", vertical ? "pane-gutter col" : "pane-gutter row");
+      g.style.gridColumn = String(col);
+      g.style.gridRow = String(row);
+      g.title = "끌어서 크기 조절 · 두 번 누르면 균등";
+      // 같은 경계에 속한 구간은 함께 밝힌다. 구간마다 따로 만들어 두었지만 실제로 움직이는
+      // 것은 **그 경계 전체**라, 짚은 자리만 켜지면 한 칸만 움직일 것처럼 보인다.
+      const kin = () => this.gutters.filter((x) => x.dataset.edge === g.dataset.edge);
+      g.dataset.edge = `${vertical ? "c" : "r"}${i}`;
+      g.addEventListener("pointerenter", () => kin().forEach((x) => x.classList.add("hot")));
+      g.addEventListener("pointerleave", () => {
+        if (document.body.classList.contains("split-resizing")) return; // 끄는 중엔 켜 둔다
+        kin().forEach((x) => x.classList.remove("hot"));
+      });
+      g.addEventListener("pointerdown", (e) => this.startGutterDrag(e, vertical, i));
+      // 두 번 누르면 균등으로 되돌린다 — 끌다 흐트러졌을 때 되돌릴 길을 둔다.
+      g.addEventListener("dblclick", () => this.resetSplitSizes(vertical));
+      this.panes.appendChild(g);
+      this.gutters.push(g);
+    };
+    for (let i = 0; i < cols - 1; i++)
+      for (let r = 0; r < rows; r++) make(true, i, (i << 1) + 2, (r << 1) + 1);
+    for (let j = 0; j < rows - 1; j++)
+      for (let c = 0; c < cols; c++) make(false, j, (c << 1) + 1, (j << 1) + 2);
+  }
+
+  /** 경계선 끌기 — 놓을 때 한 번만 저장한다(끄는 동안 매번 파일을 건드리지 않는다). */
+  private startGutterDrag(e: PointerEvent, vertical: boolean, i: number): void {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    // 끄는 동안 칸의 실제 픽셀 크기는 고정으로 본다 — 매 이동마다 다시 재면 반올림이
+    // 쌓여 경계선이 손을 따라오지 못하고 미끄러진다.
+    const px = this.paneTrackSizes(vertical);
+    const base = vertical ? this.splitSizes.cols : this.splitSizes.rows;
+    const start = vertical ? e.clientX : e.clientY;
+    document.body.classList.add("split-resizing");
+    // 경계선이 아니라 **창**에 붙인다. 경계선에 붙이면, 크기가 바뀔 때마다 도는 배치가
+    // 그것을 새로 만들면서 끌기가 중간에 끊겼다(실측: 160px 끌었는데 21px 만 반영).
+    const move = (ev: PointerEvent) => {
+      const delta = (vertical ? ev.clientX : ev.clientY) - start;
+      const next = dragWeights(base, i, px, delta, MIN_PANE_PX);
+      this.splitSizes = vertical
+        ? { ...this.splitSizes, cols: next }
+        : { ...this.splitSizes, rows: next };
+      this.panes.style.gridTemplateColumns = template(this.splitSizes.cols);
+      this.panes.style.gridTemplateRows = template(this.splitSizes.rows);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.body.classList.remove("split-resizing");
+      for (const x of this.gutters) x.classList.remove("hot");
+      this.rememberSizes();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  }
+
+  /** 지금 각 줄/칸이 차지한 실제 픽셀 크기 — 경계선 track 은 빼고 잰다. */
+  private paneTrackSizes(vertical: boolean): number[] {
+    const cs = getComputedStyle(this.panes);
+    const tracks = (vertical ? cs.gridTemplateColumns : cs.gridTemplateRows).split(" ");
+    // track 은 [칸, 경계선, 칸, 경계선, …] 순서라 짝수 자리만 칸이다.
+    return tracks.filter((_, i) => i % 2 === 0).map((v) => parseFloat(v) || 0);
+  }
+
+  /** 두 번 누르기 — 끈 방향만 균등으로 되돌린다. */
+  private resetSplitSizes(vertical: boolean): void {
+    const n = (vertical ? this.splitSizes.cols : this.splitSizes.rows).length;
+    const even = Array<number>(n).fill(1);
+    this.splitSizes = vertical
+      ? { ...this.splitSizes, cols: even }
+      : { ...this.splitSizes, rows: even };
+    this.panes.style.gridTemplateColumns = template(this.splitSizes.cols);
+    this.panes.style.gridTemplateRows = template(this.splitSizes.rows);
+    this.rememberSizes();
+  }
+
+  /** 지금 비중을 격자 모양에 매어 기억하고 설정에도 넘긴다. */
+  private rememberSizes(): void {
+    if (!this.shape) return;
+    this.sizesByShape.set(this.shape, {
+      cols: [...this.splitSizes.cols],
+      rows: [...this.splitSizes.rows],
+    });
+    this.onSplitSizes(this.shape, this.splitSizes);
   }
 
   /** 설정 변경 → 모든 터미널 + 상태바에 즉시 반영. */

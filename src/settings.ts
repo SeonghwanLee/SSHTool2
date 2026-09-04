@@ -68,6 +68,8 @@ export interface Settings {
    * 그때 연다. 방향(세로/가로)도 묶음마다 따로 기억한다.
    */
   splitGroups?: SplitGroup[];
+  /** 분할 칸 비중 — 격자 모양("vertical-2x3")별로 줄·칸 비중을 담는다(0.92.0). */
+  splitSizes?: Record<string, { cols: number[]; rows: number[] }>;
   /** 시작 시 업데이트 확인. 내부망 전용 PC 에서는 꺼두면 외부 통신을 시도하지 않는다. */
   checkUpdateOnStartup: boolean;
   /** 세션 목록을 최근 접속순으로 정렬(끄면 수동 순서 + 이름순). */
@@ -142,6 +144,7 @@ export const DEFAULT_SETTINGS: Settings = {
   screensaverMinutes: 10,
   viewMode: "tabs",
   splitGroups: [],
+  splitSizes: {},
   checkUpdateOnStartup: true,
   sortByRecent: false,
   showSessionDetail: true,
